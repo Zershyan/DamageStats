@@ -53,7 +53,4 @@ public final class DamageCollectHandler {
     private static void cacheIfPresent(DamageTracker tracker, @Nullable Entity entity) {
         if(entity != null) tracker.cacheName(entity);
     }
-
-    private DamageCollectHandler() {
-    }
 }

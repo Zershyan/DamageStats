@@ -13,7 +13,4 @@ public final class DataGeneratorHandler {
         event.createProvider(DSLangProvider::runEnUs);
         event.createProvider(DSLangProvider::runZhCn);
     }
-
-    private DataGeneratorHandler() {
-    }
 }

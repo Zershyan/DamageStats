@@ -65,7 +65,4 @@ public final class StatsStorage {
             LOGGER.error("写出伤害统计存档失败：{}", file, e);
         }
     }
-
-    private StatsStorage() {
-    }
 }

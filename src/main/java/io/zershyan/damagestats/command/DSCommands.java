@@ -97,7 +97,7 @@ public final class DSCommands {
         boolean enabled = !DSConfig.TrackingEnabled.get();
         DSConfig.TrackingEnabled.set(enabled);
         DSConfig.TrackingEnabled.save();
-        context.getSource().sendSuccess(() -> (enabled ? DSKeyLang.TrackingOn : DSKeyLang.TrackingOff).copy(), true);
+        context.getSource().sendSuccess((enabled ? DSKeyLang.TrackingOn : DSKeyLang.TrackingOff)::copy, true);
         return 1;
     }
 
@@ -257,8 +257,5 @@ public final class DSCommands {
     private static void line(CommandSourceStack source, MutableComponent text, ChatFormatting color) {
         MutableComponent styled = text.withStyle(color);
         source.sendSuccess(() -> styled, false);
-    }
-
-    private DSCommands() {
     }
 }

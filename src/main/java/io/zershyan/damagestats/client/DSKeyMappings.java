@@ -28,7 +28,4 @@ public final class DSKeyMappings {
         event.register(ToggleOverlay);
         event.register(LockTarget);
     }
-
-    private DSKeyMappings() {
-    }
 }

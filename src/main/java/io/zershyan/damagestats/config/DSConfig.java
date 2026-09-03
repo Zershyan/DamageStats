@@ -42,7 +42,4 @@ public final class DSConfig {
 
     /** 只在注册配置时用一次，不属于「会被反复阅读的配置项」，因此保持全大写 */
     public static final ModConfigSpec SPEC = BUILDER.build();
-
-    private DSConfig() {
-    }
 }

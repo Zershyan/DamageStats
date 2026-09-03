@@ -103,7 +103,4 @@ public final class DamageTypeCategories {
                 "minecraft:freeze"));
         return defaults;
     }
-
-    private DamageTypeCategories() {
-    }
 }

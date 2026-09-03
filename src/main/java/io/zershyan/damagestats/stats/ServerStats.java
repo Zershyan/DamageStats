@@ -21,7 +21,4 @@ public final class ServerStats {
     public static void stop() {
         tracker = null;
     }
-
-    private ServerStats() {
-    }
 }

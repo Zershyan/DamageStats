@@ -51,7 +51,4 @@ public final class DamageResolver {
         }
         return current;
     }
-
-    private DamageResolver() {
-    }
 }

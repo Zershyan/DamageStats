@@ -199,6 +199,8 @@ runs {
 | 事件加了字段，但 Mixin / 镜像事件里忘记写回 | 改事件字段时同步检查所有 post 点的写回列表 |
 | 业务代码里写 `ModList.get().isLoaded("othermod")` | 判断只属于 compat 层 |
 | 定义了没人调用的方法留着「以后可能用」 | 直接删。不留兼容壳、不留 `_unused` 重命名 |
+| 给纯静态的工具类 / Handler 补一个空的 private 构造器「防止实例化」 | `final class` 就够了，空构造器是纯噪音 |
+| 为实现函数式接口专门造一个 `INSTANCE` 单例 | 直接传静态方法引用（`XxxOverlay::render`），不需要实例就不要造 |
 | tab 缩进 / 行尾空格 | 4 空格 |
 
 ## 开发期数据导出

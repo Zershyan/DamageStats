@@ -46,7 +46,4 @@ public final class StatsSyncHandler {
         return StatsViewBuilder.overlayForOpponent(
                 StatsNames.opponent(tracker, target), entry, target, gameTime, window);
     }
-
-    private StatsSyncHandler() {
-    }
 }

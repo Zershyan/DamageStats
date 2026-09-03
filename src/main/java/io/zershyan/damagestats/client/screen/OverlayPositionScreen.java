@@ -7,6 +7,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.util.Mth;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * 浮层位置编辑。拖拽时坐标一律换算成屏幕比例存回配置，
@@ -52,7 +53,7 @@ public class OverlayPositionScreen extends Screen {
     }
 
     @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+    public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         super.render(graphics, mouseX, mouseY, partialTick);
         graphics.drawCenteredString(font, title, width / 2, TITLE_Y, 0xFFFFFFFF);
         int x = originX();

@@ -30,7 +30,4 @@ public final class DSClientConfig {
             .defineInRange(DSConfigLang.OverlayY.name(), DefaultOverlayY, 0.0, 1.0);
 
     public static final ModConfigSpec SPEC = BUILDER.build();
-
-    private DSClientConfig() {
-    }
 }

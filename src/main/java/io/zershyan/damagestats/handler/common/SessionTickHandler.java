@@ -22,7 +22,4 @@ public final class SessionTickHandler {
         if(gameTime % CHECK_INTERVAL_TICKS != 0) return;
         tracker.tick(gameTime);
     }
-
-    private SessionTickHandler() {
-    }
 }

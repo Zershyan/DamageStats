@@ -156,7 +156,4 @@ public final class StatsExporter {
     private static String number(float value) {
         return String.format(Locale.US, "%.2f", value);
     }
-
-    private StatsExporter() {
-    }
 }

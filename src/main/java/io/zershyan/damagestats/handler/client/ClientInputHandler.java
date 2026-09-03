@@ -53,7 +53,4 @@ public final class ClientInputHandler {
         PacketDistributor.sendToServer(new LockTargetPacket(target.getId()));
         player.displayClientMessage(DSKeyLang.TargetLocked.get(target.getDisplayName()), true);
     }
-
-    private ClientInputHandler() {
-    }
 }

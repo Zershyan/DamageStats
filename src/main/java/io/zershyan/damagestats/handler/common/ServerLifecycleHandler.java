@@ -35,7 +35,4 @@ public final class ServerLifecycleHandler {
     public static void onServerStopped(ServerStoppedEvent event) {
         ServerStats.stop();
     }
-
-    private ServerLifecycleHandler() {
-    }
 }

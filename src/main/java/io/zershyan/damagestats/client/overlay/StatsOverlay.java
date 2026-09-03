@@ -12,6 +12,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.LayeredDraw;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.EntityType;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * 屏幕常显浮层。默认关闭，纯展示不吃任何输入。
@@ -34,7 +35,7 @@ public final class StatsOverlay implements LayeredDraw.Layer {
     }
 
     @Override
-    public void render(GuiGraphics graphics, DeltaTracker deltaTracker) {
+    public void render(@NotNull GuiGraphics graphics, @NotNull DeltaTracker deltaTracker) {
         if(!DSClientConfig.OverlayVisible.get()) return;
         Minecraft minecraft = Minecraft.getInstance();
         if(minecraft.options.hideGui) return;
@@ -75,8 +76,5 @@ public final class StatsOverlay implements LayeredDraw.Layer {
         if(current.hitCount() > 0) return current;
         Component sampleTarget = EntityType.ZOMBIE.getDescription();
         return new OverlaySummary(sampleTarget, 1234.5f, 85.6f, 92.1f, 42, true);
-    }
-
-    private StatsOverlay() {
     }
 }

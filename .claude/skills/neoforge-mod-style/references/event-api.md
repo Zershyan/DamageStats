@@ -172,7 +172,7 @@ public class AttachDamageHandler {
 ```
 
 - 类放 `handler/common/` 或 `handler/client/`，命名 `<功能>Handler`。
-- 全部 `public static void` + `@SubscribeEvent`，类本身不需要实例（可以写 `final class` + `private` 构造器）。
+- 全部 `public static void` + `@SubscribeEvent`，类本身不需要实例，写成 `final class` 就够了。**不要为了「防止实例化」补一个空的 private 构造器**，那是纯噪音。
 - 一个 Handler 只管一件事。最小的 Handler 可以只有三行：
 
   ```java

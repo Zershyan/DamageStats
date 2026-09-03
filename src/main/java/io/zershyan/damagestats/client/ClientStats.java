@@ -33,7 +33,4 @@ public final class ClientStats {
         summary = OverlaySummary.empty();
         snapshot = null;
     }
-
-    private ClientStats() {
-    }
 }

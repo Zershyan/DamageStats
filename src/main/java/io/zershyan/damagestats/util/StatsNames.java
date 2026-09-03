@@ -34,7 +34,4 @@ public final class StatsNames {
                 .map(EntityType::getDescription)
                 .orElse(Component.literal(entityTypeId.toString()));
     }
-
-    private StatsNames() {
-    }
 }

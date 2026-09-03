@@ -98,7 +98,4 @@ public final class StatsViewBuilder {
                         total <= 0 ? 0 : group.getValue().getTotalActual() / total))
                 .toList();
     }
-
-    private StatsViewBuilder() {
-    }
 }
