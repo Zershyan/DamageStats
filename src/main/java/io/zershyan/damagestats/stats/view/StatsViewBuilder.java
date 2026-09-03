@@ -1,8 +1,10 @@
 package io.zershyan.damagestats.stats.view;
 
+import io.zershyan.damagestats.config.DSConfig;
 import io.zershyan.damagestats.stats.*;
 import io.zershyan.damagestats.util.StatsNames;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Comparator;
@@ -12,6 +14,20 @@ import java.util.function.Function;
 
 /** 服务端侧把聚合结果转成可传输的视图。名字在这一步就解析好，客户端不必再查注册表 */
 public final class StatsViewBuilder {
+    /** 网络包和导出指令都要这一份，放在这里免得两处各拼一遍 */
+    public static StatsSnapshot snapshotFor(DamageTracker tracker, ServerPlayer player) {
+        EntityRef self = EntityRef.of(player);
+        long gameTime = player.level().getGameTime();
+        int window = DSConfig.DpsWindowTicks.get();
+        Component ownerName = player.getDisplayName().copy();
+        StatsEntry out = tracker.outgoing(self);
+        StatsEntry in = tracker.incoming(self);
+        return new StatsSnapshot(
+                entry(tracker, ownerName, out, gameTime, window),
+                entry(tracker, ownerName, in, gameTime, window),
+                out == null ? List.of() : history(out));
+    }
+
     public static EntryView entry(DamageTracker tracker, Component ownerName, @Nullable StatsEntry entry,
                                   long gameTime, int windowTicks) {
         if(entry == null) return EntryView.empty(ownerName);
@@ -64,11 +80,10 @@ public final class StatsViewBuilder {
     }
 
     public static List<SessionView> history(StatsEntry entry) {
-        return entry.getFinishedSessions().stream().map(session -> {
-            DamageAccumulator acc = session.getAccumulator();
-            return new SessionView(acc.getTotalActual(), acc.getAverageDps(),
-                    acc.getDurationTicks() / DamageAccumulator.TICKS_PER_SECOND, acc.getHitCount());
-        }).toList();
+        return entry.getFinishedSessions().stream()
+                .map(summary -> new SessionView(summary.totalDamage(), summary.averageDps(),
+                        summary.durationSeconds(), summary.hitCount()))
+                .toList();
     }
 
     private static <K> List<GroupView> groups(Map<K, DamageAccumulator> source,

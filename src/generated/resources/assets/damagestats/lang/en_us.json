@@ -1,4 +1,5 @@
 {
+  "damagestats.configuration.autoSave": "Auto Save Statistics",
   "damagestats.configuration.dpsWindowTicks": "Live DPS Window",
   "damagestats.configuration.instanceEntryLimit": "Instance Entry Limit",
   "damagestats.configuration.keepFinishedSessions": "Kept Finished Sessions",
@@ -12,6 +13,8 @@
   "key.damagestats.open_gui": "Open Damage Stats",
   "key.damagestats.toggle_overlay": "Toggle Overlay",
   "message.damagestats.categories_reloaded": "Damage type categories reloaded",
+  "message.damagestats.export_done": "Exported to %s",
+  "message.damagestats.export_failed": "Export failed, see the log for details",
   "message.damagestats.no_data": "No damage recorded yet",
   "message.damagestats.no_data_for_type": "No data recorded for %s",
   "message.damagestats.overlay_hidden": "Overlay hidden",
@@ -29,6 +32,7 @@
   "screen.damagestats.edit_position.done": "Done",
   "screen.damagestats.edit_position.reset": "Reset Position",
   "screen.damagestats.edit_position.title": "Drag the overlay to reposition it",
+  "screen.damagestats.export": "Export",
   "screen.damagestats.scope.lifetime": "Total",
   "screen.damagestats.scope.session": "This Fight",
   "screen.damagestats.tab.incoming": "Taken",

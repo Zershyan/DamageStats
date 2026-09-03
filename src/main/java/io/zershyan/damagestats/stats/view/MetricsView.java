@@ -65,6 +65,11 @@ public record MetricsView(
         return durationTicks / DamageAccumulator.TICKS_PER_SECOND;
     }
 
+    /** 时长不足一秒时按一秒算，理由同 {@link DamageAccumulator#getAverageDps()} */
+    public float hitsPerSecond() {
+        return hitCount == 0 ? 0 : hitCount / Math.max(1f, durationSeconds());
+    }
+
     private static void encode(RegistryFriendlyByteBuf buf, MetricsView view) {
         buf.writeFloat(view.totalActual);
         buf.writeFloat(view.totalOriginal);

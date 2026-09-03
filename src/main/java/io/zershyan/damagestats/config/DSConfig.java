@@ -35,6 +35,11 @@ public final class DSConfig {
             .translation(DSConfigLang.KeepFinishedSessions.getKey())
             .defineInRange(DSConfigLang.KeepFinishedSessions.name(), 10, 0, 100);
 
+    public static final ModConfigSpec.BooleanValue AutoSave = BUILDER
+            .comment("退出世界时把统计写进存档目录，下次进同一个存档接着往上累计。关掉则每次进游戏都从零开始")
+            .translation(DSConfigLang.AutoSave.getKey())
+            .define(DSConfigLang.AutoSave.name(), true);
+
     /** 只在注册配置时用一次，不属于「会被反复阅读的配置项」，因此保持全大写 */
     public static final ModConfigSpec SPEC = BUILDER.build();
 

@@ -7,6 +7,9 @@ import io.zershyan.damagestats.config.DSConfig;
 import io.zershyan.damagestats.config.DamageTypeCategories;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
 import io.zershyan.damagestats.stats.*;
+import io.zershyan.damagestats.stats.save.StatsExporter;
+import io.zershyan.damagestats.stats.save.StatsStorage;
+import io.zershyan.damagestats.stats.view.StatsViewBuilder;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -23,6 +26,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import org.jetbrains.annotations.Nullable;
 
+import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -53,6 +57,9 @@ public final class DSCommands {
                 .then(Commands.literal("reload")
                         .requires(source -> source.hasPermission(PERMISSION_GAMEMASTER))
                         .executes(DSCommands::reload))
+                .then(Commands.literal("export")
+                        .requires(source -> source.hasPermission(PERMISSION_GAMEMASTER))
+                        .executes(DSCommands::export))
         );
     }
 
@@ -108,6 +115,26 @@ public final class DSCommands {
         return 1;
     }
 
+    /**
+     * 指令导出写到世界目录，因此要权限——那是服务器的磁盘。
+     * 玩家导出自己的数据用界面上的按钮，写到他自己的游戏目录，不需要权限。
+     */
+    private static int export(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        CommandSourceStack source = context.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        DamageTracker tracker = ServerStats.tracker();
+        if(tracker == null) return 0;
+        Path directory = StatsExporter.export(
+                StatsViewBuilder.snapshotFor(tracker, player),
+                StatsStorage.directory(source.getServer()));
+        if(directory == null) {
+            line(source, DSKeyLang.ExportFailed.copy(), ChatFormatting.RED);
+            return 0;
+        }
+        source.sendSuccess(() -> DSKeyLang.ExportDone.get(directory.toString()), true);
+        return 1;
+    }
+
     private static int history(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         CommandSourceStack source = context.getSource();
         ServerPlayer player = source.getPlayerOrException();
@@ -121,13 +148,12 @@ public final class DSCommands {
         }
         line(source, DSKeyLang.SectionHistory.copy(), ChatFormatting.GOLD);
         int index = 1;
-        for (DamageSession session : entry.getFinishedSessions()) {
-            DamageAccumulator acc = session.getAccumulator();
+        for (SessionSummary summary : entry.getFinishedSessions()) {
             line(source, DSKeyLang.SessionLine.getNumber2f(
                     index++,
-                    acc.getTotalActual(),
-                    acc.getAverageDps(),
-                    acc.getDurationTicks() / DamageAccumulator.TICKS_PER_SECOND
+                    summary.totalDamage(),
+                    summary.averageDps(),
+                    summary.durationSeconds()
             ), ChatFormatting.DARK_GRAY);
         }
         return 1;

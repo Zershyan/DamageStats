@@ -47,6 +47,10 @@ public class DSKeyLang extends DSLang {
             "Damage tracking disabled", "已关闭伤害采集");
     public static final LazyComponent NoDataForType = entryLazy(MessagePrefix + "no_data_for_type",
             "No data recorded for %s", "%s 还没有统计数据");
+    public static final LazyComponent ExportDone = entryLazy(MessagePrefix + "export_done",
+            "Exported to %s", "已导出到 %s");
+    public static final MutableComponent ExportFailed = entry(MessagePrefix + "export_failed",
+            "Export failed, see the log for details", "导出失败，详情见日志");
 
     // 区块标题
     public static final MutableComponent TitleOutgoing = entry(StatsPrefix + "title.outgoing",
@@ -153,6 +157,8 @@ public class DSKeyLang extends DSLang {
             "Opponents", "对手");
     public static final MutableComponent ScreenEditOverlay = entry(ScreenPrefix + "edit_overlay",
             "Overlay Position", "浮层位置");
+    public static final MutableComponent ScreenExport = entry(ScreenPrefix + "export",
+            "Export", "导出");
 
     // 伤害分类。这几个常量只负责登记翻译，取用走 categoryKey 派生的动态键
     public static final MutableComponent CategoryPhysical = entry(categoryKey("Physical"), "Physical", "物理伤害");

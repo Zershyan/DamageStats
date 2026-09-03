@@ -1,12 +1,16 @@
 package io.zershyan.damagestats.stats;
 
+import com.mojang.serialization.Codec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
 import io.zershyan.damagestats.DamageStats;
+import net.minecraft.core.UUIDUtil;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
 import org.jetbrains.annotations.Nullable;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -14,6 +18,11 @@ import java.util.UUID;
  * 否则实体改名会让同一个实体在聚合时被当成两个不同的对象。
  */
 public record EntityRef(UUID id, @Nullable ResourceLocation typeId) {
+    public static final Codec<EntityRef> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+            UUIDUtil.STRING_CODEC.fieldOf("id").forGetter(EntityRef::id),
+            ResourceLocation.CODEC.optionalFieldOf("type").forGetter(ref -> Optional.ofNullable(ref.typeId()))
+    ).apply(instance, (id, type) -> new EntityRef(id, type.orElse(null))));
+
     /** 固定 UUID 而不是随机值，保证持久化后仍然指向同一个环境来源 */
     public static final UUID ENVIRONMENT_ID =
             UUID.nameUUIDFromBytes("damagestats:environment".getBytes(StandardCharsets.UTF_8));

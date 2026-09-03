@@ -1,4 +1,5 @@
 {
+  "damagestats.configuration.autoSave": "自动保存统计数据",
   "damagestats.configuration.dpsWindowTicks": "实时 DPS 滑动窗口",
   "damagestats.configuration.instanceEntryLimit": "实例条目上限",
   "damagestats.configuration.keepFinishedSessions": "保留的已结束会话数",
@@ -12,6 +13,8 @@
   "key.damagestats.open_gui": "打开伤害统计",
   "key.damagestats.toggle_overlay": "开关常显浮层",
   "message.damagestats.categories_reloaded": "伤害类型分类配置已重载",
+  "message.damagestats.export_done": "已导出到 %s",
+  "message.damagestats.export_failed": "导出失败，详情见日志",
   "message.damagestats.no_data": "还没有记录到伤害数据",
   "message.damagestats.no_data_for_type": "%s 还没有统计数据",
   "message.damagestats.overlay_hidden": "已隐藏常显浮层",
@@ -29,6 +32,7 @@
   "screen.damagestats.edit_position.done": "完成",
   "screen.damagestats.edit_position.reset": "重置位置",
   "screen.damagestats.edit_position.title": "把浮层拖到想要的位置",
+  "screen.damagestats.export": "导出",
   "screen.damagestats.scope.lifetime": "累计",
   "screen.damagestats.scope.session": "本场",
   "screen.damagestats.tab.incoming": "承受",

@@ -1,14 +1,18 @@
 package io.zershyan.damagestats.client.screen;
 
+import io.zershyan.damagestats.DamageStats;
 import io.zershyan.damagestats.client.ClientStats;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
+import io.zershyan.damagestats.stats.save.StatsExporter;
 import io.zershyan.damagestats.stats.view.*;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.util.Mth;
+import net.neoforged.fml.loading.FMLPaths;
 import org.jetbrains.annotations.Nullable;
 
+import java.nio.file.Path;
 import java.util.List;
 
 /**
@@ -76,15 +80,29 @@ public class StatsScreen extends Screen {
                 .bounds(left + MARGIN + (DIMENSION_WIDTH + 2) * 2, dimensionY, DIMENSION_WIDTH, SMALL_BUTTON_HEIGHT).build());
 
         int bottomY = top + HEIGHT - 26;
+        int rightEdge = left + WIDTH - MARGIN;
+        addRenderableWidget(Button.builder(DSKeyLang.ScreenExport.copy(), button -> exportSnapshot())
+                .bounds(rightEdge - BOTTOM_BUTTON_WIDTH * 3 - 8, bottomY,
+                        BOTTOM_BUTTON_WIDTH, BOTTOM_BUTTON_HEIGHT).build());
         addRenderableWidget(Button.builder(DSKeyLang.ScreenEditOverlay.copy(),
                         button -> minecraft.setScreen(new OverlayPositionScreen()))
-                .bounds(left + WIDTH - MARGIN - BOTTOM_BUTTON_WIDTH * 2 - 4, bottomY,
+                .bounds(rightEdge - BOTTOM_BUTTON_WIDTH * 2 - 4, bottomY,
                         BOTTOM_BUTTON_WIDTH, BOTTOM_BUTTON_HEIGHT).build());
         addRenderableWidget(Button.builder(net.minecraft.network.chat.CommonComponents.GUI_DONE, button -> onClose())
-                .bounds(left + WIDTH - MARGIN - BOTTOM_BUTTON_WIDTH, bottomY,
+                .bounds(rightEdge - BOTTOM_BUTTON_WIDTH, bottomY,
                         BOTTOM_BUTTON_WIDTH, BOTTOM_BUTTON_HEIGHT).build());
 
         refreshButtonStates();
+    }
+
+    /** 客户端导出写到自己的游戏目录，不碰服务器的磁盘 */
+    private void exportSnapshot() {
+        StatsSnapshot snapshot = ClientStats.snapshot();
+        if(snapshot == null || minecraft == null || minecraft.player == null) return;
+        Path directory = StatsExporter.export(snapshot, FMLPaths.GAMEDIR.get().resolve(DamageStats.MODID));
+        minecraft.player.displayClientMessage(directory == null
+                ? DSKeyLang.ExportFailed.copy()
+                : DSKeyLang.ExportDone.get(directory.toString()), false);
     }
 
     @Override

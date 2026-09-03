@@ -1,6 +1,9 @@
 package io.zershyan.damagestats.stats;
 
+import com.mojang.serialization.Codec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
 import io.zershyan.damagestats.config.DSConfig;
+import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
@@ -16,6 +19,28 @@ import java.util.*;
 public class DamageTracker {
     /** 玩家条目永不淘汰：玩家是最主要的统计对象，被一群小怪挤掉会让数据莫名消失 */
     private static final ResourceLocation PLAYER_TYPE = ResourceLocation.withDefaultNamespace("player");
+
+    /** 实例条目的 key 是个对象，当不了 JSON 的键，只能存成列表 */
+    private record InstanceEntry(EntityRef owner, StatsEntry stats) {
+        static final Codec<InstanceEntry> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+                EntityRef.CODEC.fieldOf("owner").forGetter(InstanceEntry::owner),
+                StatsEntry.CODEC.fieldOf("stats").forGetter(InstanceEntry::stats)
+        ).apply(instance, InstanceEntry::new));
+    }
+
+    /** 锁定目标和最近目标是玩家的临时状态，不进存档 */
+    public static final Codec<DamageTracker> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+            InstanceEntry.CODEC.listOf().optionalFieldOf("outgoing", List.of())
+                    .forGetter(tracker -> toEntryList(tracker.outgoing)),
+            InstanceEntry.CODEC.listOf().optionalFieldOf("incoming", List.of())
+                    .forGetter(tracker -> toEntryList(tracker.incoming)),
+            Codec.unboundedMap(ResourceLocation.CODEC, StatsEntry.CODEC)
+                    .optionalFieldOf("outgoingByType", Map.of()).forGetter(tracker -> tracker.outgoingByType),
+            Codec.unboundedMap(ResourceLocation.CODEC, StatsEntry.CODEC)
+                    .optionalFieldOf("incomingByType", Map.of()).forGetter(tracker -> tracker.incomingByType),
+            Codec.unboundedMap(UUIDUtil.STRING_CODEC, Codec.STRING)
+                    .optionalFieldOf("names", Map.of()).forGetter(tracker -> tracker.nameCache)
+    ).apply(instance, DamageTracker::restore));
 
     private final Map<EntityRef, StatsEntry> outgoing = new HashMap<>();
     private final Map<EntityRef, StatsEntry> incoming = new HashMap<>();
@@ -116,6 +141,25 @@ public class DamageTracker {
 
     private static <K> StatsEntry entry(Map<K, StatsEntry> map, K key) {
         return map.computeIfAbsent(key, k -> new StatsEntry());
+    }
+
+    private static List<InstanceEntry> toEntryList(Map<EntityRef, StatsEntry> map) {
+        return map.entrySet().stream()
+                .map(entry -> new InstanceEntry(entry.getKey(), entry.getValue()))
+                .toList();
+    }
+
+    private static DamageTracker restore(List<InstanceEntry> outgoing, List<InstanceEntry> incoming,
+                                         Map<ResourceLocation, StatsEntry> outgoingByType,
+                                         Map<ResourceLocation, StatsEntry> incomingByType,
+                                         Map<UUID, String> names) {
+        DamageTracker tracker = new DamageTracker();
+        outgoing.forEach(entry -> tracker.outgoing.put(entry.owner(), entry.stats()));
+        incoming.forEach(entry -> tracker.incoming.put(entry.owner(), entry.stats()));
+        tracker.outgoingByType.putAll(outgoingByType);
+        tracker.incomingByType.putAll(incomingByType);
+        tracker.nameCache.putAll(names);
+        return tracker;
     }
 
     private static void tickAll(Collection<StatsEntry> entries, long gameTime, int timeout, int keep) {

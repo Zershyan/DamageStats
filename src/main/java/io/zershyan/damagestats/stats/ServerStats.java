@@ -13,8 +13,9 @@ public final class ServerStats {
         return tracker;
     }
 
-    public static void start() {
-        tracker = new DamageTracker();
+    /** 传入从存档读回的数据；传 null 表示这个存档还没有统计，从空的开始 */
+    public static void start(@Nullable DamageTracker restored) {
+        tracker = restored != null ? restored : new DamageTracker();
     }
 
     public static void stop() {

@@ -1,5 +1,7 @@
 package io.zershyan.damagestats.stats;
 
+import com.mojang.serialization.Codec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.neoforged.neoforge.common.damagesource.DamageContainer.Reduction;
 import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
 
@@ -13,6 +15,15 @@ public record DamageReduction(
         float invulnerability
 ) {
     public static final DamageReduction NONE = new DamageReduction(0, 0, 0, 0, 0, 0);
+
+    public static final Codec<DamageReduction> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+            Codec.FLOAT.optionalFieldOf("armor", 0f).forGetter(DamageReduction::armor),
+            Codec.FLOAT.optionalFieldOf("enchantments", 0f).forGetter(DamageReduction::enchantments),
+            Codec.FLOAT.optionalFieldOf("mobEffects", 0f).forGetter(DamageReduction::mobEffects),
+            Codec.FLOAT.optionalFieldOf("absorption", 0f).forGetter(DamageReduction::absorption),
+            Codec.FLOAT.optionalFieldOf("innateResistance", 0f).forGetter(DamageReduction::innateResistance),
+            Codec.FLOAT.optionalFieldOf("invulnerability", 0f).forGetter(DamageReduction::invulnerability)
+    ).apply(instance, DamageReduction::new));
 
     public static DamageReduction from(LivingDamageEvent.Post event) {
         return new DamageReduction(

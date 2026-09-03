@@ -29,6 +29,8 @@ public class DSConfigLang extends DSLang {
             "Instance Entry Limit", "实例条目上限");
     public static final ConfigEntry KeepFinishedSessions = entry("keepFinishedSessions",
             "Kept Finished Sessions", "保留的已结束会话数");
+    public static final ConfigEntry AutoSave = entry("autoSave",
+            "Auto Save Statistics", "自动保存统计数据");
 
     // client
     public static final ConfigEntry OverlayVisible = entry("overlayVisible",
