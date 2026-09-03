@@ -12,9 +12,16 @@ import java.util.*;
  * 分组出来的子累加器不再往下分组，否则维度会指数展开。
  */
 public class DamageAccumulator {
+    /**
+     * 对手分组的粒度。战斗会话用 {@code INSTANCE}——一场战斗对手数量有限，能精确到「那只 Boss」；
+     * 永久累计用 {@code TYPE}——「这个存档对那只早就死了的僵尸打了多少」本来没意义，
+     * 按实例存的话刷怪场几小时就能堆出上万个条目。{@code NONE} 是分组出来的子累加器。
+     */
+    public enum OpponentGrouping { INSTANCE, TYPE, NONE }
+
     public static final float TICKS_PER_SECOND = 20f;
 
-    private final boolean grouped;
+    private final OpponentGrouping opponentGrouping;
 
     private float totalOriginal;
     private float totalActual;
@@ -24,6 +31,7 @@ public class DamageAccumulator {
     private int killCount;
     private float maxSingle;
     private @Nullable ResourceLocation maxSingleDamageType;
+    private @Nullable EntityRef maxSingleDirectSource;
     private long maxSingleTime;
     private float minSingle;
     private long firstHitTime = -1;
@@ -33,13 +41,10 @@ public class DamageAccumulator {
     private final Map<ResourceLocation, DamageAccumulator> byDirectSourceType;
     private final Map<EntityRef, DamageAccumulator> byOpponent;
 
-    public DamageAccumulator() {
-        this(true);
-    }
-
-    private DamageAccumulator(boolean grouped) {
-        this.grouped = grouped;
+    public DamageAccumulator(OpponentGrouping opponentGrouping) {
+        this.opponentGrouping = opponentGrouping;
         // 子累加器不再往下分组，给它建三个空 HashMap 纯属浪费——条目数量级上去之后这笔开销很可观
+        boolean grouped = opponentGrouping != OpponentGrouping.NONE;
         this.byDamageType = grouped ? new HashMap<>() : Map.of();
         this.byDirectSourceType = grouped ? new HashMap<>() : Map.of();
         this.byOpponent = grouped ? new HashMap<>() : Map.of();
@@ -50,7 +55,8 @@ public class DamageAccumulator {
             float totalOriginal, float totalActual, float totalBlocked,
             DamageReduction reduction,
             int hitCount, int killCount,
-            float maxSingle, Optional<ResourceLocation> maxSingleDamageType, long maxSingleTime,
+            float maxSingle, Optional<ResourceLocation> maxSingleDamageType,
+            Optional<EntityRef> maxSingleDirectSource, long maxSingleTime,
             float minSingle, long firstHitTime, long lastHitTime
     ) {
         static final Codec<Totals> CODEC = RecordCodecBuilder.create(instance -> instance.group(
@@ -62,6 +68,7 @@ public class DamageAccumulator {
                 Codec.INT.optionalFieldOf("kills", 0).forGetter(Totals::killCount),
                 Codec.FLOAT.fieldOf("maxHit").forGetter(Totals::maxSingle),
                 ResourceLocation.CODEC.optionalFieldOf("maxHitType").forGetter(Totals::maxSingleDamageType),
+                EntityRef.CODEC.optionalFieldOf("maxHitDirectSource").forGetter(Totals::maxSingleDirectSource),
                 Codec.LONG.optionalFieldOf("maxHitAt", 0L).forGetter(Totals::maxSingleTime),
                 Codec.FLOAT.optionalFieldOf("minHit", 0f).forGetter(Totals::minSingle),
                 Codec.LONG.fieldOf("firstHitAt").forGetter(Totals::firstHitTime),
@@ -71,7 +78,7 @@ public class DamageAccumulator {
 
     /** 分组子累加器：字段和顶层一样，只是没有再往下的分组 */
     public static final Codec<DamageAccumulator> LEAF_CODEC = Totals.CODEC.xmap(
-            totals -> restore(new DamageAccumulator(false), totals), DamageAccumulator::totals);
+            totals -> restore(new DamageAccumulator(OpponentGrouping.NONE), totals), DamageAccumulator::totals);
 
     /** 对手分组的 key 是个对象，当不了 JSON 的键，只能存成列表 */
     private record OpponentGroup(EntityRef opponent, DamageAccumulator stats) {
@@ -101,20 +108,34 @@ public class DamageAccumulator {
         if(record.actualDamage() > maxSingle) {
             maxSingle = record.actualDamage();
             maxSingleDamageType = record.damageTypeId();
+            maxSingleDirectSource = record.directSource();
             maxSingleTime = record.gameTime();
         }
-        if(hitCount == 1 || record.actualDamage() < minSingle) minSingle = record.actualDamage();
+        if(record.actualDamage() > 0 && (minSingle == 0 || record.actualDamage() < minSingle)) {
+            minSingle = record.actualDamage();
+        }
         if(firstHitTime < 0) firstHitTime = record.gameTime();
         lastHitTime = record.gameTime();
 
-        if(!grouped) return;
+        if(opponentGrouping == OpponentGrouping.NONE) return;
         group(byDamageType, record.damageTypeId()).accept(record, opponent);
         group(byDirectSourceType, record.directSource().typeIdOrEnvironment()).accept(record, opponent);
-        group(byOpponent, opponent).accept(record, opponent);
+        group(byOpponent, opponentKey(opponent)).accept(record, opponent);
+    }
+
+    /** 按这个累加器自己的粒度查对手分组，调用方不必关心它是会话级还是累计级 */
+    public @Nullable DamageAccumulator opponentGroup(EntityRef opponent) {
+        return byOpponent.get(opponentKey(opponent));
+    }
+
+    /** 环境来源本来就是个单例，不需要再折叠一次 */
+    private EntityRef opponentKey(EntityRef opponent) {
+        if(opponentGrouping != OpponentGrouping.TYPE || opponent.isEnvironment()) return opponent;
+        return EntityRef.ofType(opponent.typeIdOrEnvironment());
     }
 
     private static <K> DamageAccumulator group(Map<K, DamageAccumulator> map, K key) {
-        return map.computeIfAbsent(key, k -> new DamageAccumulator(false));
+        return map.computeIfAbsent(key, k -> new DamageAccumulator(OpponentGrouping.NONE));
     }
 
     public float getTotalActual() { return totalActual; }
@@ -122,10 +143,47 @@ public class DamageAccumulator {
     public int getHitCount() { return hitCount; }
     public int getKillCount() { return killCount; }
     public float getMaxSingle() { return maxSingle; }
+    public DamageReduction getTotalReduction() { return totalReduction; }
     public @Nullable ResourceLocation getMaxSingleDamageType() { return maxSingleDamageType; }
+    public @Nullable EntityRef getMaxSingleDirectSource() { return maxSingleDirectSource; }
+    public long getMaxSingleTime() { return maxSingleTime; }
+    public float getTotalBlocked() { return totalBlocked; }
+    public OpponentGrouping getOpponentGrouping() { return opponentGrouping; }
+
+    /** 合并同一统计粒度的数据，供旧版存档升级和全局汇总恢复使用 */
+    void absorb(DamageAccumulator other) {
+        totalOriginal += other.totalOriginal;
+        totalActual += other.totalActual;
+        totalBlocked += other.totalBlocked;
+        totalReduction = totalReduction.plus(other.totalReduction);
+        hitCount += other.hitCount;
+        killCount += other.killCount;
+        if(other.maxSingle > maxSingle) {
+            maxSingle = other.maxSingle;
+            maxSingleDamageType = other.maxSingleDamageType;
+            maxSingleDirectSource = other.maxSingleDirectSource;
+            maxSingleTime = other.maxSingleTime;
+        }
+        if(other.minSingle > 0 && (minSingle == 0 || other.minSingle < minSingle)) {
+            minSingle = other.minSingle;
+        }
+        if(other.firstHitTime >= 0 && (firstHitTime < 0 || other.firstHitTime < firstHitTime)) {
+            firstHitTime = other.firstHitTime;
+        }
+        if(other.lastHitTime > lastHitTime) lastHitTime = other.lastHitTime;
+
+        if(opponentGrouping == OpponentGrouping.NONE) return;
+        other.byDamageType.forEach((key, value) ->
+                byDamageType.computeIfAbsent(key, ignored -> new DamageAccumulator(OpponentGrouping.NONE)).absorb(value));
+        other.byDirectSourceType.forEach((key, value) ->
+                byDirectSourceType.computeIfAbsent(key, ignored -> new DamageAccumulator(OpponentGrouping.NONE)).absorb(value));
+        other.byOpponent.forEach((key, value) ->
+                byOpponent.computeIfAbsent(opponentKey(key), ignored -> new DamageAccumulator(OpponentGrouping.NONE))
+                        .absorb(value));
+    }
 
     public float getMinSingle() {
-        return hitCount == 0 ? 0 : minSingle;
+        return minSingle;
     }
 
     public float getAverageDamage() {
@@ -145,16 +203,13 @@ public class DamageAccumulator {
         return firstHitTime < 0 ? 0 : lastHitTime - firstHitTime;
     }
 
-    /**
-     * 本场平均 DPS。时长不足一秒时按一秒算：单次命中的真实时长是 0，
-     * 直接相除会得到无穷大，按一秒算出来的数字更接近玩家的直觉。
-     */
+    /** 本场平均 DPS 按真实时长计算；同一游戏刻内没有正时长时，最小分母为一游戏刻 */
     public float getAverageDps() {
         return hitCount == 0 ? 0 : totalActual / effectiveSeconds();
     }
 
     private float effectiveSeconds() {
-        return Math.max(TICKS_PER_SECOND, getDurationTicks()) / TICKS_PER_SECOND;
+        return Math.max(1, getDurationTicks()) / TICKS_PER_SECOND;
     }
 
     public Map<ResourceLocation, DamageAccumulator> getByDamageType() {
@@ -171,7 +226,7 @@ public class DamageAccumulator {
 
     private Totals totals() {
         return new Totals(totalOriginal, totalActual, totalBlocked, totalReduction, hitCount, killCount,
-                maxSingle, Optional.ofNullable(maxSingleDamageType), maxSingleTime,
+                maxSingle, Optional.ofNullable(maxSingleDamageType), Optional.ofNullable(maxSingleDirectSource), maxSingleTime,
                 getMinSingle(), firstHitTime, lastHitTime);
     }
 
@@ -190,6 +245,7 @@ public class DamageAccumulator {
         target.killCount = totals.killCount();
         target.maxSingle = totals.maxSingle();
         target.maxSingleDamageType = totals.maxSingleDamageType().orElse(null);
+        target.maxSingleDirectSource = totals.maxSingleDirectSource().orElse(null);
         target.maxSingleTime = totals.maxSingleTime();
         target.minSingle = totals.minSingle();
         target.firstHitTime = totals.firstHitTime();
@@ -197,14 +253,18 @@ public class DamageAccumulator {
         return target;
     }
 
+    /** 只有永久累计会被持久化，所以恢复出来的一律是类型级粒度 */
     private static DamageAccumulator restoreGrouped(Totals totals,
                                                     Map<ResourceLocation, DamageAccumulator> byType,
                                                     Map<ResourceLocation, DamageAccumulator> bySource,
                                                     List<OpponentGroup> byOpponent) {
-        DamageAccumulator accumulator = restore(new DamageAccumulator(), totals);
+        DamageAccumulator accumulator = restore(new DamageAccumulator(OpponentGrouping.TYPE), totals);
         accumulator.byDamageType.putAll(byType);
         accumulator.byDirectSourceType.putAll(bySource);
-        byOpponent.forEach(group -> accumulator.byOpponent.put(group.opponent(), group.stats()));
+        byOpponent.forEach(group -> accumulator.byOpponent
+                .computeIfAbsent(accumulator.opponentKey(group.opponent()), ignored ->
+                        new DamageAccumulator(OpponentGrouping.NONE))
+                .absorb(group.stats()));
         return accumulator;
     }
 }

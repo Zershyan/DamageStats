@@ -14,7 +14,7 @@ import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
 public final class ClientLifecycleHandler {
     @SubscribeEvent
     public static void registerGuiLayers(RegisterGuiLayersEvent event) {
-        event.registerAboveAll(DamageStats.id("stats_overlay"), new StatsOverlay());
+        event.registerAboveAll(DamageStats.id("stats_overlay"), StatsOverlay::render);
     }
 
     @SubscribeEvent

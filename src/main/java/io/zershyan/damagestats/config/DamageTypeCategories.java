@@ -8,6 +8,7 @@ import io.zershyan.damagestats.datagen.init.DSKeyLang;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.neoforged.fml.loading.FMLPaths;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 
 import java.io.IOException;
@@ -39,13 +40,19 @@ public final class DamageTypeCategories {
     public static void load() {
         Path file = FMLPaths.CONFIGDIR.get().resolve(FILE_NAME);
         if(!Files.exists(file)) writeDefaults(file);
-        CATEGORIES.clear();
-        BY_TYPE.clear();
         try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
             Map<String, List<String>> loaded = GSON.fromJson(reader, FILE_TYPE);
-            if(loaded != null) loaded.forEach(DamageTypeCategories::putCategory);
+            Map<String, List<ResourceLocation>> categories = new LinkedHashMap<>();
+            Map<ResourceLocation, String> byType = new HashMap<>();
+            if(loaded != null) {
+                loaded.forEach((category, typeIds) -> putCategory(categories, byType, category, typeIds));
+            }
+            CATEGORIES.clear();
+            BY_TYPE.clear();
+            CATEGORIES.putAll(categories);
+            BY_TYPE.putAll(byType);
         } catch (IOException | RuntimeException e) {
-            LOGGER.error("读取伤害类型分类配置失败，本次全部回落显示原始 ID。删掉 {} 可在下次启动时重新生成默认内容", FILE_NAME, e);
+            LOGGER.error("读取伤害类型分类配置失败，保留上一份有效配置。删掉 {} 可在下次启动时重新生成默认内容", FILE_NAME, e);
         }
     }
 
@@ -53,17 +60,28 @@ public final class DamageTypeCategories {
     public static Component displayName(ResourceLocation damageTypeId) {
         String category = BY_TYPE.get(damageTypeId);
         if(category == null) return Component.literal(damageTypeId.toString());
+        return categoryName(category);
+    }
+
+    public static Component categoryName(String category) {
         return Component.translatableWithFallback(DSKeyLang.categoryKey(category), category);
     }
 
-    private static void putCategory(String category, List<String> typeIds) {
+    /** 没归类的返回 null，筛选时按「不属于任何分类」处理 */
+    public static @Nullable String categoryOf(ResourceLocation damageTypeId) {
+        return BY_TYPE.get(damageTypeId);
+    }
+
+    private static void putCategory(Map<String, List<ResourceLocation>> categories,
+                                    Map<ResourceLocation, String> byType,
+                                    String category, List<String> typeIds) {
         List<ResourceLocation> parsed = typeIds.stream()
                 .map(ResourceLocation::tryParse)
                 .filter(Objects::nonNull)
                 .toList();
-        CATEGORIES.put(category, parsed);
+        categories.put(category, parsed);
         parsed.forEach(typeId -> {
-            String previous = BY_TYPE.put(typeId, category);
+            String previous = byType.put(typeId, category);
             if(previous != null) LOGGER.warn("伤害类型 {} 同时被归入 {} 和 {}，按后者算", typeId, previous, category);
         });
     }

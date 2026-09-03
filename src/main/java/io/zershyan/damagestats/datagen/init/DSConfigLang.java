@@ -31,6 +31,12 @@ public class DSConfigLang extends DSLang {
             "Kept Finished Sessions", "保留的已结束会话数");
     public static final ConfigEntry AutoSave = entry("autoSave",
             "Auto Save Statistics", "自动保存统计数据");
+    public static final ConfigEntry AutoSaveIntervalTicks = entry("autoSaveIntervalTicks",
+            "Auto Save Interval", "自动保存间隔");
+    public static final ConfigEntry PublicStats = entry("publicStats",
+            "Public Statistics", "统计数据对所有人公开");
+    public static final ConfigEntry DamageLogLimit = entry("damageLogLimit",
+            "Damage Log Size", "原始伤害记录条数上限");
 
     // client
     public static final ConfigEntry OverlayVisible = entry("overlayVisible",
@@ -39,6 +45,18 @@ public class DSConfigLang extends DSLang {
             "Overlay X Position", "浮层横向位置");
     public static final ConfigEntry OverlayY = entry("overlayY",
             "Overlay Y Position", "浮层纵向位置");
+    public static final ConfigEntry OverlayScale = entry("overlayScale",
+            "Overlay Scale", "浮层缩放");
+    public static final ConfigEntry OverlayBackgroundOpacity = entry("overlayBackgroundOpacity",
+            "Overlay Background Opacity", "浮层背景透明度");
+    public static final ConfigEntry OverlayShowTarget = entry("overlayShowTarget",
+            "Show Overlay Target", "显示浮层目标");
+    public static final ConfigEntry OverlayShowDamage = entry("overlayShowDamage",
+            "Show Overlay Damage", "显示浮层伤害");
+    public static final ConfigEntry OverlayShowDps = entry("overlayShowDps",
+            "Show Overlay DPS", "显示浮层 DPS");
+    public static final ConfigEntry OverlayShowHits = entry("overlayShowHits",
+            "Show Overlay Hits", "显示浮层命中次数");
 
     private static ConfigEntry entry(String name, String enUs, String zhCn) {
         ConfigEntry configEntry = new ConfigEntry(name, new Lang(enUs, zhCn));

@@ -28,7 +28,7 @@ public class DamageTracker {
         ).apply(instance, InstanceEntry::new));
     }
 
-    /** 锁定目标和最近目标是玩家的临时状态，不进存档 */
+    /** Overlay 的目标类型是玩家的临时选择，不进存档 */
     public static final Codec<DamageTracker> CODEC = RecordCodecBuilder.create(instance -> instance.group(
             InstanceEntry.CODEC.listOf().optionalFieldOf("outgoing", List.of())
                     .forGetter(tracker -> toEntryList(tracker.outgoing)),
@@ -39,7 +39,9 @@ public class DamageTracker {
             Codec.unboundedMap(ResourceLocation.CODEC, StatsEntry.CODEC)
                     .optionalFieldOf("incomingByType", Map.of()).forGetter(tracker -> tracker.incomingByType),
             Codec.unboundedMap(UUIDUtil.STRING_CODEC, Codec.STRING)
-                    .optionalFieldOf("names", Map.of()).forGetter(tracker -> tracker.nameCache)
+                    .optionalFieldOf("names", Map.of()).forGetter(tracker -> tracker.nameCache),
+            StatsEntry.CODEC.optionalFieldOf("global")
+                    .forGetter(tracker -> Optional.of(tracker.global))
     ).apply(instance, DamageTracker::restore));
 
     private final Map<EntityRef, StatsEntry> outgoing = new HashMap<>();
@@ -47,21 +49,27 @@ public class DamageTracker {
     private final Map<ResourceLocation, StatsEntry> outgoingByType = new HashMap<>();
     private final Map<ResourceLocation, StatsEntry> incomingByType = new HashMap<>();
     private final Map<UUID, String> nameCache = new HashMap<>();
+    private StatsEntry global;
 
-    /** 玩家准星锁定的 Overlay 常显目标 */
-    private final Map<UUID, EntityRef> lockedTargets = new HashMap<>();
+    /** Overlay 目标类型为空时表示玩家对任意目标造成的伤害 */
+    private final Map<UUID, ResourceLocation> overlayTargetTypes = new HashMap<>();
 
-    /** 玩家最近打的目标，未锁定时 Overlay 显示它 */
-    private final Map<UUID, EntityRef> recentTargets = new HashMap<>();
+    /** 带筛选条件的查询要翻这份原始记录，预聚合的分组撑不住四个槽位的任意组合 */
+    private final DamageLog log = new DamageLog();
+
+    public DamageTracker() {
+        global = new StatsEntry();
+    }
 
     public void record(DamageRecord record) {
+        // 完全免疫或完全格挡的事件不算命中，也不应进入原始日志
+        if(record.actualDamage() <= 0) return;
+        log.accept(record, DSConfig.DamageLogLimit.get());
         entry(outgoing, record.source()).accept(record, record.target());
         entry(incoming, record.target()).accept(record, record.source());
         entry(outgoingByType, record.source().typeIdOrEnvironment()).accept(record, record.target());
         entry(incomingByType, record.target().typeIdOrEnvironment()).accept(record, record.source());
-        // 只记玩家的最近目标：玩家数量有上界，换成怪物就会跟着刷怪一起堆积
-        if(PLAYER_TYPE.equals(record.source().typeId())) recentTargets.put(record.source().id(), record.target());
-
+        global.accept(record, record.target());
         int limit = DSConfig.InstanceEntryLimit.get();
         evict(outgoing, limit);
         evict(incoming, limit);
@@ -74,6 +82,7 @@ public class DamageTracker {
         tickAll(incoming.values(), currentGameTime, timeout, keep);
         tickAll(outgoingByType.values(), currentGameTime, timeout, keep);
         tickAll(incomingByType.values(), currentGameTime, timeout, keep);
+        global.tick(currentGameTime, timeout, keep);
     }
 
     public void reset() {
@@ -81,8 +90,13 @@ public class DamageTracker {
         incoming.clear();
         outgoingByType.clear();
         incomingByType.clear();
-        recentTargets.clear();
-        // 锁定目标是玩家自己的选择，不跟着统计数据一起清
+        global = new StatsEntry();
+        log.clear();
+        nameCache.clear();
+    }
+
+    public DamageLog log() {
+        return log;
     }
 
     /** 只记玩家名和被命名过的实体：普通怪物用 EntityType 的翻译名就够，不必为每只怪存一份字符串 */
@@ -99,20 +113,18 @@ public class DamageTracker {
         return nameCache.get(id);
     }
 
-    /** 传 null 表示解除锁定 */
-    public void lockTarget(UUID playerId, @Nullable EntityRef target) {
-        if(target == null) lockedTargets.remove(playerId);
-        else lockedTargets.put(playerId, target);
+    /** 传 null 表示 Overlay 不限制目标类型 */
+    public void setOverlayTargetType(UUID playerId, @Nullable ResourceLocation targetType) {
+        if(targetType == null) overlayTargetTypes.remove(playerId);
+        else overlayTargetTypes.put(playerId, targetType);
     }
 
-    public @Nullable EntityRef lockedTarget(UUID playerId) {
-        return lockedTargets.get(playerId);
+    public @Nullable ResourceLocation overlayTargetType(UUID playerId) {
+        return overlayTargetTypes.get(playerId);
     }
 
-    /** 锁定的优先，没锁定就用最近打过的 */
-    public @Nullable EntityRef overlayTarget(UUID playerId) {
-        EntityRef locked = lockedTargets.get(playerId);
-        return locked != null ? locked : recentTargets.get(playerId);
+    public void clearPlayerState(UUID playerId) {
+        overlayTargetTypes.remove(playerId);
     }
 
     public @Nullable StatsEntry outgoing(EntityRef ref) {
@@ -131,12 +143,15 @@ public class DamageTracker {
         return incomingByType.get(typeId);
     }
 
-    public Map<EntityRef, StatsEntry> allOutgoing() {
-        return Collections.unmodifiableMap(outgoing);
+    public StatsEntry global() {
+        return global;
     }
 
-    public Map<EntityRef, StatsEntry> allIncoming() {
-        return Collections.unmodifiableMap(incoming);
+    /** 只清这一个对象的实例条目。按类型的汇总里混着所有实体的数据，没法按单个对象剥离 */
+    public void resetFor(EntityRef owner) {
+        outgoing.remove(owner);
+        incoming.remove(owner);
+        log.markReset(owner);
     }
 
     private static <K> StatsEntry entry(Map<K, StatsEntry> map, K key) {
@@ -150,15 +165,21 @@ public class DamageTracker {
     }
 
     private static DamageTracker restore(List<InstanceEntry> outgoing, List<InstanceEntry> incoming,
-                                         Map<ResourceLocation, StatsEntry> outgoingByType,
-                                         Map<ResourceLocation, StatsEntry> incomingByType,
-                                         Map<UUID, String> names) {
+                                          Map<ResourceLocation, StatsEntry> outgoingByType,
+                                          Map<ResourceLocation, StatsEntry> incomingByType,
+                                          Map<UUID, String> names,
+                                          Optional<StatsEntry> global) {
         DamageTracker tracker = new DamageTracker();
         outgoing.forEach(entry -> tracker.outgoing.put(entry.owner(), entry.stats()));
         incoming.forEach(entry -> tracker.incoming.put(entry.owner(), entry.stats()));
         tracker.outgoingByType.putAll(outgoingByType);
         tracker.incomingByType.putAll(incomingByType);
         tracker.nameCache.putAll(names);
+        if(global.isPresent()) {
+            tracker.global = global.get();
+        } else {
+            outgoingByType.values().forEach(tracker.global::absorbLifetime);
+        }
         return tracker;
     }
 

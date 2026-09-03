@@ -4,6 +4,8 @@ import io.zershyan.damagestats.config.DamageTypeCategories;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
 import io.zershyan.damagestats.stats.DamageTracker;
 import io.zershyan.damagestats.stats.EntityRef;
+import io.zershyan.damagestats.stats.filter.DamageTypeSelector;
+import io.zershyan.damagestats.stats.filter.EntitySelector;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -33,5 +35,19 @@ public final class StatsNames {
         return BuiltInRegistries.ENTITY_TYPE.getOptional(entityTypeId)
                 .map(EntityType::getDescription)
                 .orElse(Component.literal(entityTypeId.toString()));
+    }
+
+    public static Component entitySelector(DamageTracker tracker, EntitySelector selector) {
+        return switch (selector) {
+            case EntitySelector.Instance instance -> opponent(tracker, instance.ref());
+            case EntitySelector.Type type -> entityType(type.typeId());
+        };
+    }
+
+    public static Component damageTypeSelector(DamageTypeSelector selector) {
+        return switch (selector) {
+            case DamageTypeSelector.Category category -> DamageTypeCategories.categoryName(category.name());
+            case DamageTypeSelector.Exact exact -> Component.literal(exact.id().toString());
+        };
     }
 }

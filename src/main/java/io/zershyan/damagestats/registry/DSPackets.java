@@ -1,10 +1,7 @@
 package io.zershyan.damagestats.registry;
 
 import io.zershyan.damagestats.DamageStats;
-import io.zershyan.damagestats.registry.packet.LockTargetPacket;
-import io.zershyan.damagestats.registry.packet.StatsRequestPacket;
-import io.zershyan.damagestats.registry.packet.StatsSnapshotPacket;
-import io.zershyan.damagestats.registry.packet.StatsSummaryPacket;
+import io.zershyan.damagestats.registry.packet.*;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.ModList;
@@ -31,8 +28,11 @@ public class DSPackets {
         //client
         registrar.playToClient(StatsSummaryPacket.TYPE, StatsSummaryPacket.STREAM_CODEC, StatsSummaryPacket::handle);
         registrar.playToClient(StatsSnapshotPacket.TYPE, StatsSnapshotPacket.STREAM_CODEC, StatsSnapshotPacket::handle);
+        registrar.playToClient(StatsInvalidatedPacket.TYPE, StatsInvalidatedPacket.STREAM_CODEC, StatsInvalidatedPacket::handle);
         //server
         registrar.playToServer(StatsRequestPacket.TYPE, StatsRequestPacket.STREAM_CODEC, StatsRequestPacket::handle);
-        registrar.playToServer(LockTargetPacket.TYPE, LockTargetPacket.STREAM_CODEC, LockTargetPacket::handle);
+        registrar.playToServer(OverlayTargetTypePacket.TYPE, OverlayTargetTypePacket.STREAM_CODEC,
+                OverlayTargetTypePacket::handle);
+        registrar.playToServer(ResetStatsPacket.TYPE, ResetStatsPacket.STREAM_CODEC, ResetStatsPacket::handle);
     }
 }

@@ -27,6 +27,7 @@ public final class DamageCollectHandler {
 
         LivingEntity target = event.getEntity();
         if(target.level().isClientSide) return;
+        if(event.getNewDamage() <= 0) return;
 
         DamageSource source = event.getSource();
         tracker.record(new DamageRecord(

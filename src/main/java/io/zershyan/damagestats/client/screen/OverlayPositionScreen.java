@@ -4,8 +4,11 @@ import io.zershyan.damagestats.client.overlay.StatsOverlay;
 import io.zershyan.damagestats.config.DSClientConfig;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.AbstractSliderButton;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.Checkbox;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import org.jetbrains.annotations.NotNull;
 
@@ -37,6 +40,53 @@ public class OverlayPositionScreen extends Screen {
     @Override
     protected void init() {
         int centerX = width / 2;
+        int controlLeft = centerX - 110;
+        addRenderableWidget(new AbstractSliderButton(controlLeft, 44, 220, BUTTON_HEIGHT, Component.empty(),
+                (DSClientConfig.OverlayScale.get() - 0.5) / 1.5) {
+            @Override
+            protected void updateMessage() {
+                setMessage(DSKeyLang.EditPositionScale.copy().append(Component.literal(": "
+                        + Math.round((0.5 + value * 1.5) * 100) + "%")));
+            }
+
+            @Override
+            protected void applyValue() {
+                DSClientConfig.OverlayScale.set(0.5 + value * 1.5);
+            }
+        });
+        addRenderableWidget(new AbstractSliderButton(controlLeft, 68, 220, BUTTON_HEIGHT, Component.empty(),
+                DSClientConfig.OverlayBackgroundOpacity.get()) {
+            @Override
+            protected void updateMessage() {
+                setMessage(DSKeyLang.EditPositionOpacity.copy().append(Component.literal(": "
+                        + Math.round(value * 100) + "%")));
+            }
+
+            @Override
+            protected void applyValue() {
+                DSClientConfig.OverlayBackgroundOpacity.set(value);
+            }
+        });
+        addRenderableWidget(Checkbox.builder(DSKeyLang.EditPositionTarget.copy(), font)
+                .pos(controlLeft, 94)
+                .selected(DSClientConfig.OverlayShowTarget.get())
+                .onValueChange((checkbox, selected) -> DSClientConfig.OverlayShowTarget.set(selected))
+                .build());
+        addRenderableWidget(Checkbox.builder(DSKeyLang.EditPositionDamage.copy(), font)
+                .pos(centerX + 4, 94)
+                .selected(DSClientConfig.OverlayShowDamage.get())
+                .onValueChange((checkbox, selected) -> DSClientConfig.OverlayShowDamage.set(selected))
+                .build());
+        addRenderableWidget(Checkbox.builder(DSKeyLang.EditPositionDps.copy(), font)
+                .pos(controlLeft, 116)
+                .selected(DSClientConfig.OverlayShowDps.get())
+                .onValueChange((checkbox, selected) -> DSClientConfig.OverlayShowDps.set(selected))
+                .build());
+        addRenderableWidget(Checkbox.builder(DSKeyLang.EditPositionHits.copy(), font)
+                .pos(centerX + 4, 116)
+                .selected(DSClientConfig.OverlayShowHits.get())
+                .onValueChange((checkbox, selected) -> DSClientConfig.OverlayShowHits.set(selected))
+                .build());
         int buttonY = height - BUTTON_BOTTOM_MARGIN;
         addRenderableWidget(Button.builder(DSKeyLang.EditPositionDone.copy(), button -> onClose())
                 .bounds(centerX - BUTTON_WIDTH - BUTTON_GAP, buttonY, BUTTON_WIDTH, BUTTON_HEIGHT)
@@ -59,7 +109,7 @@ public class OverlayPositionScreen extends Screen {
         int x = originX();
         int y = originY();
         StatsOverlay.renderBox(graphics, font, StatsOverlay.previewSummary(), x, y);
-        graphics.renderOutline(x, y, StatsOverlay.WIDTH, StatsOverlay.height(), PREVIEW_BORDER);
+        graphics.renderOutline(x, y, StatsOverlay.width(), StatsOverlay.height(), PREVIEW_BORDER);
     }
 
     @Override
@@ -76,7 +126,7 @@ public class OverlayPositionScreen extends Screen {
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
         if(!dragging) return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
-        ratioX = clampRatio((mouseX - grabOffsetX) / width, StatsOverlay.WIDTH, width);
+        ratioX = clampRatio((mouseX - grabOffsetX) / width, StatsOverlay.width(), width);
         ratioY = clampRatio((mouseY - grabOffsetY) / height, StatsOverlay.height(), height);
         return true;
     }
@@ -89,9 +139,16 @@ public class OverlayPositionScreen extends Screen {
 
     @Override
     public void onClose() {
-        DSClientConfig.OverlayX.set(ratioX);
-        DSClientConfig.OverlayY.set(ratioY);
+        DSClientConfig.OverlayX.set(clampRatio(ratioX, StatsOverlay.width(), width));
+        DSClientConfig.OverlayY.set(clampRatio(ratioY, StatsOverlay.height(), height));
         DSClientConfig.OverlayX.save();
+        DSClientConfig.OverlayY.save();
+        DSClientConfig.OverlayScale.save();
+        DSClientConfig.OverlayBackgroundOpacity.save();
+        DSClientConfig.OverlayShowTarget.save();
+        DSClientConfig.OverlayShowDamage.save();
+        DSClientConfig.OverlayShowDps.save();
+        DSClientConfig.OverlayShowHits.save();
         super.onClose();
     }
 
@@ -103,16 +160,16 @@ public class OverlayPositionScreen extends Screen {
     private boolean isInsidePreview(double mouseX, double mouseY) {
         int x = originX();
         int y = originY();
-        return mouseX >= x && mouseX <= x + StatsOverlay.WIDTH
+        return mouseX >= x && mouseX <= x + StatsOverlay.width()
                 && mouseY >= y && mouseY <= y + StatsOverlay.height();
     }
 
     private int originX() {
-        return (int) (width * ratioX);
+        return (int) (width * clampRatio(ratioX, StatsOverlay.width(), width));
     }
 
     private int originY() {
-        return (int) (height * ratioY);
+        return (int) (height * clampRatio(ratioY, StatsOverlay.height(), height));
     }
 
     private static double clampRatio(double ratio, int elementSize, int screenSize) {

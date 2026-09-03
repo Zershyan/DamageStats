@@ -25,7 +25,7 @@ public class StatsEntry {
     private long lastActivityTime;
 
     public StatsEntry() {
-        this.lifetime = new DamageAccumulator();
+        this.lifetime = new DamageAccumulator(DamageAccumulator.OpponentGrouping.TYPE);
     }
 
     private StatsEntry(DamageAccumulator lifetime, List<SessionSummary> history, long lastActivityTime) {
@@ -55,5 +55,11 @@ public class StatsEntry {
 
     public Collection<SessionSummary> getFinishedSessions() {
         return Collections.unmodifiableCollection(finishedSessions);
+    }
+
+    /** 只合并永久累计，不把不同来源的会话历史拼成一场不存在的战斗 */
+    void absorbLifetime(StatsEntry other) {
+        lifetime.absorb(other.lifetime);
+        lastActivityTime = Math.max(lastActivityTime, other.lastActivityTime);
     }
 }

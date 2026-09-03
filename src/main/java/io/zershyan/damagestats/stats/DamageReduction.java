@@ -2,6 +2,9 @@ package io.zershyan.damagestats.stats;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import io.netty.buffer.ByteBuf;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
 import net.neoforged.neoforge.common.damagesource.DamageContainer.Reduction;
 import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
 
@@ -24,6 +27,16 @@ public record DamageReduction(
             Codec.FLOAT.optionalFieldOf("innateResistance", 0f).forGetter(DamageReduction::innateResistance),
             Codec.FLOAT.optionalFieldOf("invulnerability", 0f).forGetter(DamageReduction::invulnerability)
     ).apply(instance, DamageReduction::new));
+
+    public static final StreamCodec<ByteBuf, DamageReduction> STREAM_CODEC = StreamCodec.composite(
+            ByteBufCodecs.FLOAT, DamageReduction::armor,
+            ByteBufCodecs.FLOAT, DamageReduction::enchantments,
+            ByteBufCodecs.FLOAT, DamageReduction::mobEffects,
+            ByteBufCodecs.FLOAT, DamageReduction::absorption,
+            ByteBufCodecs.FLOAT, DamageReduction::innateResistance,
+            ByteBufCodecs.FLOAT, DamageReduction::invulnerability,
+            DamageReduction::new
+    );
 
     public static DamageReduction from(LivingDamageEvent.Post event) {
         return new DamageReduction(

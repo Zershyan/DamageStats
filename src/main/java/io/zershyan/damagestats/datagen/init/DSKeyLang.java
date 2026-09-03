@@ -51,6 +51,8 @@ public class DSKeyLang extends DSLang {
             "Exported to %s", "已导出到 %s");
     public static final MutableComponent ExportFailed = entry(MessagePrefix + "export_failed",
             "Export failed, see the log for details", "导出失败，详情见日志");
+    public static final MutableComponent StatsPrivate = entry(MessagePrefix + "stats_private",
+            "These statistics are private", "统计数据当前为私有");
 
     // 区块标题
     public static final MutableComponent TitleOutgoing = entry(StatsPrefix + "title.outgoing",
@@ -86,9 +88,11 @@ public class DSKeyLang extends DSLang {
     public static final LazyComponent AverageDamage = entryLazy(StatsPrefix + "average_damage",
             "Average Hit: %s", "平均单次：%s");
     public static final LazyComponent MaxSingle = entryLazy(StatsPrefix + "max_single",
-            "Highest Hit: %s (%s)", "最高单次：%s（%s）");
+            "Highest Hit: %s (%s, via %s, at tick %s)", "最高单次：%s（%s，直接来源：%s，时刻：%s）");
     public static final LazyComponent MinSingle = entryLazy(StatsPrefix + "min_single",
             "Lowest Hit: %s", "最低单次：%s");
+    public static final LazyComponent HitsPerSecond = entryLazy(StatsPrefix + "hits_per_second",
+            "Hits/s: %s", "每秒命中：%s");
     public static final LazyComponent AverageDps = entryLazy(StatsPrefix + "average_dps",
             "Average DPS: %s", "本场平均 DPS：%s");
     public static final LazyComponent RealtimeDps = entryLazy(StatsPrefix + "realtime_dps",
@@ -100,7 +104,7 @@ public class DSKeyLang extends DSLang {
     public static final LazyComponent DetailLine = entryLazy(StatsPrefix + "detail_line",
             "%s: %s (%s%%) x%s", "%s：%s（%s%%）× %s 次");
     public static final LazyComponent SessionLine = entryLazy(StatsPrefix + "session_line",
-            "Fight %s: %s damage, %s DPS, %ss", "第 %s 场：伤害 %s，DPS %s，时长 %s 秒");
+            "Fight %s: %s damage, %s DPS, %ss, %s hits", "第 %s 场：伤害 %s，DPS %s，时长 %s 秒，命中 %s 次");
 
     // 按键。entryString 一步完成「登记翻译」和「拿到键名」，KeyMapping 直接用这些常量，不必再抄一遍字符串
     public static final String KeyCategoryId = entryString("key.categories." + Modid,
@@ -109,8 +113,6 @@ public class DSKeyLang extends DSLang {
             "Open Damage Stats", "打开伤害统计");
     public static final String ToggleOverlayKeyId = entryString(KeyPrefix + "toggle_overlay",
             "Toggle Overlay", "开关常显浮层");
-    public static final String LockTargetKeyId = entryString(KeyPrefix + "lock_target",
-            "Lock Stats Target", "锁定统计目标");
 
     // Overlay
     public static final MutableComponent OverlayAllTargets = entry(StatsPrefix + "overlay.all_targets",
@@ -125,10 +127,6 @@ public class DSKeyLang extends DSLang {
             "Overlay shown", "已显示常显浮层");
     public static final MutableComponent OverlayHidden = entry(MessagePrefix + "overlay_hidden",
             "Overlay hidden", "已隐藏常显浮层");
-    public static final LazyComponent TargetLocked = entryLazy(MessagePrefix + "target_locked",
-            "Locked on %s", "已锁定 %s");
-    public static final MutableComponent TargetUnlocked = entry(MessagePrefix + "target_unlocked",
-            "Target unlocked", "已解除目标锁定");
 
     // 位置编辑
     public static final MutableComponent EditPositionTitle = entry(ScreenPrefix + "edit_position.title",
@@ -137,10 +135,30 @@ public class DSKeyLang extends DSLang {
             "Done", "完成");
     public static final MutableComponent EditPositionReset = entry(ScreenPrefix + "edit_position.reset",
             "Reset Position", "重置位置");
+    public static final MutableComponent EditPositionScale = entry(ScreenPrefix + "edit_position.scale",
+            "Scale", "缩放");
+    public static final MutableComponent EditPositionOpacity = entry(ScreenPrefix + "edit_position.opacity",
+            "Background Opacity", "背景透明度");
+    public static final MutableComponent EditPositionTarget = entry(ScreenPrefix + "edit_position.target",
+            "Target", "目标");
+    public static final MutableComponent EditPositionDamage = entry(ScreenPrefix + "edit_position.damage",
+            "Damage", "伤害");
+    public static final MutableComponent EditPositionDps = entry(ScreenPrefix + "edit_position.dps",
+            "DPS", "DPS");
+    public static final MutableComponent EditPositionHits = entry(ScreenPrefix + "edit_position.hits",
+            "Hits", "命中次数");
 
     // 统计界面
     public static final MutableComponent ScreenTitle = entry(ScreenPrefix + "title",
             "Damage Stats", "伤害统计");
+    public static final LazyComponent ScreenTitleOf = entryLazy(ScreenPrefix + "title_of",
+            "Damage Stats — %s", "伤害统计 — %s");
+    public static final MutableComponent ViewSelf = entry(ScreenPrefix + "view.self",
+            "Me", "我");
+    public static final MutableComponent ViewAll = entry(ScreenPrefix + "view.all",
+            "Everyone", "全部");
+    public static final LazyComponent ViewType = entryLazy(ScreenPrefix + "view.type",
+            "Type: %s", "类型：%s");
     public static final MutableComponent TabOutgoing = entry(ScreenPrefix + "tab.outgoing",
             "Dealt", "造成");
     public static final MutableComponent TabIncoming = entry(ScreenPrefix + "tab.incoming",
@@ -155,10 +173,40 @@ public class DSKeyLang extends DSLang {
             "Sources", "直接来源");
     public static final MutableComponent DimensionOpponents = entry(ScreenPrefix + "dimension.opponents",
             "Opponents", "对手");
+    public static final MutableComponent ScreenGroupingCategory = entry(ScreenPrefix + "grouping.category",
+            "Categories", "分类");
+    public static final MutableComponent ScreenGroupingRegistry = entry(ScreenPrefix + "grouping.registry",
+            "Registry IDs", "注册表 ID");
+    public static final MutableComponent ScreenDetails = entry(ScreenPrefix + "details",
+            "Details", "详细指标");
+    public static final MutableComponent ScreenHistory = entry(ScreenPrefix + "history",
+            "History", "历史战斗");
     public static final MutableComponent ScreenEditOverlay = entry(ScreenPrefix + "edit_overlay",
             "Overlay Position", "浮层位置");
     public static final MutableComponent ScreenExport = entry(ScreenPrefix + "export",
             "Export", "导出");
+    public static final MutableComponent ScreenReset = entry(ScreenPrefix + "reset",
+            "Reset Mine", "清空我的");
+    public static final MutableComponent ScreenClearFilter = entry(ScreenPrefix + "clear_filter",
+            "Clear Filter", "清除筛选");
+    public static final MutableComponent ScreenAllDamage = entry(ScreenPrefix + "all_damage",
+            "All Damage", "全部伤害");
+    public static final MutableComponent ScreenTruncated = entry(ScreenPrefix + "truncated",
+            "(incomplete)", "（数据不完整）");
+    public static final LazyComponent ScreenChooseTypeAction = entryLazy(ScreenPrefix + "choose_type_action",
+            "Use %s as", "将 %s 用作");
+    public static final MutableComponent ScreenSetSubject = entry(ScreenPrefix + "set_subject",
+            "Set as Subject", "设为主体");
+    public static final MutableComponent ScreenSetOtherFilter = entry(ScreenPrefix + "set_other_filter",
+            "Set as Other Filter", "设为另一筛选项");
+    public static final LazyComponent FilterSource = entryLazy(ScreenPrefix + "filter.source",
+            "From: %s", "来源：%s");
+    public static final LazyComponent FilterTarget = entryLazy(ScreenPrefix + "filter.target",
+            "To: %s", "目标：%s");
+    public static final LazyComponent FilterDirect = entryLazy(ScreenPrefix + "filter.direct",
+            "Via: %s", "直接来源：%s");
+    public static final LazyComponent FilterType = entryLazy(ScreenPrefix + "filter.type",
+            "Type: %s", "伤害类型：%s");
 
     // 伤害分类。这几个常量只负责登记翻译，取用走 categoryKey 派生的动态键
     public static final MutableComponent CategoryPhysical = entry(categoryKey("Physical"), "Physical", "物理伤害");

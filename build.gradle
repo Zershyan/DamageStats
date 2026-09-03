@@ -15,7 +15,7 @@ group = mod_group_id
 sourceSets.main.resources {
     srcDir('src/generated/resources')
     exclude("**/*.bbmodel") // BlockBench project files
-    exclude("src/generated/**/.cache") // datagen cache files
+    exclude("**/.cache/**") // datagen cache files
 }
 
 repositories {

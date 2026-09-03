@@ -40,6 +40,21 @@ public final class DSConfig {
             .translation(DSConfigLang.AutoSave.getKey())
             .define(DSConfigLang.AutoSave.name(), true);
 
+    public static final ModConfigSpec.IntValue AutoSaveIntervalTicks = BUILDER
+            .comment("单位 tick。正常退出和崩服都会写盘，这个只防被强制结束进程（kill -9、断电）。0 表示不定时写盘")
+            .translation(DSConfigLang.AutoSaveIntervalTicks.getKey())
+            .defineInRange(DSConfigLang.AutoSaveIntervalTicks.name(), 0, 0, 432000);
+
+    public static final ModConfigSpec.BooleanValue PublicStats = BUILDER
+            .comment("允许玩家查看其他实体的统计。因为目标的承伤明细里带着其他玩家的输出，关掉后只有管理员能查")
+            .translation(DSConfigLang.PublicStats.getKey())
+            .define(DSConfigLang.PublicStats.name(), true);
+
+    public static final ModConfigSpec.IntValue DamageLogLimit = BUILDER
+            .comment("界面上带筛选条件的查询会去翻这份原始伤害记录。越大能回看的越久，内存也越多（一条约 150 字节）")
+            .translation(DSConfigLang.DamageLogLimit.getKey())
+            .defineInRange(DSConfigLang.DamageLogLimit.name(), 20000, 1000, 500000);
+
     /** 只在注册配置时用一次，不属于「会被反复阅读的配置项」，因此保持全大写 */
     public static final ModConfigSpec SPEC = BUILDER.build();
 }

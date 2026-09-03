@@ -6,10 +6,15 @@ import io.zershyan.damagestats.DamageStats;
 import io.zershyan.damagestats.config.DSConfig;
 import io.zershyan.damagestats.config.DamageTypeCategories;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
+import io.zershyan.damagestats.handler.common.ServerLifecycleHandler;
+import io.zershyan.damagestats.registry.packet.StatsInvalidatedPacket;
 import io.zershyan.damagestats.stats.*;
+import io.zershyan.damagestats.stats.filter.EntitySelector;
+import io.zershyan.damagestats.stats.filter.StatsFilter;
 import io.zershyan.damagestats.stats.save.StatsExporter;
 import io.zershyan.damagestats.stats.save.StatsStorage;
 import io.zershyan.damagestats.stats.view.StatsViewBuilder;
+import io.zershyan.damagestats.util.StatsNames;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -20,10 +25,10 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.EntityType;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
+import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Path;
@@ -40,6 +45,7 @@ public final class DSCommands {
     @SubscribeEvent
     public static void register(RegisterCommandsEvent event) {
         event.getDispatcher().register(Commands.literal("damagestats")
+                .executes(context -> show(context, true))
                 .then(Commands.literal("out").executes(context -> show(context, true)))
                 .then(Commands.literal("in").executes(context -> show(context, false)))
                 .then(Commands.literal("history").executes(DSCommands::history))
@@ -83,11 +89,11 @@ public final class DSCommands {
         DamageSession session = entry.getCurrentSession();
         if(session != null) {
             line(source, DSKeyLang.SectionSession.copy(), ChatFormatting.GOLD);
-            sendMetrics(source, session.getAccumulator(), session, gameTime);
+            sendMetrics(source, tracker, session.getAccumulator(), session, gameTime);
             sendBreakdown(source, tracker, session.getAccumulator());
         }
         line(source, DSKeyLang.SectionLifetime.copy(), ChatFormatting.GOLD);
-        sendMetrics(source, entry.getLifetime(), null, gameTime);
+        sendMetrics(source, tracker, entry.getLifetime(), null, gameTime);
         sendBreakdown(source, tracker, entry.getLifetime());
         return 1;
     }
@@ -105,6 +111,8 @@ public final class DSCommands {
         DamageTracker tracker = ServerStats.tracker();
         if(tracker == null) return 0;
         tracker.reset();
+        ServerLifecycleHandler.persistReset(null);
+        PacketDistributor.sendToAllPlayers(StatsInvalidatedPacket.INSTANCE);
         context.getSource().sendSuccess(DSKeyLang.StatsReset::copy, true);
         return 1;
     }
@@ -125,7 +133,8 @@ public final class DSCommands {
         DamageTracker tracker = ServerStats.tracker();
         if(tracker == null) return 0;
         Path directory = StatsExporter.export(
-                StatsViewBuilder.snapshotFor(tracker, player),
+                StatsViewBuilder.snapshotFor(tracker, player,
+                        StatsFilter.fromSource(new EntitySelector.Instance(EntityRef.of(player)))),
                 StatsStorage.directory(source.getServer()));
         if(directory == null) {
             line(source, DSKeyLang.ExportFailed.copy(), ChatFormatting.RED);
@@ -141,22 +150,33 @@ public final class DSCommands {
         DamageTracker tracker = ServerStats.tracker();
         if(tracker == null) return 0;
 
-        StatsEntry entry = tracker.outgoing(EntityRef.of(player));
-        if(entry == null || entry.getFinishedSessions().isEmpty()) {
+        EntityRef self = EntityRef.of(player);
+        StatsEntry outgoing = tracker.outgoing(self);
+        StatsEntry incoming = tracker.incoming(self);
+        boolean hasOutgoing = outgoing != null && !outgoing.getFinishedSessions().isEmpty();
+        boolean hasIncoming = incoming != null && !incoming.getFinishedSessions().isEmpty();
+        if(!hasOutgoing && !hasIncoming) {
             line(source, DSKeyLang.NoData.copy(), ChatFormatting.GRAY);
             return 0;
         }
         line(source, DSKeyLang.SectionHistory.copy(), ChatFormatting.GOLD);
+        if(hasOutgoing) sendHistory(source, DSKeyLang.TitleOutgoing, outgoing);
+        if(hasIncoming) sendHistory(source, DSKeyLang.TitleIncoming, incoming);
+        return 1;
+    }
+
+    private static void sendHistory(CommandSourceStack source, MutableComponent title, StatsEntry entry) {
+        line(source, title, ChatFormatting.GOLD);
         int index = 1;
         for (SessionSummary summary : entry.getFinishedSessions()) {
             line(source, DSKeyLang.SessionLine.getNumber2f(
                     index++,
                     summary.totalDamage(),
                     summary.averageDps(),
-                    summary.durationSeconds()
+                    summary.durationSeconds(),
+                    summary.hitCount()
             ), ChatFormatting.DARK_GRAY);
         }
-        return 1;
     }
 
     /** 实体类型级的汇总，对应 R2.3 的「所有僵尸合并统计」 */
@@ -164,28 +184,32 @@ public final class DSCommands {
         CommandSourceStack source = context.getSource();
         DamageTracker tracker = ServerStats.tracker();
         if(tracker == null) return 0;
+        if(!DSConfig.PublicStats.get() && !source.hasPermission(PERMISSION_GAMEMASTER)) {
+            line(source, DSKeyLang.StatsPrivate.copy(), ChatFormatting.RED);
+            return 0;
+        }
 
         ResourceLocation typeId = ResourceLocationArgument.getId(context, ARG_ENTITY_TYPE);
         StatsEntry out = tracker.outgoingByType(typeId);
         StatsEntry in = tracker.incomingByType(typeId);
         if(out == null && in == null) {
-            line(source, DSKeyLang.NoDataForType.get(entityTypeName(typeId)), ChatFormatting.GRAY);
+            line(source, DSKeyLang.NoDataForType.get(StatsNames.entityType(typeId)), ChatFormatting.GRAY);
             return 0;
         }
         long gameTime = source.getLevel().getGameTime();
-        line(source, DSKeyLang.TypeSummary.get(entityTypeName(typeId)), ChatFormatting.GOLD);
+        line(source, DSKeyLang.TypeSummary.get(StatsNames.entityType(typeId)), ChatFormatting.GOLD);
         if(out != null) {
             line(source, DSKeyLang.TitleOutgoing.copy(), ChatFormatting.GOLD);
-            sendMetrics(source, out.getLifetime(), null, gameTime);
+            sendMetrics(source, tracker, out.getLifetime(), null, gameTime);
         }
         if(in != null) {
             line(source, DSKeyLang.TitleIncoming.copy(), ChatFormatting.GOLD);
-            sendMetrics(source, in.getLifetime(), null, gameTime);
+            sendMetrics(source, tracker, in.getLifetime(), null, gameTime);
         }
         return 1;
     }
 
-    private static void sendMetrics(CommandSourceStack source, DamageAccumulator acc,
+    private static void sendMetrics(CommandSourceStack source, DamageTracker tracker, DamageAccumulator acc,
                                     @Nullable DamageSession session, long gameTime) {
         line(source, DSKeyLang.TotalDamage.getNumber2f(acc.getTotalActual()), ChatFormatting.AQUA);
         line(source, DSKeyLang.AverageDps.getNumber2f(acc.getAverageDps()), ChatFormatting.AQUA);
@@ -194,8 +218,15 @@ public final class DSCommands {
                 session.getRealtimeDps(gameTime, DSConfig.DpsWindowTicks.get())), ChatFormatting.AQUA);
         line(source, DSKeyLang.HitCount.get(acc.getHitCount()), ChatFormatting.DARK_GRAY);
         line(source, DSKeyLang.AverageDamage.getNumber2f(acc.getAverageDamage()), ChatFormatting.DARK_GRAY);
-        line(source, DSKeyLang.MaxSingle.getNumber2f(acc.getMaxSingle(),
-                typeName(acc.getMaxSingleDamageType())), ChatFormatting.DARK_GRAY);
+        EntityRef directSource = acc.getMaxSingleDirectSource();
+        Component directSourceName = directSource == null
+                ? Component.literal("-")
+                : StatsNames.opponent(tracker, directSource);
+        line(source, DSKeyLang.MaxSingle.getNumber2f(
+                acc.getMaxSingle(),
+                StatsNames.damageType(acc.getMaxSingleDamageType()),
+                directSourceName,
+                acc.getMaxSingleTime()), ChatFormatting.DARK_GRAY);
         line(source, DSKeyLang.MinSingle.getNumber2f(acc.getMinSingle()), ChatFormatting.DARK_GRAY);
         line(source, DSKeyLang.OriginalDamage.getNumber2f(acc.getTotalOriginal()), ChatFormatting.DARK_GRAY);
         line(source, DSKeyLang.ReductionRate.getNumber2f(acc.getReducedDamage(),
@@ -211,13 +242,13 @@ public final class DSCommands {
         if(total <= 0) return;
         line(source, DSKeyLang.SectionTypes.copy(), ChatFormatting.GOLD);
         sortedByDamage(acc.getByDamageType()).forEach(group ->
-                detail(source, typeName(group.getKey()), group.getValue(), total));
+                detail(source, StatsNames.damageType(group.getKey()), group.getValue(), total));
         line(source, DSKeyLang.SectionSources.copy(), ChatFormatting.GOLD);
         sortedByDamage(acc.getByDirectSourceType()).forEach(group ->
-                detail(source, entityTypeName(group.getKey()), group.getValue(), total));
+                detail(source, StatsNames.entityType(group.getKey()), group.getValue(), total));
         line(source, DSKeyLang.SectionOpponents.copy(), ChatFormatting.GOLD);
         sortedByDamage(acc.getByOpponent()).forEach(group ->
-                detail(source, opponentName(tracker, group.getKey()), group.getValue(), total));
+                detail(source, StatsNames.opponent(tracker, group.getKey()), group.getValue(), total));
     }
 
     private static void detail(CommandSourceStack source, Component name, DamageAccumulator group, float total) {
@@ -232,26 +263,6 @@ public final class DSCommands {
     private static <K> Stream<Map.Entry<K, DamageAccumulator>> sortedByDamage(Map<K, DamageAccumulator> groups) {
         return groups.entrySet().stream().sorted(Comparator.comparingDouble(
                 (Map.Entry<K, DamageAccumulator> group) -> group.getValue().getTotalActual()).reversed());
-    }
-
-    /** 归了类就显示分类的译名，没归类就是原始 ID */
-    private static Component typeName(@Nullable ResourceLocation damageTypeId) {
-        return damageTypeId == null ? Component.literal("-") : DamageTypeCategories.displayName(damageTypeId);
-    }
-
-    /** 玩家名和被命名过的实体走缓存，其余用 EntityType 的译名——实体死了之后照样显示得出来 */
-    private static Component opponentName(DamageTracker tracker, EntityRef ref) {
-        if(ref.isEnvironment()) return DSKeyLang.SourceEnvironment.copy();
-        String cached = tracker.cachedName(ref.id());
-        if(cached != null) return Component.literal(cached);
-        return entityTypeName(ref.typeIdOrEnvironment());
-    }
-
-    private static Component entityTypeName(ResourceLocation entityTypeId) {
-        if(EntityRef.ENVIRONMENT_TYPE.equals(entityTypeId)) return DSKeyLang.SourceEnvironment.copy();
-        return BuiltInRegistries.ENTITY_TYPE.getOptional(entityTypeId)
-                .map(EntityType::getDescription)
-                .orElse(Component.literal(entityTypeId.toString()));
     }
 
     private static void line(CommandSourceStack source, MutableComponent text, ChatFormatting color) {

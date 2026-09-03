@@ -2,9 +2,12 @@ package io.zershyan.damagestats.stats;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import io.netty.buffer.ByteBuf;
 import io.zershyan.damagestats.DamageStats;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
 import org.jetbrains.annotations.Nullable;
@@ -23,6 +26,12 @@ public record EntityRef(UUID id, @Nullable ResourceLocation typeId) {
             ResourceLocation.CODEC.optionalFieldOf("type").forGetter(ref -> Optional.ofNullable(ref.typeId()))
     ).apply(instance, (id, type) -> new EntityRef(id, type.orElse(null))));
 
+    public static final StreamCodec<ByteBuf, EntityRef> STREAM_CODEC = StreamCodec.composite(
+            UUIDUtil.STREAM_CODEC, EntityRef::id,
+            ByteBufCodecs.optional(ResourceLocation.STREAM_CODEC), ref -> Optional.ofNullable(ref.typeId()),
+            (id, type) -> new EntityRef(id, type.orElse(null))
+    );
+
     /** 固定 UUID 而不是随机值，保证持久化后仍然指向同一个环境来源 */
     public static final UUID ENVIRONMENT_ID =
             UUID.nameUUIDFromBytes("damagestats:environment".getBytes(StandardCharsets.UTF_8));
@@ -36,6 +45,15 @@ public record EntityRef(UUID id, @Nullable ResourceLocation typeId) {
     public static EntityRef of(@Nullable Entity entity) {
         if(entity == null) return ENVIRONMENT;
         return new EntityRef(entity.getUUID(), BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()));
+    }
+
+    /**
+     * 类型级占位，只代表「某个实体类型」而不指向具体实例。
+     * UUID 从类型 ID 派生而不是随便造一个，这样持久化前后指的是同一个东西。
+     */
+    public static EntityRef ofType(ResourceLocation typeId) {
+        return new EntityRef(
+                UUID.nameUUIDFromBytes(("type:" + typeId).getBytes(StandardCharsets.UTF_8)), typeId);
     }
 
     public boolean isEnvironment() {
