@@ -10,11 +10,6 @@ displayURL="${mod_url}"
 credits="${mod_credits}"
 authors="${mod_authors}"
 description='''${mod_description}'''
-# 伤害数据全部由服务端采集，客户端单独装拿不到任何统计，所以要求两端都装且版本一致
-displayTest="MATCH_VERSION"
-
-[[mixins]]
-config="${mod_id}.mixins.json"
 
 [[dependencies."${mod_id}"]]
 modId="neoforge"
