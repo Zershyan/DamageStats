@@ -63,7 +63,6 @@ public final class StatsExporter {
         snapshot.filterLabels().forEach(label -> filters.add(label.getString()));
         root.add("filterLabels", filters);
         root.add("filter", filterJson(snapshot.appliedFilter()));
-        root.addProperty("truncated", snapshot.truncated());
         root.add("currentFight", viewJson(snapshot.session()));
         root.add("lifetime", viewJson(snapshot.lifetime()));
         JsonArray fights = new JsonArray();
@@ -133,6 +132,8 @@ public final class StatsExporter {
             JsonObject object = new JsonObject();
             object.addProperty("name", group.name().getString());
             object.addProperty("damage", group.damage());
+            object.addProperty("originalDamage", group.originalDamage());
+            object.addProperty("reducedDamage", Math.max(0, group.originalDamage() - group.damage()));
             object.addProperty("sharePercent", group.share() * 100);
             object.addProperty("hits", group.hitCount());
             object.add("key", filterKeyJson(group.key()));

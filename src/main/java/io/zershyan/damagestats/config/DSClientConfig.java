@@ -41,25 +41,46 @@ public final class DSClientConfig {
             .translation(DSConfigLang.OverlayBackgroundOpacity.getKey())
             .defineInRange(DSConfigLang.OverlayBackgroundOpacity.name(), DefaultOverlayBackgroundOpacity, 0.0, 1.0);
 
-    public static final ModConfigSpec.BooleanValue OverlayShowTarget = BUILDER
-            .comment("常显浮层是否显示目标")
-            .translation(DSConfigLang.OverlayShowTarget.getKey())
-            .define(DSConfigLang.OverlayShowTarget.name(), true);
-
-    public static final ModConfigSpec.BooleanValue OverlayShowDamage = BUILDER
-            .comment("常显浮层是否显示总伤害")
-            .translation(DSConfigLang.OverlayShowDamage.getKey())
-            .define(DSConfigLang.OverlayShowDamage.name(), true);
-
-    public static final ModConfigSpec.BooleanValue OverlayShowDps = BUILDER
-            .comment("常显浮层是否显示 DPS")
-            .translation(DSConfigLang.OverlayShowDps.getKey())
-            .define(DSConfigLang.OverlayShowDps.name(), true);
-
     public static final ModConfigSpec.BooleanValue OverlayShowHits = BUILDER
             .comment("常显浮层是否显示命中次数")
             .translation(DSConfigLang.OverlayShowHits.getKey())
             .define(DSConfigLang.OverlayShowHits.name(), true);
 
+    public static final ModConfigSpec.BooleanValue OverlayShowFocus = bool(DSConfigLang.OverlayShowFocus, true);
+    public static final ModConfigSpec.BooleanValue OverlayShowActualDamage = bool(DSConfigLang.OverlayShowActualDamage, true);
+    public static final ModConfigSpec.EnumValue<OverlayMetricScope> OverlayActualDamageScope = scope(DSConfigLang.OverlayActualDamageScope);
+    public static final ModConfigSpec.BooleanValue OverlayShowOriginalDamage = bool(DSConfigLang.OverlayShowOriginalDamage, false);
+    public static final ModConfigSpec.EnumValue<OverlayMetricScope> OverlayOriginalDamageScope = scope(DSConfigLang.OverlayOriginalDamageScope);
+    public static final ModConfigSpec.BooleanValue OverlayShowReduction = bool(DSConfigLang.OverlayShowReduction, false);
+    public static final ModConfigSpec.EnumValue<OverlayMetricScope> OverlayReductionScope = scope(DSConfigLang.OverlayReductionScope);
+    public static final ModConfigSpec.BooleanValue OverlayShowActualAverageDps = bool(DSConfigLang.OverlayShowActualAverageDps, true);
+    public static final ModConfigSpec.EnumValue<OverlayMetricScope> OverlayActualAverageDpsScope = scope(DSConfigLang.OverlayActualAverageDpsScope);
+    public static final ModConfigSpec.BooleanValue OverlayShowActualRealtimeDps = bool(DSConfigLang.OverlayShowActualRealtimeDps, true);
+    public static final ModConfigSpec.EnumValue<OverlayMetricScope> OverlayActualRealtimeDpsScope = scope(DSConfigLang.OverlayActualRealtimeDpsScope);
+    public static final ModConfigSpec.BooleanValue OverlayShowOriginalAverageDps = bool(DSConfigLang.OverlayShowOriginalAverageDps, false);
+    public static final ModConfigSpec.EnumValue<OverlayMetricScope> OverlayOriginalAverageDpsScope = scope(DSConfigLang.OverlayOriginalAverageDpsScope);
+    public static final ModConfigSpec.BooleanValue OverlayShowOriginalRealtimeDps = bool(DSConfigLang.OverlayShowOriginalRealtimeDps, false);
+    public static final ModConfigSpec.EnumValue<OverlayMetricScope> OverlayOriginalRealtimeDpsScope = scope(DSConfigLang.OverlayOriginalRealtimeDpsScope);
+    public static final ModConfigSpec.BooleanValue OverlayShowAverageHit = bool(DSConfigLang.OverlayShowAverageHit, false);
+    public static final ModConfigSpec.EnumValue<OverlayMetricScope> OverlayAverageHitScope = scope(DSConfigLang.OverlayAverageHitScope);
+    public static final ModConfigSpec.EnumValue<OverlayMetricScope> OverlayHitsScope = scope(DSConfigLang.OverlayHitsScope);
+    public static final ModConfigSpec.BooleanValue OverlayShowMaxOriginal = bool(DSConfigLang.OverlayShowMaxOriginal, false);
+    public static final ModConfigSpec.EnumValue<OverlayMetricScope> OverlayMaxOriginalScope = scope(DSConfigLang.OverlayMaxOriginalScope);
+    public static final ModConfigSpec.BooleanValue OverlayShowMaxActual = bool(DSConfigLang.OverlayShowMaxActual, false);
+    public static final ModConfigSpec.EnumValue<OverlayMetricScope> OverlayMaxActualScope = scope(DSConfigLang.OverlayMaxActualScope);
+    public static final ModConfigSpec.BooleanValue OverlayShowTopDamageType = bool(DSConfigLang.OverlayShowTopDamageType, false);
+    public static final ModConfigSpec.EnumValue<OverlayMetricScope> OverlayTopDamageTypeScope = scope(DSConfigLang.OverlayTopDamageTypeScope);
+    public static final ModConfigSpec.BooleanValue OverlayShowTopDirectSource = bool(DSConfigLang.OverlayShowTopDirectSource, false);
+    public static final ModConfigSpec.EnumValue<OverlayMetricScope> OverlayTopDirectSourceScope = scope(DSConfigLang.OverlayTopDirectSourceScope);
+    public static final ModConfigSpec.BooleanValue OverlayShowSessionStatus = bool(DSConfigLang.OverlayShowSessionStatus, false);
+
     public static final ModConfigSpec SPEC = BUILDER.build();
+
+    private static ModConfigSpec.BooleanValue bool(DSConfigLang.ConfigEntry entry, boolean defaultValue) {
+        return BUILDER.translation(entry.getKey()).define(entry.name(), defaultValue);
+    }
+
+    private static ModConfigSpec.EnumValue<OverlayMetricScope> scope(DSConfigLang.ConfigEntry entry) {
+        return BUILDER.translation(entry.getKey()).defineEnum(entry.name(), OverlayMetricScope.SESSION);
+    }
 }

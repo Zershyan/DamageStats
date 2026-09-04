@@ -21,5 +21,6 @@ public final class SessionTickHandler {
         long gameTime = event.getServer().overworld().getGameTime();
         if(gameTime % CHECK_INTERVAL_TICKS != 0) return;
         tracker.tick(gameTime);
+        StatsSyncHandler.onSessionTimeoutCheck(gameTime);
     }
 }

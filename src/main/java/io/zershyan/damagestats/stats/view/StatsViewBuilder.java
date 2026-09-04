@@ -5,6 +5,11 @@ import io.zershyan.damagestats.config.DamageTypeCategories;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
 import io.zershyan.damagestats.stats.*;
 import io.zershyan.damagestats.stats.filter.*;
+import io.zershyan.damagestats.stats.focus.FocusChartDimension;
+import io.zershyan.damagestats.stats.focus.FocusChartScope;
+import io.zershyan.damagestats.stats.focus.FocusScopeView;
+import io.zershyan.damagestats.stats.focus.StatsFocus;
+import io.zershyan.damagestats.stats.save.DamageEventJournal;
 import io.zershyan.damagestats.util.StatsNames;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -21,37 +26,99 @@ public final class StatsViewBuilder {
         Component subject = subjectName(tracker, filter, subjectSlot);
         long gameTime = player.level().getGameTime();
         int window = DSConfig.DpsWindowTicks.get();
+        DamageEventJournal journal = ServerStats.journal();
         StatsEntry fast = fastPathEntry(tracker, filter);
         StatsView session;
         StatsView lifetime;
-        if(fast != null) {
+        List<SessionView> history;
+        if(journal != null) {
+            // 导出与按需查询以完整事件日志为准，旧聚合缓存只作为日志不可用时的兼容后备。
+            session = fromHistory(tracker, filter, subjectSlot, typeGrouping, true, gameTime, window);
+            lifetime = fromHistory(tracker, filter, subjectSlot, typeGrouping, false, gameTime, window);
+            history = historyFromJournal(filter, gameTime);
+        } else if(fast != null) {
             DamageSession current = fast.getCurrentSession();
             // 实时 DPS 是「当下」的量，和看本场还是累计无关，所以两个视图给同一个值
             float realtimeDps = current == null ? 0 : current.getRealtimeDps(gameTime, window);
+            float realtimeOriginalDps = current == null ? 0 : current.getRealtimeOriginalDps(gameTime, window);
             session = current == null
                     ? StatsView.EMPTY
-                    : view(tracker, current.getAccumulator(), realtimeDps, subjectSlot, typeGrouping);
-            lifetime = view(tracker, fast.getLifetime(), realtimeDps, subjectSlot, typeGrouping);
+                    : view(tracker, current.getAccumulator(), realtimeDps, realtimeOriginalDps, subjectSlot, typeGrouping);
+            lifetime = view(tracker, fast.getLifetime(), realtimeDps, realtimeOriginalDps, subjectSlot, typeGrouping);
+            history = history(fast);
         } else {
-            session = fromLog(tracker, filter, subjectSlot, typeGrouping, true, gameTime, window);
-            lifetime = fromLog(tracker, filter, subjectSlot, typeGrouping, false, gameTime, window);
+            session = fromHistory(tracker, filter, subjectSlot, typeGrouping, true, gameTime, window);
+            lifetime = fromHistory(tracker, filter, subjectSlot, typeGrouping, false, gameTime, window);
+            history = List.of();
         }
         return new StatsSnapshot(
                 subject,
                 filter,
-                subjectSlot,
-                typeGrouping,
                 labels(tracker, filter),
                 session,
                 lifetime,
-                fast == null ? List.of() : history(fast),
-                fast == null && tracker.log().isTruncated(),
-                player.hasPermissions(2));
+                history);
     }
 
     public static StatsSnapshot snapshotFor(DamageTracker tracker, ServerPlayer player, StatsFilter filter) {
         return snapshotFor(tracker, player, filter, StatsSubjectSlot.SOURCE.resolve(filter),
                 DamageTypeGrouping.CATEGORY);
+    }
+
+    /** 焦点摘要只计算页头和 Overlay 所需指标，不构建图表分组或历史列表。 */
+    public static FocusSummary focusSummaryFor(DamageTracker tracker, ServerPlayer player, StatsFocus focus) {
+        StatsFilter filter = focus.filter();
+        long gameTime = player.level().getGameTime();
+        int windowTicks = DSConfig.DpsWindowTicks.get();
+        Component sourceName = filter.source().map(selector -> StatsNames.entitySelector(tracker, selector))
+                .orElseGet(() -> DSKeyLang.ScreenAllDamage.copy());
+        Component targetName = filter.target().map(selector -> StatsNames.entitySelector(tracker, selector))
+                .orElseGet(() -> DSKeyLang.OverlayAllTargets.copy());
+        FocusScopeView scope = new FocusScopeView(focus.version(), focus.source(), focus.target(),
+                focus.sourceIsDirectSource(), sourceName, targetName);
+        StatsEntry fast = fastPathEntry(tracker, filter);
+        if(fast != null) {
+            DamageSession current = fast.getCurrentSession();
+            float realtimeDps = current == null ? 0 : current.getRealtimeDps(gameTime, windowTicks);
+            float realtimeOriginalDps = current == null ? 0 : current.getRealtimeOriginalDps(gameTime, windowTicks);
+            FocusMetricsView session = current == null ? FocusMetricsView.EMPTY
+                    : focusMetrics(tracker, current.getAccumulator(), realtimeDps, realtimeOriginalDps);
+            FocusMetricsView lifetime = focusMetrics(tracker, fast.getLifetime(), realtimeDps, realtimeOriginalDps);
+            return new FocusSummary(0, scope, session, lifetime, current != null, ServerStats.worldId());
+        }
+        return focusSummaryFromHistory(tracker, scope, filter, gameTime, windowTicks);
+    }
+
+    /** 页间图表按需计算并切成固定页，后台焦点同步不会调用此方法。 */
+    public static FocusChartPage focusChartPage(DamageTracker tracker, ServerPlayer player, StatsFocus focus,
+                                                StatsFilter filter, FocusChartDimension dimension, FocusChartScope scope,
+                                                DamageTypeGrouping typeGrouping, int cursor) {
+        boolean allowed = switch (dimension) {
+            case RESPONSIBLE_SOURCE -> filter.source().isEmpty() && filter.target().isPresent();
+            case TARGET -> filter.source().isPresent() && filter.target().isEmpty();
+            case DAMAGE_TYPE, DIRECT_SOURCE -> true;
+        };
+        if(!allowed) return new FocusChartPage(focus.version(), 0, false, dimension, scope, typeGrouping, List.of(), false);
+        StatsSubjectSlot subjectSlot = dimension == FocusChartDimension.RESPONSIBLE_SOURCE
+                ? StatsSubjectSlot.TARGET
+                : filter.source().isPresent() ? StatsSubjectSlot.SOURCE : StatsSubjectSlot.TARGET;
+        // 图表是按需请求的，始终从完整事件日志聚合，不能把可能已过期的旧聚合缓存当作权威来源。
+        StatsView view = fromHistory(tracker, filter, subjectSlot, typeGrouping,
+                scope == FocusChartScope.SESSION, player.level().getGameTime(), DSConfig.DpsWindowTicks.get());
+        List<GroupView> groups = switch (dimension) {
+            case DAMAGE_TYPE -> view.byType();
+            case DIRECT_SOURCE -> view.bySource();
+            case RESPONSIBLE_SOURCE, TARGET -> view.byOpponent();
+        };
+        int start = Math.clamp(cursor, 0, groups.size());
+        int end = Math.min(groups.size(), start + FocusChartPage.PAGE_SIZE);
+        return new FocusChartPage(focus.version(), 0, true, dimension, scope, typeGrouping,
+                groups.subList(start, end), end < groups.size());
+    }
+
+    public static FocusChartPage deniedFocusChartPage(StatsFocus focus, FocusChartDimension dimension,
+                                                       FocusChartScope scope, DamageTypeGrouping typeGrouping) {
+        return new FocusChartPage(focus.version(), 0, false, dimension, scope, typeGrouping, List.of(), false);
     }
 
     private static Component subjectName(DamageTracker tracker, StatsFilter filter, StatsSubjectSlot subjectSlot) {
@@ -69,8 +136,11 @@ public final class StatsViewBuilder {
      * 一旦掺进直接来源或伤害类型，组合就超出了预聚合能表达的范围，只能回去翻原始记录。
      */
     private static @Nullable StatsEntry fastPathEntry(DamageTracker tracker, StatsFilter filter) {
+        if(filter.sourceIsDirectSource()) return null;
         if(filter.directSource().isPresent() || filter.damageType().isPresent()) return null;
-        if(filter.source().isEmpty() && filter.target().isEmpty()) return tracker.global();
+        if(filter.source().isEmpty() && filter.target().isEmpty()) {
+            return tracker.global().getLifetime().getHitCount() == 0 ? null : tracker.global();
+        }
         if(filter.source().isPresent() && filter.target().isEmpty()) {
             return entryFor(tracker, filter.source().get(), true);
         }
@@ -89,12 +159,15 @@ public final class StatsViewBuilder {
         };
     }
 
-    /** 从原始记录现聚合。对手维度取「另一边」：筛了目标就看来源，否则看目标 */
-    private static StatsView fromLog(DamageTracker tracker, StatsFilter filter, StatsSubjectSlot subjectSlot,
-                                     DamageTypeGrouping typeGrouping, boolean sessionOnly,
-                                     long gameTime, int windowTicks) {
+    /** 从完整原始事件历史现聚合。对手维度取「另一边」：筛了目标就看来源，否则看目标 */
+    private static StatsView fromHistory(DamageTracker tracker, StatsFilter filter, StatsSubjectSlot subjectSlot,
+                                         DamageTypeGrouping typeGrouping, boolean sessionOnly,
+                                         long gameTime, int windowTicks) {
         long since = sessionOnly ? sessionStart(tracker, filter, subjectSlot, gameTime) : Long.MIN_VALUE;
-        List<DamageRecord> matched = tracker.log().matching(filter, since);
+        DamageEventJournal journal = ServerStats.journal();
+        List<DamageRecord> matched = journal == null ? List.of() : journal.matching(filter).stream()
+                .filter(record -> record.gameTime() >= since)
+                .toList();
         DamageAccumulator.OpponentGrouping grouping = sessionOnly
                 ? DamageAccumulator.OpponentGrouping.INSTANCE
                 : DamageAccumulator.OpponentGrouping.TYPE;
@@ -103,7 +176,8 @@ public final class StatsViewBuilder {
         for (DamageRecord record : matched) {
             accumulator.accept(record, opponentIsSource ? record.source() : record.target());
         }
-        return view(tracker, accumulator, windowDps(matched, gameTime, windowTicks), subjectSlot, typeGrouping);
+        return view(tracker, accumulator, windowDps(matched, gameTime, windowTicks),
+                windowOriginalDps(matched, gameTime, windowTicks), subjectSlot, typeGrouping);
     }
 
     /** 「本场」优先采用主体预聚合会话的起点，否则从筛选后的原始记录重新切分 */
@@ -111,15 +185,71 @@ public final class StatsViewBuilder {
                                      StatsSubjectSlot subjectSlot, long gameTime) {
         StatsEntry entry = sessionEntry(tracker, filter, subjectSlot);
         if(entry == null) {
-            return tracker.log().currentSessionStart(
-                    filter, gameTime, DSConfig.SessionTimeoutTicks.get());
+            DamageEventJournal journal = ServerStats.journal();
+            if(journal == null) return gameTime + 1;
+            return journal.currentSessionStart(filter, gameTime, DSConfig.SessionTimeoutTicks.get());
         }
         DamageSession session = entry.getCurrentSession();
         return session == null ? gameTime + 1 : session.getStartTime();
     }
 
+    /** 从权威事件历史恢复最近已结束会话，避免旧聚合缓存关闭保存后丢失历史页和导出内容。 */
+    public static List<SessionView> historyFromJournal(StatsFilter filter, long gameTime) {
+        DamageEventJournal journal = ServerStats.journal();
+        if(journal == null || DSConfig.KeepFinishedSessions.get() == 0) return List.of();
+        List<DamageRecord> records = journal.matching(filter).stream()
+                .sorted(Comparator.comparingLong(DamageRecord::gameTime))
+                .toList();
+        if(records.isEmpty()) return List.of();
+        int timeout = DSConfig.SessionTimeoutTicks.get();
+        int limit = DSConfig.KeepFinishedSessions.get();
+        Deque<SessionView> sessions = new ArrayDeque<>();
+        DamageAccumulator accumulator = new DamageAccumulator(DamageAccumulator.OpponentGrouping.TYPE);
+        long lastGameTime = -1;
+        for (DamageRecord record : records) {
+            if(lastGameTime >= 0 && record.gameTime() - lastGameTime > timeout) {
+                addHistorySession(sessions, accumulator, limit);
+                accumulator = new DamageAccumulator(DamageAccumulator.OpponentGrouping.TYPE);
+            }
+            accumulator.accept(record, record.target());
+            lastGameTime = record.gameTime();
+        }
+        if(lastGameTime >= 0 && gameTime - lastGameTime > timeout) addHistorySession(sessions, accumulator, limit);
+        return List.copyOf(sessions);
+    }
+
+    private static void addHistorySession(Deque<SessionView> sessions, DamageAccumulator accumulator, int limit) {
+        if(accumulator.getHitCount() == 0) return;
+        sessions.addLast(new SessionView(accumulator.getTotalActual(), accumulator.getAverageDps(),
+                accumulator.getDurationTicks() / DamageAccumulator.TICKS_PER_SECOND, accumulator.getHitCount()));
+        while(sessions.size() > limit) sessions.removeFirst();
+    }
+
+    private static FocusSummary focusSummaryFromHistory(DamageTracker tracker, FocusScopeView scope,
+                                                        StatsFilter filter, long gameTime, int windowTicks) {
+        DamageEventJournal journal = ServerStats.journal();
+        if(journal == null) return new FocusSummary(0, scope, FocusMetricsView.EMPTY, FocusMetricsView.EMPTY, false,
+                ServerStats.worldId());
+        List<DamageRecord> records = journal.matching(filter);
+        long sessionStart = journal.currentSessionStart(filter, gameTime, DSConfig.SessionTimeoutTicks.get());
+        boolean active = sessionStart <= gameTime;
+        DamageAccumulator lifetime = new DamageAccumulator(DamageAccumulator.OpponentGrouping.TYPE);
+        DamageAccumulator session = new DamageAccumulator(DamageAccumulator.OpponentGrouping.TYPE);
+        for (DamageRecord record : records) {
+            lifetime.accept(record, record.target());
+            if(active && record.gameTime() >= sessionStart) session.accept(record, record.target());
+        }
+        float realtimeDps = windowDps(records, gameTime, windowTicks);
+        float realtimeOriginalDps = windowOriginalDps(records, gameTime, windowTicks);
+        return new FocusSummary(0, scope,
+                active ? focusMetrics(tracker, session, realtimeDps, realtimeOriginalDps) : FocusMetricsView.EMPTY,
+                focusMetrics(tracker, lifetime, realtimeDps, realtimeOriginalDps),
+                active, ServerStats.worldId());
+    }
+
     private static @Nullable StatsEntry sessionEntry(DamageTracker tracker, StatsFilter filter,
                                                      StatsSubjectSlot subjectSlot) {
+        if(filter.sourceIsDirectSource()) return null;
         return switch (subjectSlot) {
             case SOURCE -> filter.source().map(selector -> entryFor(tracker, selector, true)).orElse(null);
             case TARGET -> filter.target().map(selector -> entryFor(tracker, selector, false)).orElse(null);
@@ -136,24 +266,56 @@ public final class StatsViewBuilder {
         return sum / (windowTicks / DamageAccumulator.TICKS_PER_SECOND);
     }
 
+    private static float windowOriginalDps(List<DamageRecord> records, long gameTime, int windowTicks) {
+        long cutoff = gameTime - windowTicks;
+        float sum = 0;
+        for (DamageRecord record : records) {
+            if(record.gameTime() >= cutoff) sum += record.originalDamage();
+        }
+        return sum / (windowTicks / DamageAccumulator.TICKS_PER_SECOND);
+    }
+
     public static StatsView view(DamageTracker tracker, DamageAccumulator acc,
-                                 float realtimeDps, StatsSubjectSlot subjectSlot,
+                                 float realtimeDps, float realtimeOriginalDps, StatsSubjectSlot subjectSlot,
                                  DamageTypeGrouping typeGrouping) {
         float total = acc.getTotalActual();
         // 筛了目标之后对手维度就翻到来源那一侧，点它应该填来源槽
         boolean opponentIsSource = subjectSlot == StatsSubjectSlot.TARGET;
         boolean typeLevel = acc.getOpponentGrouping() == DamageAccumulator.OpponentGrouping.TYPE;
-        List<GroupView> directSources = groups(acc.getByDirectSourceType(), total, StatsNames::entityType,
+        List<GroupView> directSources = groups(tracker, acc.getByDirectSourceType(), total, StatsNames::entityType,
                 typeId -> new FilterKey.Direct(new EntitySelector.Type(typeId)));
         return new StatsView(
-                MetricsView.of(acc,
-                        StatsNames.damageType(acc.getMaxSingleDamageType()),
-                        maxSingleDirectSourceName(tracker, acc),
-                        realtimeDps),
-                damageTypeGroups(acc.getByDamageType(), total, typeGrouping),
+                metrics(tracker, acc, realtimeDps, realtimeOriginalDps),
+                damageTypeGroups(tracker, acc.getByDamageType(), total, typeGrouping),
                 directSources,
-                groups(acc.getByOpponent(), total, ref -> StatsNames.opponent(tracker, ref),
+                groups(tracker, acc.getByOpponent(), total, ref -> StatsNames.opponent(tracker, ref),
                 ref -> opponentKey(ref, typeLevel, opponentIsSource)));
+    }
+
+    private static MetricsView metrics(DamageTracker tracker, DamageAccumulator accumulator,
+                                       float realtimeDps, float realtimeOriginalDps) {
+        return MetricsView.of(accumulator,
+                StatsNames.damageType(accumulator.getMaxSingleDamageType()),
+                maxSingleDirectSourceName(tracker, accumulator),
+                realtimeDps, realtimeOriginalDps);
+    }
+
+    /** 焦点缓存与按需构建视图复用同一套指标及最高贡献项计算，保证两条路径结果一致。 */
+    public static FocusMetricsView focusMetrics(DamageTracker tracker, DamageAccumulator accumulator,
+                                                float realtimeDps, float realtimeOriginalDps) {
+        return new FocusMetricsView(metrics(tracker, accumulator, realtimeDps, realtimeOriginalDps),
+                topContribution(accumulator.getByDamageType(), accumulator.getTotalActual(), StatsNames::damageType),
+                topContribution(accumulator.getByDirectSourceType(), accumulator.getTotalActual(), StatsNames::entityType));
+    }
+
+    private static <K> ContributionView topContribution(Map<K, DamageAccumulator> groups, float total,
+                                                         Function<K, Component> namer) {
+        Map.Entry<K, DamageAccumulator> top = groups.entrySet().stream()
+                .max(Comparator.comparingDouble(entry -> entry.getValue().getTotalActual()))
+                .orElse(null);
+        if(top == null) return ContributionView.EMPTY;
+        float damage = top.getValue().getTotalActual();
+        return new ContributionView(namer.apply(top.getKey()), damage, total <= 0 ? 0 : damage / total);
     }
 
     private static Component maxSingleDirectSourceName(DamageTracker tracker, DamageAccumulator acc) {
@@ -172,10 +334,10 @@ public final class StatsViewBuilder {
      * 同一个分类下的多个伤害类型合成一行，否则会冒出两行都叫「魔法伤害」。
      * 合过的行按分类筛，没归类的按注册表 ID 精确筛——正好对上需求里那两种筛法。
      */
-    private static List<GroupView> damageTypeGroups(Map<ResourceLocation, DamageAccumulator> byType, float total,
+    private static List<GroupView> damageTypeGroups(DamageTracker tracker, Map<ResourceLocation, DamageAccumulator> byType, float total,
                                                      DamageTypeGrouping typeGrouping) {
         if(typeGrouping == DamageTypeGrouping.REGISTRY) {
-            return groups(byType, total, typeId -> Component.literal(typeId.toString()),
+            return groups(tracker, byType, total, typeId -> Component.literal(typeId.toString()),
                     typeId -> new FilterKey.Type(new DamageTypeSelector.Exact(typeId)));
         }
         Map<DamageTypeSelector, float[]> merged = new LinkedHashMap<>();
@@ -184,9 +346,10 @@ public final class StatsViewBuilder {
             DamageTypeSelector selector = category == null
                     ? new DamageTypeSelector.Exact(typeId)
                     : new DamageTypeSelector.Category(category);
-            float[] sums = merged.computeIfAbsent(selector, key -> new float[2]);
+            float[] sums = merged.computeIfAbsent(selector, key -> new float[3]);
             sums[0] += group.getTotalActual();
-            sums[1] += group.getHitCount();
+            sums[1] += group.getTotalOriginal();
+            sums[2] += group.getHitCount();
         });
         return merged.entrySet().stream()
                 .sorted(Comparator.comparingDouble((Map.Entry<DamageTypeSelector, float[]> row) -> row.getValue()[0])
@@ -194,24 +357,45 @@ public final class StatsViewBuilder {
                 .map(row -> new GroupView(
                         StatsNames.damageTypeSelector(row.getKey()),
                         row.getValue()[0],
-                        (int) row.getValue()[1],
+                        row.getValue()[1],
+                        (int) row.getValue()[2],
                         total <= 0 ? 0 : row.getValue()[0] / total,
-                        new FilterKey.Type(row.getKey())))
+                        new FilterKey.Type(row.getKey()),
+                        false))
                 .toList();
     }
 
-    private static <K> List<GroupView> groups(Map<K, DamageAccumulator> source, float total,
+    private static <K> List<GroupView> groups(DamageTracker tracker, Map<K, DamageAccumulator> source, float total,
                                               Function<K, Component> namer, Function<K, FilterKey> keyer) {
         return source.entrySet().stream()
                 .sorted(Comparator.comparingDouble(
                         (Map.Entry<K, DamageAccumulator> group) -> group.getValue().getTotalActual()).reversed())
-                .map(group -> new GroupView(
-                        namer.apply(group.getKey()),
-                        group.getValue().getTotalActual(),
-                        group.getValue().getHitCount(),
-                        total <= 0 ? 0 : group.getValue().getTotalActual() / total,
-                        keyer.apply(group.getKey())))
+                .map(group -> {
+                    FilterKey key = keyer.apply(group.getKey());
+                    return new GroupView(
+                            namer.apply(group.getKey()),
+                            group.getValue().getTotalActual(),
+                            group.getValue().getTotalOriginal(),
+                            group.getValue().getHitCount(),
+                            total <= 0 ? 0 : group.getValue().getTotalActual() / total,
+                            key,
+                            canOpenInstances(tracker, key));
+                })
                 .toList();
+    }
+
+    private static boolean canOpenInstances(DamageTracker tracker, FilterKey key) {
+        EntitySelector selector = switch (key) {
+            case FilterKey.Source(EntitySelector value) -> value;
+            case FilterKey.Target(EntitySelector value) -> value;
+            case FilterKey.Direct(EntitySelector value) -> value;
+            case FilterKey.Type ignored -> null;
+        };
+        if(selector == null) return false;
+        return switch (selector) {
+            case EntitySelector.Instance(EntityRef ref) -> tracker.instanceDirectory().contains(ref);
+            case EntitySelector.Type(ResourceLocation typeId) -> tracker.instanceDirectory().containsType(typeId);
+        };
     }
 
     private static List<Component> labels(DamageTracker tracker, StatsFilter filter) {
@@ -225,39 +409,6 @@ public final class StatsViewBuilder {
         filter.damageType().ifPresent(selector ->
                 labels.add(DSKeyLang.FilterType.get(StatsNames.damageTypeSelector(selector))));
         return labels;
-    }
-
-    /** 会话结束后 Overlay 退回展示累计数据，active 为 false 供客户端灰显 */
-    public static OverlaySummary overlay(Component targetName, @Nullable StatsEntry entry,
-                                         long gameTime, int windowTicks) {
-        if(entry == null) return OverlaySummary.empty();
-        DamageSession session = entry.getCurrentSession();
-        if(session == null) {
-            DamageAccumulator lifetime = entry.getLifetime();
-            return new OverlaySummary(targetName, lifetime.getTotalActual(), lifetime.getAverageDps(),
-                    0, lifetime.getHitCount(), false);
-        }
-        DamageAccumulator acc = session.getAccumulator();
-        return new OverlaySummary(targetName, acc.getTotalActual(), acc.getAverageDps(),
-                session.getRealtimeDps(gameTime, windowTicks), acc.getHitCount(), true);
-    }
-
-    /** Overlay 按实体类型筛选时使用，类型下的所有目标会合并计算 */
-    public static OverlaySummary overlayForOpponentType(Component targetName, @Nullable StatsEntry entry,
-                                                        ResourceLocation targetType,
-                                                        long gameTime, int windowTicks) {
-        if(entry == null) return OverlaySummary.empty();
-        DamageSession session = entry.getCurrentSession();
-        if(session != null) {
-            DamageAccumulator group = session.getOpponentTypeGroup(targetType);
-            if(group != null) return new OverlaySummary(targetName, group.getTotalActual(), group.getAverageDps(),
-                    session.getOpponentTypeRealtimeDps(targetType, gameTime, windowTicks), group.getHitCount(), true);
-        }
-        // 本场还没碰过这个类型，退回展示历史累计
-        DamageAccumulator lifetimeGroup = entry.getLifetime().opponentGroup(EntityRef.ofType(targetType));
-        if(lifetimeGroup == null) return OverlaySummary.empty();
-        return new OverlaySummary(targetName, lifetimeGroup.getTotalActual(), lifetimeGroup.getAverageDps(),
-                0, lifetimeGroup.getHitCount(), false);
     }
 
     public static List<SessionView> history(StatsEntry entry) {

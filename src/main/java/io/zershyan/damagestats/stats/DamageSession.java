@@ -16,6 +16,7 @@ public class DamageSession {
     private final DamageAccumulator accumulator =
             new DamageAccumulator(DamageAccumulator.OpponentGrouping.INSTANCE);
     private final DpsWindow window = new DpsWindow();
+    private final DpsWindow originalWindow = new DpsWindow();
     private final Map<EntityRef, DpsWindow> opponentWindows = new HashMap<>();
     private final long startTime;
     private long lastActivityTime;
@@ -33,6 +34,7 @@ public class DamageSession {
     public void accept(DamageRecord record, EntityRef opponent) {
         accumulator.accept(record, opponent);
         window.accept(record.gameTime(), record.actualDamage());
+        originalWindow.accept(record.gameTime(), record.originalDamage());
         opponentWindows.computeIfAbsent(opponent, key -> new DpsWindow())
                 .accept(record.gameTime(), record.actualDamage());
         lastActivityTime = record.gameTime();
@@ -49,6 +51,10 @@ public class DamageSession {
 
     public float getRealtimeDps(long currentGameTime, int windowTicks) {
         return window.dps(currentGameTime, windowTicks);
+    }
+
+    public float getRealtimeOriginalDps(long currentGameTime, int windowTicks) {
+        return originalWindow.dps(currentGameTime, windowTicks);
     }
 
     public DamageAccumulator getAccumulator() {

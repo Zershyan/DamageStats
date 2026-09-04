@@ -16,14 +16,20 @@ public record StatsFilter(
         Optional<EntitySelector> source,
         Optional<EntitySelector> target,
         Optional<EntitySelector> directSource,
-        Optional<DamageTypeSelector> damageType
+        Optional<DamageTypeSelector> damageType,
+        boolean sourceIsDirectSource
 ) {
     public static final StatsFilter NONE =
-            new StatsFilter(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+            new StatsFilter(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), false);
+
+    public StatsFilter(Optional<EntitySelector> source, Optional<EntitySelector> target,
+                       Optional<EntitySelector> directSource, Optional<DamageTypeSelector> damageType) {
+        this(source, target, directSource, damageType, false);
+    }
 
     /** 只看这个来源打出的伤害，目标不限 */
     public static StatsFilter fromSource(EntitySelector selector) {
-        return new StatsFilter(Optional.of(selector), Optional.empty(), Optional.empty(), Optional.empty());
+        return new StatsFilter(Optional.of(selector), Optional.empty(), Optional.empty(), Optional.empty(), false);
     }
 
     public static final StreamCodec<ByteBuf, StatsFilter> STREAM_CODEC = StreamCodec.composite(
@@ -31,11 +37,12 @@ public record StatsFilter(
             ByteBufCodecs.optional(EntitySelector.STREAM_CODEC), StatsFilter::target,
             ByteBufCodecs.optional(EntitySelector.STREAM_CODEC), StatsFilter::directSource,
             ByteBufCodecs.optional(DamageTypeSelector.STREAM_CODEC), StatsFilter::damageType,
+            ByteBufCodecs.BOOL, StatsFilter::sourceIsDirectSource,
             StatsFilter::new
     );
 
     public boolean matches(DamageRecord record) {
-        return matchesEntity(source, record.source())
+        return matchesEntity(source, sourceIsDirectSource ? record.directSource() : record.source())
                 && matchesEntity(target, record.target())
                 && matchesEntity(directSource, record.directSource())
                 && (damageType.isEmpty() || damageType.get().matches(record.damageTypeId()));
@@ -45,22 +52,22 @@ public record StatsFilter(
     public StatsFilter toggle(FilterKey key) {
         return switch (key) {
             case FilterKey.Source(EntitySelector selector) ->
-                    new StatsFilter(toggled(source, selector), target, directSource, damageType);
+                    new StatsFilter(toggled(source, selector), target, directSource, damageType, false);
             case FilterKey.Target(EntitySelector selector) ->
-                    new StatsFilter(source, toggled(target, selector), directSource, damageType);
+                    new StatsFilter(source, toggled(target, selector), directSource, damageType, sourceIsDirectSource);
             case FilterKey.Direct(EntitySelector selector) ->
-                    new StatsFilter(source, target, toggled(directSource, selector), damageType);
+                    new StatsFilter(source, target, toggled(directSource, selector), damageType, sourceIsDirectSource);
             case FilterKey.Type(DamageTypeSelector selector) ->
-                    new StatsFilter(source, target, directSource, toggled(damageType, selector));
+                    new StatsFilter(source, target, directSource, toggled(damageType, selector), sourceIsDirectSource);
         };
     }
 
     public StatsFilter withSource(Optional<EntitySelector> newSource) {
-        return new StatsFilter(newSource, target, directSource, damageType);
+        return new StatsFilter(newSource, target, directSource, damageType, false);
     }
 
     public StatsFilter withTarget(Optional<EntitySelector> newTarget) {
-        return new StatsFilter(source, newTarget, directSource, damageType);
+        return new StatsFilter(source, newTarget, directSource, damageType, sourceIsDirectSource);
     }
 
     private static boolean matchesEntity(Optional<EntitySelector> selector, EntityRef candidate) {

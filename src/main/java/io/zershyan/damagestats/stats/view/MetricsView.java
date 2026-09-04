@@ -34,7 +34,9 @@ public record MetricsView(
         float minSingle,
         float averageDps,
         float realtimeDps,
-        long durationTicks
+        long durationTicks,
+        float maxOriginal,
+        float realtimeOriginalDps
 ) {
     /** 字段数超过 StreamCodec.composite 的六个上限，只能手写 */
     public static final StreamCodec<RegistryFriendlyByteBuf, MetricsView> STREAM_CODEC =
@@ -43,12 +45,20 @@ public record MetricsView(
     /** 没有活跃会话时用它占位，客户端看 hitCount 是否为 0 就知道有没有数据 */
     public static final MetricsView EMPTY = new MetricsView(
             0, 0, 0, DamageReduction.NONE, 0, 0, 0,
-            null, Component.empty(), null, Component.empty(), 0, 0, 0, 0, 0);
+            null, Component.empty(), null, Component.empty(), 0, 0, 0, 0, 0, 0, 0);
 
     public static MetricsView of(DamageAccumulator acc,
                                  Component maxSingleTypeName,
                                  Component maxSingleDirectSourceName,
                                  float realtimeDps) {
+        return of(acc, maxSingleTypeName, maxSingleDirectSourceName, realtimeDps, 0);
+    }
+
+    public static MetricsView of(DamageAccumulator acc,
+                                 Component maxSingleTypeName,
+                                 Component maxSingleDirectSourceName,
+                                 float realtimeDps,
+                                 float realtimeOriginalDps) {
         return new MetricsView(
                 acc.getTotalActual(),
                 acc.getTotalOriginal(),
@@ -65,7 +75,9 @@ public record MetricsView(
                 acc.getMinSingle(),
                 acc.getAverageDps(),
                 realtimeDps,
-                acc.getDurationTicks());
+                acc.getDurationTicks(),
+                acc.getMaxOriginal(),
+                realtimeOriginalDps);
     }
 
     public boolean isEmpty() {
@@ -74,6 +86,11 @@ public record MetricsView(
 
     public float averageDamage() {
         return hitCount == 0 ? 0 : totalActual / hitCount;
+    }
+
+    public float averageOriginalDps() {
+        float seconds = Math.max(1L, durationTicks) / DamageAccumulator.TICKS_PER_SECOND;
+        return hitCount == 0 ? 0 : totalOriginal / seconds;
     }
 
     /** 取原始与实际的差值，而不是六项减免之和——别的 mod 可能直接改最终伤害而不走减免记账 */
@@ -114,6 +131,8 @@ public record MetricsView(
         buf.writeFloat(view.averageDps);
         buf.writeFloat(view.realtimeDps);
         buf.writeVarLong(view.durationTicks);
+        buf.writeFloat(view.maxOriginal);
+        buf.writeFloat(view.realtimeOriginalDps);
     }
 
     private static MetricsView decode(RegistryFriendlyByteBuf buf) {
@@ -133,6 +152,8 @@ public record MetricsView(
                 buf.readFloat(),
                 buf.readFloat(),
                 buf.readFloat(),
-                buf.readVarLong());
+                buf.readVarLong(),
+                buf.readFloat(),
+                buf.readFloat());
     }
 }

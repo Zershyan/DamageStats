@@ -41,12 +41,13 @@ public class StatsEntry {
         lastActivityTime = record.gameTime();
     }
 
-    public void tick(long currentGameTime, int timeoutTicks, int keepSessions) {
-        if(currentSession == null) return;
-        if(!currentSession.isTimedOut(currentGameTime, timeoutTicks)) return;
+    public boolean tick(long currentGameTime, int timeoutTicks, int keepSessions) {
+        if(currentSession == null) return false;
+        if(!currentSession.isTimedOut(currentGameTime, timeoutTicks)) return false;
         if(keepSessions > 0) finishedSessions.addLast(currentSession.summarize());
         while(finishedSessions.size() > keepSessions) finishedSessions.removeFirst();
         currentSession = null;
+        return true;
     }
 
     public DamageAccumulator getLifetime() { return lifetime; }

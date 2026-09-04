@@ -7,6 +7,7 @@ import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import org.jetbrains.annotations.Nullable;
 
@@ -41,7 +42,9 @@ public class DamageTracker {
             Codec.unboundedMap(UUIDUtil.STRING_CODEC, Codec.STRING)
                     .optionalFieldOf("names", Map.of()).forGetter(tracker -> tracker.nameCache),
             StatsEntry.CODEC.optionalFieldOf("global")
-                    .forGetter(tracker -> Optional.of(tracker.global))
+                    .forGetter(tracker -> Optional.of(tracker.global)),
+            InstanceDirectory.CODEC.optionalFieldOf("instanceDirectory", new InstanceDirectory())
+                    .forGetter(DamageTracker::instanceDirectory)
     ).apply(instance, DamageTracker::restore));
 
     private final Map<EntityRef, StatsEntry> outgoing = new HashMap<>();
@@ -49,40 +52,34 @@ public class DamageTracker {
     private final Map<ResourceLocation, StatsEntry> outgoingByType = new HashMap<>();
     private final Map<ResourceLocation, StatsEntry> incomingByType = new HashMap<>();
     private final Map<UUID, String> nameCache = new HashMap<>();
+    private final InstanceDirectory instanceDirectory = new InstanceDirectory();
     private StatsEntry global;
-
-    /** Overlay 目标类型为空时表示玩家对任意目标造成的伤害 */
-    private final Map<UUID, ResourceLocation> overlayTargetTypes = new HashMap<>();
-
-    /** 带筛选条件的查询要翻这份原始记录，预聚合的分组撑不住四个槽位的任意组合 */
-    private final DamageLog log = new DamageLog();
 
     public DamageTracker() {
         global = new StatsEntry();
     }
 
     public void record(DamageRecord record) {
-        // 完全免疫或完全格挡的事件不算命中，也不应进入原始日志
+        // 完全免疫或完全格挡的事件不算命中
         if(record.actualDamage() <= 0) return;
-        log.accept(record, DSConfig.DamageLogLimit.get());
         entry(outgoing, record.source()).accept(record, record.target());
         entry(incoming, record.target()).accept(record, record.source());
         entry(outgoingByType, record.source().typeIdOrEnvironment()).accept(record, record.target());
         entry(incomingByType, record.target().typeIdOrEnvironment()).accept(record, record.source());
         global.accept(record, record.target());
-        int limit = DSConfig.InstanceEntryLimit.get();
+        int limit = DSConfig.InstanceDirectoryLimit.get();
         evict(outgoing, limit);
         evict(incoming, limit);
     }
 
-    public void tick(long currentGameTime) {
+    public boolean tick(long currentGameTime) {
         int timeout = DSConfig.SessionTimeoutTicks.get();
         int keep = DSConfig.KeepFinishedSessions.get();
-        tickAll(outgoing.values(), currentGameTime, timeout, keep);
-        tickAll(incoming.values(), currentGameTime, timeout, keep);
-        tickAll(outgoingByType.values(), currentGameTime, timeout, keep);
-        tickAll(incomingByType.values(), currentGameTime, timeout, keep);
-        global.tick(currentGameTime, timeout, keep);
+        boolean changed = tickAll(outgoing.values(), currentGameTime, timeout, keep);
+        changed |= tickAll(incoming.values(), currentGameTime, timeout, keep);
+        changed |= tickAll(outgoingByType.values(), currentGameTime, timeout, keep);
+        changed |= tickAll(incomingByType.values(), currentGameTime, timeout, keep);
+        return global.tick(currentGameTime, timeout, keep) || changed;
     }
 
     public void reset() {
@@ -91,12 +88,8 @@ public class DamageTracker {
         outgoingByType.clear();
         incomingByType.clear();
         global = new StatsEntry();
-        log.clear();
         nameCache.clear();
-    }
-
-    public DamageLog log() {
-        return log;
+        instanceDirectory.clear();
     }
 
     /** 只记玩家名和被命名过的实体：普通怪物用 EntityType 的翻译名就够，不必为每只怪存一份字符串 */
@@ -113,20 +106,23 @@ public class DamageTracker {
         return nameCache.get(id);
     }
 
+    public void touchInstance(LivingEntity entity, long nowMillis) {
+        instanceDirectory.touch(entity, nowMillis);
+    }
+
+    public void pruneInstanceDirectory(long nowMillis) {
+        instanceDirectory.prune(nowMillis);
+        Set<UUID> knownInstances = instanceDirectory.entries().stream()
+                .map(metadata -> metadata.ref().id())
+                .collect(java.util.stream.Collectors.toSet());
+        nameCache.keySet().retainAll(knownInstances);
+    }
+
+    public InstanceDirectory instanceDirectory() {
+        return instanceDirectory;
+    }
+
     /** 传 null 表示 Overlay 不限制目标类型 */
-    public void setOverlayTargetType(UUID playerId, @Nullable ResourceLocation targetType) {
-        if(targetType == null) overlayTargetTypes.remove(playerId);
-        else overlayTargetTypes.put(playerId, targetType);
-    }
-
-    public @Nullable ResourceLocation overlayTargetType(UUID playerId) {
-        return overlayTargetTypes.get(playerId);
-    }
-
-    public void clearPlayerState(UUID playerId) {
-        overlayTargetTypes.remove(playerId);
-    }
-
     public @Nullable StatsEntry outgoing(EntityRef ref) {
         return outgoing.get(ref);
     }
@@ -151,7 +147,6 @@ public class DamageTracker {
     public void resetFor(EntityRef owner) {
         outgoing.remove(owner);
         incoming.remove(owner);
-        log.markReset(owner);
     }
 
     private static <K> StatsEntry entry(Map<K, StatsEntry> map, K key) {
@@ -168,13 +163,15 @@ public class DamageTracker {
                                           Map<ResourceLocation, StatsEntry> outgoingByType,
                                           Map<ResourceLocation, StatsEntry> incomingByType,
                                           Map<UUID, String> names,
-                                          Optional<StatsEntry> global) {
+                                          Optional<StatsEntry> global,
+                                          InstanceDirectory instanceDirectory) {
         DamageTracker tracker = new DamageTracker();
         outgoing.forEach(entry -> tracker.outgoing.put(entry.owner(), entry.stats()));
         incoming.forEach(entry -> tracker.incoming.put(entry.owner(), entry.stats()));
         tracker.outgoingByType.putAll(outgoingByType);
         tracker.incomingByType.putAll(incomingByType);
         tracker.nameCache.putAll(names);
+        tracker.instanceDirectory.restore(instanceDirectory.entries());
         if(global.isPresent()) {
             tracker.global = global.get();
         } else {
@@ -183,8 +180,12 @@ public class DamageTracker {
         return tracker;
     }
 
-    private static void tickAll(Collection<StatsEntry> entries, long gameTime, int timeout, int keep) {
-        entries.forEach(entry -> entry.tick(gameTime, timeout, keep));
+    private static boolean tickAll(Collection<StatsEntry> entries, long gameTime, int timeout, int keep) {
+        boolean changed = false;
+        for (StatsEntry entry : entries) {
+            if(entry.tick(gameTime, timeout, keep)) changed = true;
+        }
+        return changed;
     }
 
     private static void evict(Map<EntityRef, StatsEntry> map, int limit) {

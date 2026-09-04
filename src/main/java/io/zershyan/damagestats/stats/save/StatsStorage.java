@@ -18,6 +18,7 @@ import java.io.Reader;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.util.UUID;
 
 /**
  * 统计数据的读写。文件放在世界目录下，于是「每个存档独立」是目录结构天然保证的，
@@ -27,6 +28,7 @@ public final class StatsStorage {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final String DIR_NAME = "damagestats";
     private static final String FILE_NAME = "stats.json";
+    private static final String FOCUS_WORLD_ID_FILE_NAME = "focus-world-id.txt";
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     public static Path directory(MinecraftServer server) {
@@ -67,6 +69,28 @@ public final class StatsStorage {
         if(owner == null) tracker.reset();
         else tracker.resetFor(owner);
         save(directory, tracker);
+    }
+
+    /** 仅向客户端公开随机世界标识，避免将服务端文件路径作为客户端偏好键的一部分传输。 */
+    public static String focusWorldId(Path directory) {
+        Path file = directory.resolve(FOCUS_WORLD_ID_FILE_NAME);
+        try {
+            Files.createDirectories(directory);
+            if(Files.isRegularFile(file)) return UUID.fromString(Files.readString(file, StandardCharsets.UTF_8).trim()).toString();
+            String worldId = UUID.randomUUID().toString();
+            Path temporary = file.resolveSibling(file.getFileName() + ".tmp");
+            Files.writeString(temporary, worldId, StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            try {
+                Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException e) {
+                Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING);
+            }
+            return worldId;
+        } catch (IOException | IllegalArgumentException e) {
+            LOGGER.error("读取或写入焦点世界标识失败，本次连接不持久化类型焦点", e);
+            return "";
+        }
     }
 
     private static void write(Path file, JsonElement json) {

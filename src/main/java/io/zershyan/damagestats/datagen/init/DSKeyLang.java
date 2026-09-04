@@ -35,24 +35,20 @@ public class DSKeyLang extends DSLang {
     // 指令提示
     public static final MutableComponent NoData = entry(MessagePrefix + "no_data",
             "No damage recorded yet", "还没有记录到伤害数据");
-    public static final MutableComponent StatsReset = entry(MessagePrefix + "stats_reset",
-            "Damage stats cleared", "伤害统计已清空");
     public static final MutableComponent CategoriesReloaded = entry(MessagePrefix + "categories_reloaded",
             "Damage type categories reloaded", "伤害类型分类配置已重载");
-    public static final MutableComponent TrackingDisabled = entry(MessagePrefix + "tracking_disabled",
-            "Damage tracking is currently off", "伤害采集当前处于关闭状态");
     public static final MutableComponent TrackingOn = entry(MessagePrefix + "tracking_on",
             "Damage tracking enabled", "已开启伤害采集");
     public static final MutableComponent TrackingOff = entry(MessagePrefix + "tracking_off",
             "Damage tracking disabled", "已关闭伤害采集");
-    public static final LazyComponent NoDataForType = entryLazy(MessagePrefix + "no_data_for_type",
-            "No data recorded for %s", "%s 还没有统计数据");
     public static final LazyComponent ExportDone = entryLazy(MessagePrefix + "export_done",
             "Exported to %s", "已导出到 %s");
     public static final MutableComponent ExportFailed = entry(MessagePrefix + "export_failed",
             "Export failed, see the log for details", "导出失败，详情见日志");
     public static final MutableComponent StatsPrivate = entry(MessagePrefix + "stats_private",
             "These statistics are private", "统计数据当前为私有");
+    public static final LazyComponent StorageCleanupDone = entryLazy(MessagePrefix + "storage_cleanup_done",
+            "Storage cleanup completed: %s", "存储清理已完成：%s");
 
     // 区块标题
     public static final MutableComponent TitleOutgoing = entry(StatsPrefix + "title.outgoing",
@@ -71,8 +67,6 @@ public class DSKeyLang extends DSLang {
             "By Opponent", "按对手");
     public static final MutableComponent SectionHistory = entry(StatsPrefix + "section.history",
             "Finished Fights", "已结束的战斗");
-    public static final LazyComponent TypeSummary = entryLazy(StatsPrefix + "type_summary",
-            "Type Summary: %s", "类型汇总：%s");
     public static final MutableComponent SourceEnvironment = entry(StatsPrefix + "source.environment",
             "Environment", "环境");
 
@@ -105,6 +99,22 @@ public class DSKeyLang extends DSLang {
             "%s: %s (%s%%) x%s", "%s：%s（%s%%）× %s 次");
     public static final LazyComponent SessionLine = entryLazy(StatsPrefix + "session_line",
             "Fight %s: %s damage, %s DPS, %ss, %s hits", "第 %s 场：伤害 %s，DPS %s，时长 %s 秒，命中 %s 次");
+    public static final LazyComponent InstanceLastInteraction = entryLazy(StatsPrefix + "instance.last_interaction",
+            "Last interaction: tick %s at %s", "最近交互：游戏刻 %s，位置 %s");
+    public static final LazyComponent InstanceQueryStats = entryLazy(StatsPrefix + "instance.query_stats",
+            "Current query: %s damage, %s hits", "当前查询：伤害 %s，命中 %s 次");
+    public static final LazyComponent ReductionArmor = entryLazy(StatsPrefix + "reduction.armor",
+            "Armor: %s", "护甲减免：%s");
+    public static final LazyComponent ReductionEnchantments = entryLazy(StatsPrefix + "reduction.enchantments",
+            "Enchantments: %s", "附魔减免：%s");
+    public static final LazyComponent ReductionMobEffects = entryLazy(StatsPrefix + "reduction.mob_effects",
+            "Effects: %s", "药水效果减免：%s");
+    public static final LazyComponent ReductionAbsorption = entryLazy(StatsPrefix + "reduction.absorption",
+            "Absorption: %s", "伤害吸收：%s");
+    public static final LazyComponent ReductionInnateResistance = entryLazy(StatsPrefix + "reduction.innate_resistance",
+            "Innate Resistance: %s", "天生抗性减免：%s");
+    public static final LazyComponent ReductionInvulnerability = entryLazy(StatsPrefix + "reduction.invulnerability",
+            "Invulnerability: %s", "无敌帧减免：%s");
 
     // 按键。entryString 一步完成「登记翻译」和「拿到键名」，KeyMapping 直接用这些常量，不必再抄一遍字符串
     public static final String KeyCategoryId = entryString("key.categories." + Modid,
@@ -123,6 +133,42 @@ public class DSKeyLang extends DSLang {
             "DPS %s / %s", "DPS %s / %s");
     public static final LazyComponent OverlayHits = entryLazy(StatsPrefix + "overlay.hits",
             "Hits %s", "命中 %s");
+    public static final LazyComponent OverlayFocus = entryLazy(StatsPrefix + "overlay.focus",
+            "%s -> %s", "%s -> %s");
+    public static final LazyComponent OverlayFinalDamage = entryLazy(StatsPrefix + "overlay.final_damage",
+            "Final Damage: %s", "最终伤害：%s");
+    public static final LazyComponent OverlayOriginalDamage = entryLazy(StatsPrefix + "overlay.original_damage",
+            "Original Damage: %s", "原始伤害：%s");
+    public static final LazyComponent OverlayReduction = entryLazy(StatsPrefix + "overlay.reduction",
+            "Reduced: %s (%s%%)", "减免：%s（%s%%）");
+    public static final LazyComponent OverlayFinalAverageDps = entryLazy(StatsPrefix + "overlay.final_average_dps",
+            "Final Average DPS: %s", "最终平均 DPS：%s");
+    public static final LazyComponent OverlayFinalRealtimeDps = entryLazy(StatsPrefix + "overlay.final_realtime_dps",
+            "Final Live DPS: %s", "最终实时 DPS：%s");
+    public static final LazyComponent OverlayOriginalAverageDps = entryLazy(StatsPrefix + "overlay.original_average_dps",
+            "Original Average DPS: %s", "原始平均 DPS：%s");
+    public static final LazyComponent OverlayOriginalRealtimeDps = entryLazy(StatsPrefix + "overlay.original_realtime_dps",
+            "Original Live DPS: %s", "原始实时 DPS：%s");
+    public static final LazyComponent OverlayAverageHit = entryLazy(StatsPrefix + "overlay.average_hit",
+            "Average Hit: %s", "平均单次：%s");
+    public static final LazyComponent OverlayHighestOriginal = entryLazy(StatsPrefix + "overlay.highest_original",
+            "Highest Original: %s", "最高原始伤害：%s");
+    public static final LazyComponent OverlayHighestFinal = entryLazy(StatsPrefix + "overlay.highest_final",
+            "Highest Final: %s", "最高最终伤害：%s");
+    public static final LazyComponent OverlayHighestBoth = entryLazy(StatsPrefix + "overlay.highest_both",
+            "Highest Damage: %s / %s", "最高伤害：%s / %s");
+    public static final LazyComponent OverlayTopDamageType = entryLazy(StatsPrefix + "overlay.top_damage_type",
+            "Top Damage Type: %s (%s, %s%%)", "最高贡献伤害类型：%s（%s，%s%%）");
+    public static final LazyComponent OverlayTopDirectSource = entryLazy(StatsPrefix + "overlay.top_direct_source",
+            "Top Direct Source: %s (%s, %s%%)", "最高贡献直接来源：%s（%s，%s%%）");
+    public static final LazyComponent OverlaySessionActive = entryLazy(StatsPrefix + "overlay.session_active",
+            "Fight Active: %ss", "本场进行中：%s 秒");
+    public static final MutableComponent OverlaySessionInactive = entry(StatsPrefix + "overlay.session_inactive",
+            "Fight Inactive", "本场未进行");
+    public static final MutableComponent OverlayScopeSession = entry(StatsPrefix + "overlay.scope_session",
+            "Fight", "本场");
+    public static final MutableComponent OverlayScopeLifetime = entry(StatsPrefix + "overlay.scope_lifetime",
+            "Total", "累计");
     public static final MutableComponent OverlayShown = entry(MessagePrefix + "overlay_shown",
             "Overlay shown", "已显示常显浮层");
     public static final MutableComponent OverlayHidden = entry(MessagePrefix + "overlay_hidden",
@@ -187,6 +233,8 @@ public class DSKeyLang extends DSLang {
             "Export", "导出");
     public static final MutableComponent ScreenReset = entry(ScreenPrefix + "reset",
             "Reset Mine", "清空我的");
+    public static final MutableComponent ScreenResetAll = entry(ScreenPrefix + "reset_all",
+            "Reset All", "清空全部");
     public static final MutableComponent ScreenClearFilter = entry(ScreenPrefix + "clear_filter",
             "Clear Filter", "清除筛选");
     public static final MutableComponent ScreenAllDamage = entry(ScreenPrefix + "all_damage",
@@ -199,6 +247,102 @@ public class DSKeyLang extends DSLang {
             "Set as Subject", "设为主体");
     public static final MutableComponent ScreenSetOtherFilter = entry(ScreenPrefix + "set_other_filter",
             "Set as Other Filter", "设为另一筛选项");
+    public static final MutableComponent ScreenRefresh = entry(ScreenPrefix + "refresh",
+            "Refresh", "刷新");
+    public static final MutableComponent ScreenSearch = entry(ScreenPrefix + "search",
+            "Search", "搜索");
+    public static final MutableComponent ScreenPrevious = entry(ScreenPrefix + "previous",
+            "Previous", "上一页");
+    public static final MutableComponent ScreenNext = entry(ScreenPrefix + "next",
+            "Next", "下一页");
+    public static final MutableComponent ScreenInstances = entry(ScreenPrefix + "instances",
+            "Instances", "查看实例");
+    public static final MutableComponent ScreenSelect = entry(ScreenPrefix + "select",
+            "Select", "选择");
+    public static final MutableComponent ScreenSetFocus = entry(ScreenPrefix + "set_focus",
+            "Set Focus", "设为焦点");
+    public static final MutableComponent ScreenClearTarget = entry(ScreenPrefix + "clear_target",
+            "Clear Target", "清除目标");
+    public static final MutableComponent ScreenClearSource = entry(ScreenPrefix + "clear_source",
+            "Clear Source", "清除来源");
+    public static final MutableComponent ScreenClearChartFilters = entry(ScreenPrefix + "clear_chart_filters",
+            "Clear Chart Filters", "清除图表筛选");
+    public static final MutableComponent ScreenCurrentFocus = entry(ScreenPrefix + "current_focus",
+            "Current Focus", "当前焦点");
+    public static final MutableComponent ScreenBrowsing = entry(ScreenPrefix + "browsing",
+            "Browsing", "正在浏览");
+    public static final MutableComponent ScreenConfirmReset = entry(ScreenPrefix + "confirm_reset",
+            "Clear My Statistics?", "确认清空我的统计？");
+    public static final MutableComponent ScreenConfirmResetAll = entry(ScreenPrefix + "confirm_reset_all",
+            "Clear All Statistics?", "确认清空全部统计？");
+    public static final MutableComponent ScreenResetMineDescription = entry(ScreenPrefix + "reset_mine_description",
+            "Only your visible statistics will be cleared.", "仅清空你可见的个人统计数据。");
+    public static final MutableComponent ScreenResetAllDescription = entry(ScreenPrefix + "reset_all_description",
+            "This clears every player's statistics in this world.", "这会清空当前世界中所有玩家的统计数据。");
+    public static final MutableComponent ScreenConfirm = entry(ScreenPrefix + "confirm",
+            "Confirm", "确认");
+    public static final MutableComponent ScreenActions = entry(ScreenPrefix + "actions",
+            "More Actions", "更多操作");
+    public static final MutableComponent ScreenStorageTitle = entry(ScreenPrefix + "storage.title",
+            "Server Storage", "服务器存储");
+    public static final MutableComponent ScreenStorageRefresh = entry(ScreenPrefix + "storage.refresh",
+            "Refresh", "刷新");
+    public static final MutableComponent ScreenStorageCleanupTemporary = entry(ScreenPrefix + "storage.cleanup_temporary",
+            "Clean Temporary Files and Backups", "清理临时文件和迁移备份");
+    public static final MutableComponent ScreenStorageCleanupExports = entry(ScreenPrefix + "storage.cleanup_exports",
+            "Clean Server Exports", "清理服务器导出文件");
+    public static final MutableComponent ScreenStorageCleanupAll = entry(ScreenPrefix + "storage.cleanup_all",
+            "Clear All Records", "清理全部记录");
+    public static final MutableComponent ScreenStorageConfirmTitle = entry(ScreenPrefix + "storage.confirm_title",
+            "Confirm Storage Cleanup", "确认清理存储");
+    public static final MutableComponent ScreenStorageConfirmTemporary = entry(ScreenPrefix + "storage.confirm_temporary",
+            "Only temporary files and migration backups will be removed.", "仅会删除临时文件和迁移备份。");
+    public static final MutableComponent ScreenStorageConfirmExports = entry(ScreenPrefix + "storage.confirm_exports",
+            "Only DamageStats export files in the server world will be removed.", "仅会删除服务器世界目录中的 DamageStats 导出文件。");
+    public static final MutableComponent ScreenStorageConfirmAll = entry(ScreenPrefix + "storage.confirm_all",
+            "All damage records in this world will be permanently cleared.", "当前世界中的全部伤害记录将被永久清空。");
+    public static final LazyComponent ScreenStorageTotal = entryLazy(ScreenPrefix + "storage.total",
+            "Total Usage: %s", "总占用：%s");
+    public static final LazyComponent ScreenStorageEvents = entryLazy(ScreenPrefix + "storage.events",
+            "Events: %s", "事件数：%s");
+    public static final LazyComponent ScreenStorageSegments = entryLazy(ScreenPrefix + "storage.segments",
+            "Segments: %s", "分段数：%s");
+    public static final LazyComponent ScreenStorageIndex = entryLazy(ScreenPrefix + "storage.index",
+            "Index: %s", "索引状态：%s");
+    public static final LazyComponent ScreenStorageRawSegments = entryLazy(ScreenPrefix + "storage.raw_segments",
+            "Raw Segments: %s", "原始段占用：%s");
+    public static final LazyComponent ScreenStorageCompressedSegments = entryLazy(ScreenPrefix + "storage.compressed_segments",
+            "Compressed Segments: %s", "压缩段占用：%s");
+    public static final LazyComponent ScreenStorageIndexBytes = entryLazy(ScreenPrefix + "storage.index_bytes",
+            "Index Files: %s", "索引文件占用：%s");
+    public static final LazyComponent ScreenStorageCache = entryLazy(ScreenPrefix + "storage.cache",
+            "Aggregate Cache: %s", "聚合缓存占用：%s");
+    public static final LazyComponent ScreenStorageExports = entryLazy(ScreenPrefix + "storage.exports",
+            "Server Exports: %s", "服务器导出占用：%s");
+    public static final LazyComponent ScreenStorageTemporary = entryLazy(ScreenPrefix + "storage.temporary",
+            "Temporary Files: %s", "临时文件占用：%s");
+    public static final LazyComponent ScreenStorageBackups = entryLazy(ScreenPrefix + "storage.backups",
+            "Migration Backups: %s", "迁移备份占用：%s");
+    public static final MutableComponent ScreenStorageIndexEmpty = entry(ScreenPrefix + "storage.index_empty",
+            "Empty", "为空");
+    public static final MutableComponent ScreenStorageIndexLoaded = entry(ScreenPrefix + "storage.index_loaded",
+            "Loaded", "已加载");
+    public static final MutableComponent ScreenStorageIndexRebuilt = entry(ScreenPrefix + "storage.index_rebuilt",
+            "Rebuilt", "已重建");
+    public static final MutableComponent ScreenStorageIndexFailed = entry(ScreenPrefix + "storage.index_failed",
+            "Unavailable", "不可用");
+    public static final MutableComponent ScreenFilter = entry(ScreenPrefix + "filter",
+            "Filter", "筛选");
+    public static final MutableComponent ScreenSetAsSource = entry(ScreenPrefix + "set_as_source",
+            "Set as Source", "设为来源");
+    public static final MutableComponent ScreenSetAsTarget = entry(ScreenPrefix + "set_as_target",
+            "Set as Target", "设为目标");
+    public static final MutableComponent ScreenSetAsDirectSource = entry(ScreenPrefix + "set_as_direct_source",
+            "Set as Direct Source", "设为直接来源");
+    public static final MutableComponent ScreenSetFocusSource = entry(ScreenPrefix + "set_focus_source",
+            "Set Focus Source", "设为焦点来源");
+    public static final MutableComponent ScreenSetFocusTarget = entry(ScreenPrefix + "set_focus_target",
+            "Set Focus Target", "设为焦点目标");
     public static final LazyComponent FilterSource = entryLazy(ScreenPrefix + "filter.source",
             "From: %s", "来源：%s");
     public static final LazyComponent FilterTarget = entryLazy(ScreenPrefix + "filter.target",

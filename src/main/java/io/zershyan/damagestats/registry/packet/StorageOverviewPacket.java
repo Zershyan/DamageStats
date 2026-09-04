@@ -1,0 +1,50 @@
+package io.zershyan.damagestats.registry.packet;
+
+import io.zershyan.damagestats.DamageStats;
+import io.zershyan.damagestats.client.ClientStorageOverview;
+import io.zershyan.damagestats.stats.save.StorageCleanupTarget;
+import io.zershyan.damagestats.stats.save.StorageOverview;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.neoforged.neoforge.network.handling.IPayloadContext;
+import org.jetbrains.annotations.NotNull;
+
+/** 服务端存储概览与清理完成状态，命令入口可要求客户端直接打开概览页。 */
+public record StorageOverviewPacket(
+        boolean allowed,
+        boolean openScreen,
+        StorageCleanupTarget completedCleanup,
+        StorageOverview overview
+) implements CustomPacketPayload {
+    public static final Type<StorageOverviewPacket> TYPE = new Type<>(DamageStats.id("storage_overview"));
+    public static final StreamCodec<RegistryFriendlyByteBuf, StorageOverviewPacket> STREAM_CODEC = StreamCodec.composite(
+            ByteBufCodecs.BOOL, StorageOverviewPacket::allowed,
+            ByteBufCodecs.BOOL, StorageOverviewPacket::openScreen,
+            StorageCleanupTarget.STREAM_CODEC, StorageOverviewPacket::completedCleanup,
+            StorageOverview.STREAM_CODEC, StorageOverviewPacket::overview,
+            StorageOverviewPacket::new
+    );
+
+    public static StorageOverviewPacket open(StorageOverview overview) {
+        return new StorageOverviewPacket(true, true, StorageCleanupTarget.NONE, overview);
+    }
+
+    public static StorageOverviewPacket updated(StorageOverview overview, StorageCleanupTarget completedCleanup) {
+        return new StorageOverviewPacket(true, false, completedCleanup, overview);
+    }
+
+    public static StorageOverviewPacket denied() {
+        return new StorageOverviewPacket(false, false, StorageCleanupTarget.NONE, StorageOverview.EMPTY);
+    }
+
+    @Override
+    public @NotNull Type<? extends CustomPacketPayload> type() {
+        return TYPE;
+    }
+
+    public static void handle(StorageOverviewPacket payload, IPayloadContext context) {
+        context.enqueueWork(() -> ClientStorageOverview.accept(payload));
+    }
+}

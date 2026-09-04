@@ -2,10 +2,12 @@ package io.zershyan.damagestats.handler.common;
 
 import io.zershyan.damagestats.DamageStats;
 import io.zershyan.damagestats.config.DSConfig;
-import io.zershyan.damagestats.registry.packet.StatsRequestPacket;
 import io.zershyan.damagestats.stats.DamageTracker;
 import io.zershyan.damagestats.stats.EntityRef;
 import io.zershyan.damagestats.stats.ServerStats;
+import io.zershyan.damagestats.stats.focus.FocusChangeResult;
+import io.zershyan.damagestats.stats.focus.StatsFocusManager;
+import io.zershyan.damagestats.stats.save.DamageEventJournal;
 import io.zershyan.damagestats.stats.save.StatsStorage;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -27,13 +29,17 @@ public final class ServerLifecycleHandler {
     /** 启动时就把目录记下来。崩服兜底那一步 stopServer 已经跑完了，不能再向 server 要路径 */
     private static @Nullable Path worldDirectory;
     private static boolean shutdownSaved;
+    private static final int JOURNAL_FLUSH_INTERVAL_TICKS = 100;
+    private static final int INSTANCE_PRUNE_INTERVAL_TICKS = 1200;
 
     @SubscribeEvent
     public static void onServerStarted(ServerStartedEvent event) {
         worldDirectory = StatsStorage.directory(event.getServer());
         shutdownSaved = false;
-        StatsRequestPacket.clearRateLimits();
-        ServerStats.start(DSConfig.AutoSave.get() ? StatsStorage.load(event.getServer()) : null);
+        // 原始事件日志是权威数据；此缓存仍保存实例目录、名称和快速聚合，不能因关闭定时快照而丢失。
+        DamageTracker restored = StatsStorage.load(event.getServer());
+        ServerStats.start(restored, DamageEventJournal.open(worldDirectory), StatsStorage.focusWorldId(worldDirectory));
+        ServerStats.tracker().pruneInstanceDirectory(System.currentTimeMillis());
     }
 
     /** 正常退出走这里，这时存档会话还开着 */
@@ -50,51 +56,78 @@ public final class ServerLifecycleHandler {
     public static void onServerStopped(ServerStoppedEvent event) {
         saveOnShutdown();
         ServerStats.stop();
-        StatsRequestPacket.clearRateLimits();
         StatsSyncHandler.clear();
         worldDirectory = null;
     }
 
     @SubscribeEvent
     public static void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
-        DamageTracker tracker = ServerStats.tracker();
-        if(tracker != null) tracker.clearPlayerState(event.getEntity().getUUID());
+        StatsFocusManager manager = ServerStats.focusManager();
+        if(manager != null) manager.remove(event.getEntity().getUUID());
         StatsSyncHandler.clearPlayer(event.getEntity().getUUID());
     }
 
     @SubscribeEvent
+    public static void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
+        if(!(event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player)) return;
+        DamageTracker tracker = ServerStats.tracker();
+        StatsFocusManager manager = ServerStats.focusManager();
+        if(tracker == null || manager == null) return;
+        manager.focusFor(player);
+        StatsSyncHandler.pushFocusState(tracker, player, FocusChangeResult.ACCEPTED);
+    }
+
+    @SubscribeEvent
     public static void onServerTick(ServerTickEvent.Post event) {
+        long gameTime = event.getServer().overworld().getGameTime();
+        if(gameTime % INSTANCE_PRUNE_INTERVAL_TICKS == 0) {
+            DamageTracker tracker = ServerStats.tracker();
+            if(tracker != null) tracker.pruneInstanceDirectory(System.currentTimeMillis());
+        }
+        if(gameTime % JOURNAL_FLUSH_INTERVAL_TICKS == 0) {
+            DamageEventJournal journal = ServerStats.journal();
+            if(journal != null) journal.flush();
+        }
         int interval = DSConfig.AutoSaveIntervalTicks.get();
         if(interval <= 0 || !DSConfig.AutoSave.get()) return;
-        if(event.getServer().overworld().getGameTime() % interval != 0) return;
+        if(gameTime % interval != 0) return;
         flush();
     }
 
     private static void saveOnShutdown() {
         if(shutdownSaved) return;
-        if(!DSConfig.AutoSave.get()) return;
-        flush();
+        DamageEventJournal journal = ServerStats.journal();
+        if(journal != null) journal.close();
+        saveStats();
         shutdownSaved = true;
     }
 
     private static void flush() {
+        DamageEventJournal journal = ServerStats.journal();
+        if(journal != null) journal.flush();
+        saveStats();
+    }
+
+    private static void saveStats() {
         DamageTracker tracker = ServerStats.tracker();
         if(tracker == null || worldDirectory == null) return;
         StatsStorage.save(worldDirectory, tracker);
     }
 
     public static void saveNow() {
-        if(!DSConfig.AutoSave.get()) return;
         flush();
     }
 
     /** 显式重置不服从自动保存开关，必须让磁盘中的旧统计同步失效。 */
-    public static void persistReset(@Nullable EntityRef owner) {
-        if(worldDirectory == null) return;
-        if(DSConfig.AutoSave.get()) {
-            flush();
-            return;
+    public static boolean persistReset(@Nullable EntityRef owner) {
+        if(worldDirectory == null) return false;
+        if(owner == null) {
+            DamageEventJournal journal = ServerStats.journal();
+            if(journal != null && !journal.clear()) return false;
+            DamageTracker tracker = ServerStats.tracker();
+            if(tracker != null) tracker.reset();
         }
-        StatsStorage.resetPersisted(worldDirectory, owner);
+        flush();
+        return true;
     }
 }

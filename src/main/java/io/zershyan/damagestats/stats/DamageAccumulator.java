@@ -30,6 +30,7 @@ public class DamageAccumulator {
     private int hitCount;
     private int killCount;
     private float maxSingle;
+    private float maxOriginal;
     private @Nullable ResourceLocation maxSingleDamageType;
     private @Nullable EntityRef maxSingleDirectSource;
     private long maxSingleTime;
@@ -57,7 +58,7 @@ public class DamageAccumulator {
             int hitCount, int killCount,
             float maxSingle, Optional<ResourceLocation> maxSingleDamageType,
             Optional<EntityRef> maxSingleDirectSource, long maxSingleTime,
-            float minSingle, long firstHitTime, long lastHitTime
+            float minSingle, long firstHitTime, long lastHitTime, float maxOriginal
     ) {
         static final Codec<Totals> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 Codec.FLOAT.fieldOf("original").forGetter(Totals::totalOriginal),
@@ -72,7 +73,8 @@ public class DamageAccumulator {
                 Codec.LONG.optionalFieldOf("maxHitAt", 0L).forGetter(Totals::maxSingleTime),
                 Codec.FLOAT.optionalFieldOf("minHit", 0f).forGetter(Totals::minSingle),
                 Codec.LONG.fieldOf("firstHitAt").forGetter(Totals::firstHitTime),
-                Codec.LONG.fieldOf("lastHitAt").forGetter(Totals::lastHitTime)
+                Codec.LONG.fieldOf("lastHitAt").forGetter(Totals::lastHitTime),
+                Codec.FLOAT.optionalFieldOf("maxOriginal", 0f).forGetter(Totals::maxOriginal)
         ).apply(instance, Totals::new));
     }
 
@@ -111,6 +113,7 @@ public class DamageAccumulator {
             maxSingleDirectSource = record.directSource();
             maxSingleTime = record.gameTime();
         }
+        maxOriginal = Math.max(maxOriginal, record.originalDamage());
         if(record.actualDamage() > 0 && (minSingle == 0 || record.actualDamage() < minSingle)) {
             minSingle = record.actualDamage();
         }
@@ -143,6 +146,7 @@ public class DamageAccumulator {
     public int getHitCount() { return hitCount; }
     public int getKillCount() { return killCount; }
     public float getMaxSingle() { return maxSingle; }
+    public float getMaxOriginal() { return maxOriginal; }
     public DamageReduction getTotalReduction() { return totalReduction; }
     public @Nullable ResourceLocation getMaxSingleDamageType() { return maxSingleDamageType; }
     public @Nullable EntityRef getMaxSingleDirectSource() { return maxSingleDirectSource; }
@@ -164,6 +168,7 @@ public class DamageAccumulator {
             maxSingleDirectSource = other.maxSingleDirectSource;
             maxSingleTime = other.maxSingleTime;
         }
+        maxOriginal = Math.max(maxOriginal, other.maxOriginal);
         if(other.minSingle > 0 && (minSingle == 0 || other.minSingle < minSingle)) {
             minSingle = other.minSingle;
         }
@@ -208,6 +213,10 @@ public class DamageAccumulator {
         return hitCount == 0 ? 0 : totalActual / effectiveSeconds();
     }
 
+    public float getAverageOriginalDps() {
+        return hitCount == 0 ? 0 : totalOriginal / effectiveSeconds();
+    }
+
     private float effectiveSeconds() {
         return Math.max(1, getDurationTicks()) / TICKS_PER_SECOND;
     }
@@ -227,7 +236,7 @@ public class DamageAccumulator {
     private Totals totals() {
         return new Totals(totalOriginal, totalActual, totalBlocked, totalReduction, hitCount, killCount,
                 maxSingle, Optional.ofNullable(maxSingleDamageType), Optional.ofNullable(maxSingleDirectSource), maxSingleTime,
-                getMinSingle(), firstHitTime, lastHitTime);
+                getMinSingle(), firstHitTime, lastHitTime, maxOriginal);
     }
 
     private List<OpponentGroup> opponentGroups() {
@@ -250,6 +259,7 @@ public class DamageAccumulator {
         target.minSingle = totals.minSingle();
         target.firstHitTime = totals.firstHitTime();
         target.lastHitTime = totals.lastHitTime();
+        target.maxOriginal = totals.maxOriginal();
         return target;
     }
 

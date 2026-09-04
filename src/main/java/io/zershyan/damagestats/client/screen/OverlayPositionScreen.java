@@ -1,8 +1,16 @@
 package io.zershyan.damagestats.client.screen;
 
+import io.zershyan.damagestats.client.ClientFocusPreferences;
+import io.zershyan.damagestats.client.ClientStats;
 import io.zershyan.damagestats.client.overlay.StatsOverlay;
 import io.zershyan.damagestats.config.DSClientConfig;
+import io.zershyan.damagestats.config.OverlayMetricScope;
+import io.zershyan.damagestats.datagen.init.DSConfigLang;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
+import io.zershyan.damagestats.stats.EntityRef;
+import io.zershyan.damagestats.stats.filter.EntitySelector;
+import io.zershyan.damagestats.stats.filter.StatsFilter;
+import io.zershyan.damagestats.stats.focus.FocusSelectionSlot;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractSliderButton;
 import net.minecraft.client.gui.components.Button;
@@ -10,12 +18,14 @@ import net.minecraft.client.gui.components.Checkbox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
+import net.neoforged.neoforge.common.ModConfigSpec;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-/**
- * 浮层位置编辑。拖拽时坐标一律换算成屏幕比例存回配置，
- * 并且夹住不让浮层被拖出可视区域——比事后靠「重置位置」补救更省事。
- */
+import java.util.List;
+import java.util.Optional;
+
+/** Overlay 的位置、外观和字段设置页；每个指标可独立选择本场或累计范围。 */
 public class OverlayPositionScreen extends Screen {
     private static final int BUTTON_WIDTH = 100;
     private static final int BUTTON_HEIGHT = 20;
@@ -23,18 +33,67 @@ public class OverlayPositionScreen extends Screen {
     private static final int BUTTON_BOTTOM_MARGIN = 30;
     private static final int TITLE_Y = 20;
     private static final int DIM_BACKGROUND = 0x40000000;
+
+    private final @Nullable Screen returnScreen;
     private static final int PREVIEW_BORDER = 0xFFFFD700;
+    private static final int FIELD_TOP = 118;
+    private static final int FIELD_HEIGHT = 22;
+    private static final int FIELD_WIDTH = 280;
+    private static final int SCOPE_WIDTH = 44;
+
+    private record OverlayField(
+            DSConfigLang.ConfigEntry label,
+            ModConfigSpec.BooleanValue visible,
+            @Nullable ModConfigSpec.EnumValue<OverlayMetricScope> scope
+    ) {}
+
+    private static final List<OverlayField> FIELDS = List.of(
+            new OverlayField(DSConfigLang.OverlayShowFocus, DSClientConfig.OverlayShowFocus, null),
+            new OverlayField(DSConfigLang.OverlayShowActualDamage, DSClientConfig.OverlayShowActualDamage,
+                    DSClientConfig.OverlayActualDamageScope),
+            new OverlayField(DSConfigLang.OverlayShowOriginalDamage, DSClientConfig.OverlayShowOriginalDamage,
+                    DSClientConfig.OverlayOriginalDamageScope),
+            new OverlayField(DSConfigLang.OverlayShowReduction, DSClientConfig.OverlayShowReduction,
+                    DSClientConfig.OverlayReductionScope),
+            new OverlayField(DSConfigLang.OverlayShowActualAverageDps, DSClientConfig.OverlayShowActualAverageDps,
+                    DSClientConfig.OverlayActualAverageDpsScope),
+            new OverlayField(DSConfigLang.OverlayShowActualRealtimeDps, DSClientConfig.OverlayShowActualRealtimeDps,
+                    DSClientConfig.OverlayActualRealtimeDpsScope),
+            new OverlayField(DSConfigLang.OverlayShowOriginalAverageDps, DSClientConfig.OverlayShowOriginalAverageDps,
+                    DSClientConfig.OverlayOriginalAverageDpsScope),
+            new OverlayField(DSConfigLang.OverlayShowOriginalRealtimeDps, DSClientConfig.OverlayShowOriginalRealtimeDps,
+                    DSClientConfig.OverlayOriginalRealtimeDpsScope),
+            new OverlayField(DSConfigLang.OverlayShowHits, DSClientConfig.OverlayShowHits, DSClientConfig.OverlayHitsScope),
+            new OverlayField(DSConfigLang.OverlayShowAverageHit, DSClientConfig.OverlayShowAverageHit,
+                    DSClientConfig.OverlayAverageHitScope),
+            new OverlayField(DSConfigLang.OverlayShowMaxOriginal, DSClientConfig.OverlayShowMaxOriginal,
+                    DSClientConfig.OverlayMaxOriginalScope),
+            new OverlayField(DSConfigLang.OverlayShowMaxActual, DSClientConfig.OverlayShowMaxActual,
+                    DSClientConfig.OverlayMaxActualScope),
+            new OverlayField(DSConfigLang.OverlayShowTopDamageType, DSClientConfig.OverlayShowTopDamageType,
+                    DSClientConfig.OverlayTopDamageTypeScope),
+            new OverlayField(DSConfigLang.OverlayShowTopDirectSource, DSClientConfig.OverlayShowTopDirectSource,
+                    DSClientConfig.OverlayTopDirectSourceScope),
+            new OverlayField(DSConfigLang.OverlayShowSessionStatus, DSClientConfig.OverlayShowSessionStatus, null)
+    );
 
     private double ratioX;
     private double ratioY;
     private boolean dragging;
     private int grabOffsetX;
     private int grabOffsetY;
+    private int fieldScroll;
+    private Button targetButton;
 
     public OverlayPositionScreen() {
+        this(null);
+    }
+
+    public OverlayPositionScreen(@Nullable Screen returnScreen) {
         super(DSKeyLang.EditPositionTitle.copy());
-        this.ratioX = DSClientConfig.OverlayX.get();
-        this.ratioY = DSClientConfig.OverlayY.get();
+        this.returnScreen = returnScreen;
+        ratioX = DSClientConfig.OverlayX.get();
+        ratioY = DSClientConfig.OverlayY.get();
     }
 
     @Override
@@ -67,26 +126,11 @@ public class OverlayPositionScreen extends Screen {
                 DSClientConfig.OverlayBackgroundOpacity.set(value);
             }
         });
-        addRenderableWidget(Checkbox.builder(DSKeyLang.EditPositionTarget.copy(), font)
-                .pos(controlLeft, 94)
-                .selected(DSClientConfig.OverlayShowTarget.get())
-                .onValueChange((checkbox, selected) -> DSClientConfig.OverlayShowTarget.set(selected))
-                .build());
-        addRenderableWidget(Checkbox.builder(DSKeyLang.EditPositionDamage.copy(), font)
-                .pos(centerX + 4, 94)
-                .selected(DSClientConfig.OverlayShowDamage.get())
-                .onValueChange((checkbox, selected) -> DSClientConfig.OverlayShowDamage.set(selected))
-                .build());
-        addRenderableWidget(Checkbox.builder(DSKeyLang.EditPositionDps.copy(), font)
-                .pos(controlLeft, 116)
-                .selected(DSClientConfig.OverlayShowDps.get())
-                .onValueChange((checkbox, selected) -> DSClientConfig.OverlayShowDps.set(selected))
-                .build());
-        addRenderableWidget(Checkbox.builder(DSKeyLang.EditPositionHits.copy(), font)
-                .pos(centerX + 4, 116)
-                .selected(DSClientConfig.OverlayShowHits.get())
-                .onValueChange((checkbox, selected) -> DSClientConfig.OverlayShowHits.set(selected))
-                .build());
+        targetButton = addRenderableWidget(Button.builder(Component.empty(), button -> openTargetSelector())
+                .bounds(controlLeft, 92, 142, BUTTON_HEIGHT).build());
+        addRenderableWidget(Button.builder(DSKeyLang.OverlayAllTargets.copy(), button -> setOverlayTarget(Optional.empty()))
+                .bounds(controlLeft + 146, 92, 74, BUTTON_HEIGHT).build());
+        addFields();
         int buttonY = height - BUTTON_BOTTOM_MARGIN;
         addRenderableWidget(Button.builder(DSKeyLang.EditPositionDone.copy(), button -> onClose())
                 .bounds(centerX - BUTTON_WIDTH - BUTTON_GAP, buttonY, BUTTON_WIDTH, BUTTON_HEIGHT)
@@ -96,7 +140,49 @@ public class OverlayPositionScreen extends Screen {
                 .build());
     }
 
-    /** 只压一层很淡的暗色，让玩家还能看清浮层和游戏画面的相对位置 */
+    private void addFields() {
+        int rows = visibleRows();
+        fieldScroll = Mth.clamp(fieldScroll, 0, maxFieldScroll(rows));
+        int fieldWidth = Math.min(FIELD_WIDTH, width - 16);
+        for (int index = fieldScroll; index < FIELDS.size() && index < fieldScroll + rows; index++) {
+            OverlayField field = FIELDS.get(index);
+            int row = index - fieldScroll;
+            int x = (width - fieldWidth) / 2;
+            int y = FIELD_TOP + row * FIELD_HEIGHT;
+            int checkboxWidth = field.scope() == null ? fieldWidth : fieldWidth - SCOPE_WIDTH - 2;
+            Checkbox fieldCheckbox = Checkbox.builder(Component.translatable(field.label().getKey()), font)
+                    .pos(x, y)
+                    .selected(field.visible().get())
+                    .onValueChange((ignored, selected) -> field.visible().set(selected))
+                    .build();
+            fieldCheckbox.setWidth(checkboxWidth);
+            addRenderableWidget(fieldCheckbox);
+            if(field.scope() == null) continue;
+            addRenderableWidget(Button.builder(scopeLabel(field.scope().get()), button -> {
+                        OverlayMetricScope next = field.scope().get() == OverlayMetricScope.SESSION
+                                ? OverlayMetricScope.LIFETIME
+                                : OverlayMetricScope.SESSION;
+                        field.scope().set(next);
+                        button.setMessage(scopeLabel(next));
+                    })
+                    .bounds(x + checkboxWidth + 2, y, SCOPE_WIDTH, 18)
+                    .build());
+        }
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        if(mouseY < FIELD_TOP || mouseY > height - BUTTON_BOTTOM_MARGIN - 4) {
+            return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+        }
+        int next = Mth.clamp(fieldScroll - (int) Math.signum(scrollY), 0, maxFieldScroll(visibleRows()));
+        if(next == fieldScroll) return true;
+        fieldScroll = next;
+        clearWidgets();
+        init();
+        return true;
+    }
+
     @Override
     public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         graphics.fill(0, 0, width, height, DIM_BACKGROUND);
@@ -106,6 +192,7 @@ public class OverlayPositionScreen extends Screen {
     public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         super.render(graphics, mouseX, mouseY, partialTick);
         graphics.drawCenteredString(font, title, width / 2, TITLE_Y, 0xFFFFFFFF);
+        if(targetButton != null) targetButton.setMessage(DSKeyLang.FilterTarget.get(ClientStats.summary().scope().targetName()));
         int x = originX();
         int y = originY();
         StatsOverlay.renderBox(graphics, font, StatsOverlay.previewSummary(), x, y);
@@ -145,16 +232,31 @@ public class OverlayPositionScreen extends Screen {
         DSClientConfig.OverlayY.save();
         DSClientConfig.OverlayScale.save();
         DSClientConfig.OverlayBackgroundOpacity.save();
-        DSClientConfig.OverlayShowTarget.save();
-        DSClientConfig.OverlayShowDamage.save();
-        DSClientConfig.OverlayShowDps.save();
-        DSClientConfig.OverlayShowHits.save();
-        super.onClose();
+        FIELDS.forEach(field -> {
+            field.visible().save();
+            if(field.scope() != null) field.scope().save();
+        });
+        if(returnScreen != null) minecraft.setScreen(returnScreen);
+        else super.onClose();
     }
 
     private void resetPosition() {
         ratioX = DSClientConfig.DefaultOverlayX;
         ratioY = DSClientConfig.DefaultOverlayY;
+    }
+
+    private void openTargetSelector() {
+        if(minecraft.player == null) return;
+        EntitySelector self = new EntitySelector.Instance(EntityRef.of(minecraft.player));
+        minecraft.setScreen(new FocusEntitySelectorScreen(this, FocusSelectionSlot.TARGET,
+                StatsFilter.fromSource(self),
+                (selector, ignored) -> setOverlayTarget(Optional.of(selector))));
+    }
+
+    private void setOverlayTarget(Optional<EntitySelector> target) {
+        if(minecraft.player == null) return;
+        EntitySelector self = new EntitySelector.Instance(EntityRef.of(minecraft.player));
+        ClientFocusPreferences.requestFocus(Optional.of(self), target, false);
     }
 
     private boolean isInsidePreview(double mouseX, double mouseY) {
@@ -170,6 +272,20 @@ public class OverlayPositionScreen extends Screen {
 
     private int originY() {
         return (int) (height * clampRatio(ratioY, StatsOverlay.height(), height));
+    }
+
+    private int visibleRows() {
+        return Math.max(1, (height - BUTTON_BOTTOM_MARGIN - FIELD_TOP - 4) / FIELD_HEIGHT);
+    }
+
+    private static int maxFieldScroll(int rows) {
+        return Math.max(0, FIELDS.size() - rows);
+    }
+
+    private static Component scopeLabel(OverlayMetricScope scope) {
+        return scope == OverlayMetricScope.SESSION
+                ? DSKeyLang.OverlayScopeSession.copy()
+                : DSKeyLang.OverlayScopeLifetime.copy();
     }
 
     private static double clampRatio(double ratio, int elementSize, int screenSize) {

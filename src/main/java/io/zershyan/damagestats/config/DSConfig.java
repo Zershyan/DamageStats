@@ -25,10 +25,15 @@ public final class DSConfig {
             .translation(DSConfigLang.DpsWindowTicks.getKey())
             .defineInRange(DSConfigLang.DpsWindowTicks.name(), 100, 20, 1200);
 
-    public static final ModConfigSpec.IntValue InstanceEntryLimit = BUILDER
-            .comment("超出后淘汰最久没有交互的条目，玩家的条目不参与淘汰")
-            .translation(DSConfigLang.InstanceEntryLimit.getKey())
-            .defineInRange(DSConfigLang.InstanceEntryLimit.name(), 50, 10, 1000);
+    public static final ModConfigSpec.IntValue InstanceDirectoryRetentionHours = BUILDER
+            .comment("单位现实小时。到期后仅从实例候选目录移除，不删除完整原始伤害事件")
+            .translation(DSConfigLang.InstanceDirectoryRetentionHours.getKey())
+            .defineInRange(DSConfigLang.InstanceDirectoryRetentionHours.name(), 72, 1, Integer.MAX_VALUE);
+
+    public static final ModConfigSpec.IntValue InstanceDirectoryLimit = BUILDER
+            .comment("单位每世界候选实例数。超出后淘汰最久未交互的实例，不删除完整原始伤害事件")
+            .translation(DSConfigLang.InstanceDirectoryLimit.getKey())
+            .defineInRange(DSConfigLang.InstanceDirectoryLimit.name(), 5000, 1, Integer.MAX_VALUE);
 
     public static final ModConfigSpec.IntValue KeepFinishedSessions = BUILDER
             .comment("设为 0 则只保留当前会话，不留历史")
@@ -36,7 +41,7 @@ public final class DSConfig {
             .defineInRange(DSConfigLang.KeepFinishedSessions.name(), 10, 0, 100);
 
     public static final ModConfigSpec.BooleanValue AutoSave = BUILDER
-            .comment("退出世界时把统计写进存档目录，下次进同一个存档接着往上累计。关掉则每次进游戏都从零开始")
+            .comment("是否按 autoSaveIntervalTicks 定时写出聚合缓存。完整事件和实例候选会在正常停止时始终保存")
             .translation(DSConfigLang.AutoSave.getKey())
             .define(DSConfigLang.AutoSave.name(), true);
 
@@ -49,11 +54,6 @@ public final class DSConfig {
             .comment("允许玩家查看其他实体的统计。因为目标的承伤明细里带着其他玩家的输出，关掉后只有管理员能查")
             .translation(DSConfigLang.PublicStats.getKey())
             .define(DSConfigLang.PublicStats.name(), true);
-
-    public static final ModConfigSpec.IntValue DamageLogLimit = BUILDER
-            .comment("界面上带筛选条件的查询会去翻这份原始伤害记录。越大能回看的越久，内存也越多（一条约 150 字节）")
-            .translation(DSConfigLang.DamageLogLimit.getKey())
-            .defineInRange(DSConfigLang.DamageLogLimit.name(), 20000, 1000, 500000);
 
     /** 只在注册配置时用一次，不属于「会被反复阅读的配置项」，因此保持全大写 */
     public static final ModConfigSpec SPEC = BUILDER.build();

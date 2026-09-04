@@ -13,16 +13,32 @@ import java.util.List;
  * 一个分组维度里的一行：某个伤害类型、某个直接来源，或者某个对手。
  * 每一行都带着「点它会往筛选里补哪一项」，于是客户端的点击处理只剩一句 toggle。
  */
-public record GroupView(Component name, float damage, int hitCount, float share, FilterKey key) {
-    public static final StreamCodec<RegistryFriendlyByteBuf, GroupView> STREAM_CODEC = StreamCodec.composite(
-            ComponentSerialization.STREAM_CODEC, GroupView::name,
-            ByteBufCodecs.FLOAT, GroupView::damage,
-            ByteBufCodecs.VAR_INT, GroupView::hitCount,
-            ByteBufCodecs.FLOAT, GroupView::share,
-            FilterKey.STREAM_CODEC, GroupView::key,
-            GroupView::new
-    );
+public record GroupView(Component name, float damage, float originalDamage, int hitCount, float share, FilterKey key,
+                        boolean canOpenInstances) {
+    public static final StreamCodec<RegistryFriendlyByteBuf, GroupView> STREAM_CODEC =
+            StreamCodec.of(GroupView::encode, GroupView::decode);
 
     public static final StreamCodec<RegistryFriendlyByteBuf, List<GroupView>> LIST_STREAM_CODEC =
             STREAM_CODEC.apply(ByteBufCodecs.list());
+
+    private static void encode(RegistryFriendlyByteBuf buf, GroupView view) {
+        ComponentSerialization.STREAM_CODEC.encode(buf, view.name);
+        buf.writeFloat(view.damage);
+        buf.writeFloat(view.originalDamage);
+        buf.writeVarInt(view.hitCount);
+        buf.writeFloat(view.share);
+        FilterKey.STREAM_CODEC.encode(buf, view.key);
+        buf.writeBoolean(view.canOpenInstances);
+    }
+
+    private static GroupView decode(RegistryFriendlyByteBuf buf) {
+        return new GroupView(
+                ComponentSerialization.STREAM_CODEC.decode(buf),
+                buf.readFloat(),
+                buf.readFloat(),
+                buf.readVarInt(),
+                buf.readFloat(),
+                FilterKey.STREAM_CODEC.decode(buf),
+                buf.readBoolean());
+    }
 }

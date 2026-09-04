@@ -3,6 +3,7 @@ package io.zershyan.damagestats.handler.common;
 import io.zershyan.damagestats.DamageStats;
 import io.zershyan.damagestats.config.DSConfig;
 import io.zershyan.damagestats.stats.*;
+import io.zershyan.damagestats.stats.save.DamageEventJournal;
 import io.zershyan.damagestats.util.DamageResolver;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
@@ -30,7 +31,10 @@ public final class DamageCollectHandler {
         if(event.getNewDamage() <= 0) return;
 
         DamageSource source = event.getSource();
-        tracker.record(new DamageRecord(
+        Entity sourceEntity = DamageResolver.resolveSourceEntity(source);
+        Entity directSourceEntity = source.getDirectEntity();
+        long nowMillis = System.currentTimeMillis();
+        DamageRecord record = new DamageRecord(
                 DamageResolver.resolveSource(source),
                 DamageResolver.resolveDirectSource(source),
                 EntityRef.of(target),
@@ -40,15 +44,32 @@ public final class DamageCollectHandler {
                 event.getBlockedDamage(),
                 DamageReduction.from(event),
                 target.level().getGameTime(),
-                target.isDeadOrDying()
-        ));
-        cacheNames(tracker, source, target);
+                target.isDeadOrDying(),
+                target.level().dimension().location(),
+                target.getBlockX(),
+                target.getBlockY(),
+                target.getBlockZ(),
+                nowMillis
+        );
+        tracker.record(record);
+        tracker.touchInstance(target, nowMillis);
+        touchIfLiving(tracker, sourceEntity, nowMillis);
+        touchIfLiving(tracker, directSourceEntity, nowMillis);
+        cacheNames(tracker, target, sourceEntity, directSourceEntity);
+        DamageEventJournal journal = ServerStats.journal();
+        if(journal != null) journal.append(record);
+        StatsSyncHandler.onDamageRecorded(record);
     }
 
-    private static void cacheNames(DamageTracker tracker, DamageSource source, LivingEntity target) {
+    private static void cacheNames(DamageTracker tracker, LivingEntity target,
+                                   @Nullable Entity sourceEntity, @Nullable Entity directSourceEntity) {
         tracker.cacheName(target);
-        cacheIfPresent(tracker, DamageResolver.resolveSourceEntity(source));
-        cacheIfPresent(tracker, source.getDirectEntity());
+        cacheIfPresent(tracker, sourceEntity);
+        cacheIfPresent(tracker, directSourceEntity);
+    }
+
+    private static void touchIfLiving(DamageTracker tracker, @Nullable Entity entity, long nowMillis) {
+        if(entity instanceof LivingEntity living) tracker.touchInstance(living, nowMillis);
     }
 
     private static void cacheIfPresent(DamageTracker tracker, @Nullable Entity entity) {
