@@ -20,6 +20,7 @@ import java.nio.channels.FileChannel;
 import java.nio.file.*;
 import java.util.*;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -40,6 +41,7 @@ public final class DamageEventJournal {
     private static final int SEGMENT_MAGIC = 0x44534A31;
     private static final int INDEX_MAGIC = 0x44534931;
     private static final int FORMAT_VERSION = 1;
+    private static final int SEGMENT_HEADER_SIZE = Integer.BYTES * 2;
     private static final int SEGMENT_RECORD_LIMIT = 512;
     private static final int MAX_FRAME_SIZE = 16 * 1024;
     private static final Pattern SEGMENT_NAME = Pattern.compile("segment-(\\d+)\\.bin");
@@ -222,13 +224,41 @@ public final class DamageEventJournal {
         return matched;
     }
 
+    public Set<ResourceLocation> recordedSourceTypes() {
+        return recordedTypes(SegmentMetadata::sourceTypes, record -> record.source().typeIdOrEnvironment());
+    }
+
+    public Set<ResourceLocation> recordedTargetTypes() {
+        return recordedTypes(SegmentMetadata::targetTypes, record -> record.target().typeIdOrEnvironment());
+    }
+
+    public Set<ResourceLocation> recordedDirectSourceTypes() {
+        return recordedTypes(SegmentMetadata::directSourceTypes, record -> record.directSource().typeIdOrEnvironment());
+    }
+
+    public Set<ResourceLocation> recordedDamageTypes() {
+        return recordedTypes(SegmentMetadata::damageTypes, record -> record.damageTypeId());
+    }
+
+    private Set<ResourceLocation> recordedTypes(Function<SegmentMetadata, Set<ResourceLocation>> sealedTypes,
+                                                Function<DamageRecord, ResourceLocation> pendingType) {
+        Set<ResourceLocation> types = new HashSet<>();
+        sealedSegments.forEach(metadata -> types.addAll(sealedTypes.apply(metadata)));
+        if(!activeSegment.isEmpty()) types.addAll(sealedTypes.apply(activeSegment.build()));
+        pending.forEach(entry -> types.add(pendingType.apply(entry.record())));
+        return Set.copyOf(types);
+    }
+
     /**
      * 个人清空不删除共享的完整事件历史，只记录该实体的可见性边界。
      * 这样它仍不会从其他实体的查询结果中消失，和旧版单实例重置的语义一致。
      */
-    public void markReset(EntityRef owner) {
-        resetSequences.put(owner.id(), nextSequence);
-        writeResetSequences();
+    public boolean markReset(EntityRef owner) {
+        Long previous = resetSequences.put(owner.id(), nextSequence);
+        if(writeResetSequences()) return true;
+        if(previous == null) resetSequences.remove(owner.id());
+        else resetSequences.put(owner.id(), previous);
+        return false;
     }
 
     /** 组合筛选没有可复用的预聚合会话时，按完整事件历史切分当前一场战斗。 */
@@ -255,32 +285,44 @@ public final class DamageEventJournal {
         return true;
     }
 
-    /**
-     * 先切换事件目录，再创建新目录。旧目录即使暂时无法删除，也已经不可能被启动流程重新加载。
-     */
+    /** 准备空目录后切换；切换失败时恢复旧目录，避免内存和磁盘状态分离。 */
     private boolean clearDirectoryAtomically() {
         Path parent = directory.getParent();
         Path quarantined = directory.resolveSibling(directory.getFileName() + ".clearing-" + UUID.randomUUID());
+        Path replacement = directory.resolveSibling(directory.getFileName() + ".clearing-new-" + UUID.randomUUID());
+        boolean oldMoved = false;
+        boolean replacementMoved = false;
         try {
             if(parent != null) Files.createDirectories(parent);
+            Files.createDirectory(replacement);
             if(Files.exists(directory)) {
-                Files.move(directory, quarantined, StandardCopyOption.ATOMIC_MOVE);
+                moveDirectory(directory, quarantined);
+                oldMoved = true;
             }
-            Files.createDirectories(directory);
-        } catch (AtomicMoveNotSupportedException e) {
-            try {
-                if(Files.exists(directory)) Files.move(directory, quarantined, StandardCopyOption.REPLACE_EXISTING);
-                Files.createDirectories(directory);
-            } catch (IOException failure) {
-                LOGGER.error("切换原始伤害事件目录失败：{}", directory, failure);
-                return false;
-            }
+            moveDirectory(replacement, directory);
+            replacementMoved = true;
         } catch (IOException e) {
+            if(oldMoved && !Files.exists(directory)) {
+                try {
+                    moveDirectory(quarantined, directory);
+                } catch (IOException restoreFailure) {
+                    LOGGER.error("切换原始伤害事件目录失败且无法恢复旧目录：{}", directory, restoreFailure);
+                }
+            }
+            if(!replacementMoved) deleteTree(replacement);
             LOGGER.error("切换原始伤害事件目录失败：{}", directory, e);
             return false;
         }
         deleteTree(quarantined);
         return true;
+    }
+
+    private void moveDirectory(Path source, Path target) throws IOException {
+        try {
+            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException e) {
+            Files.move(source, target);
+        }
     }
 
     private void deleteTree(Path root) {
@@ -327,8 +369,16 @@ public final class DamageEventJournal {
     private void rebuildIndex(NavigableMap<Long, Path> segmentPaths) {
         sealedSegments.clear();
         long highestSequence = -1;
+        long activeId = segmentPaths.isEmpty() || isCompressedSegment(segmentPaths.lastEntry().getValue())
+                ? -1 : segmentPaths.lastKey();
+        SegmentBuilder rebuiltActive = null;
         for (Map.Entry<Long, Path> entry : segmentPaths.entrySet()) {
             SegmentBuilder builder = scanSegment(entry.getKey(), entry.getValue());
+            if(entry.getKey() == activeId) {
+                rebuiltActive = builder;
+                if(!builder.isEmpty()) highestSequence = Math.max(highestSequence, builder.lastSequence);
+                continue;
+            }
             if(builder.isEmpty()) continue;
             if(!isCompressedSegment(entry.getValue())) compressSegment(entry.getKey());
             SegmentMetadata metadata = builder.build();
@@ -337,9 +387,11 @@ public final class DamageEventJournal {
         }
         sealedSegments.sort(Comparator.comparingLong(SegmentMetadata::id));
         nextSequence = highestSequence + 1;
-        eventCount = sealedSegments.stream().mapToLong(SegmentMetadata::recordCount).sum();
-        long nextSegmentId = segmentPaths.isEmpty() ? 0 : segmentPaths.lastKey() + 1;
-        activeSegment = new SegmentBuilder(nextSegmentId);
+        eventCount = sealedSegments.stream().mapToLong(SegmentMetadata::recordCount).sum()
+                + (rebuiltActive == null ? 0 : rebuiltActive.recordCount);
+        activeSegment = rebuiltActive != null
+                ? rebuiltActive
+                : new SegmentBuilder(segmentPaths.isEmpty() ? 0 : segmentPaths.lastKey() + 1);
         indexState = writeIndex() ? StorageIndexState.REBUILT : StorageIndexState.FAILED;
     }
 
@@ -507,8 +559,16 @@ public final class DamageEventJournal {
     }
 
     private void readEntries(Path path, Consumer<JournalEntry> consumer) {
+        if(isCompressedSegment(path)) {
+            readCompressedEntries(path, consumer);
+            return;
+        }
+        readRawEntries(path, consumer);
+    }
+
+    private void readCompressedEntries(Path path, Consumer<JournalEntry> consumer) {
         try (InputStream raw = new BufferedInputStream(Files.newInputStream(path));
-             InputStream source = isCompressedSegment(path) ? new GZIPInputStream(raw) : raw;
+             InputStream source = new GZIPInputStream(raw);
              DataInputStream input = new DataInputStream(source)) {
             if(input.readInt() != SEGMENT_MAGIC) {
                 LOGGER.error("原始伤害事件段格式不正确，已跳过：{}", path);
@@ -551,6 +611,68 @@ public final class DamageEventJournal {
         }
     }
 
+    /** 原始活跃段可直接定位尾部，发现半帧或校验错误时必须截断后再允许追加。 */
+    private void readRawEntries(Path path, Consumer<JournalEntry> consumer) {
+        try (RandomAccessFile input = new RandomAccessFile(path.toFile(), "rw")) {
+            long fileSize = input.length();
+            if(fileSize < SEGMENT_HEADER_SIZE) {
+                repairRawHeader(input, path);
+                return;
+            }
+            if(input.readInt() != SEGMENT_MAGIC || input.readInt() != FORMAT_VERSION) {
+                repairRawHeader(input, path);
+                return;
+            }
+
+            long lastGoodPosition = SEGMENT_HEADER_SIZE;
+            while(input.getFilePointer() < fileSize) {
+                long frameStart = input.getFilePointer();
+                if(fileSize - frameStart < Integer.BYTES) {
+                    truncateRawSegment(input, path, lastGoodPosition);
+                    return;
+                }
+                int length = input.readInt();
+                if(length <= 0 || length > MAX_FRAME_SIZE
+                        || fileSize - input.getFilePointer() < Integer.BYTES + (long) length) {
+                    LOGGER.warn("原始伤害事件段存在不完整或非法帧，已截断尾部：{}", path);
+                    truncateRawSegment(input, path, lastGoodPosition);
+                    return;
+                }
+                int expectedChecksum = input.readInt();
+                byte[] payload = new byte[length];
+                input.readFully(payload);
+                if(expectedChecksum != checksum(payload)) {
+                    LOGGER.warn("原始伤害事件段尾部校验失败，已截断错误帧及其后内容：{}", path);
+                    truncateRawSegment(input, path, lastGoodPosition);
+                    return;
+                }
+                try {
+                    consumer.accept(decodeEntry(payload));
+                } catch (IOException | RuntimeException e) {
+                    LOGGER.warn("原始伤害事件段存在无法解码的帧，已截断尾部：{}", path, e);
+                    truncateRawSegment(input, path, lastGoodPosition);
+                    return;
+                }
+                lastGoodPosition = input.getFilePointer();
+            }
+        } catch (IOException | RuntimeException e) {
+            LOGGER.error("读取原始伤害事件段失败：{}", path, e);
+        }
+    }
+
+    private void repairRawHeader(RandomAccessFile input, Path path) throws IOException {
+        LOGGER.error("原始伤害事件段头部无效，已重建为空段：{}", path);
+        input.setLength(0);
+        input.seek(0);
+        input.writeInt(SEGMENT_MAGIC);
+        input.writeInt(FORMAT_VERSION);
+    }
+
+    private void truncateRawSegment(RandomAccessFile input, Path path, long position) throws IOException {
+        input.setLength(position);
+        LOGGER.info("原始伤害事件段已恢复到最后一条完整帧：{}，位置 {}", path, position);
+    }
+
     private List<SegmentMetadata> readIndex() {
         Path indexPath = directory.resolve(INDEX_FILE_NAME);
         if(!Files.isRegularFile(indexPath)) return null;
@@ -575,6 +697,15 @@ public final class DamageEventJournal {
             SegmentBuilder actual = scanSegment(metadata.id(), segmentPaths.get(metadata.id()));
             if(actual.isEmpty() || !actual.build().equals(metadata)) return false;
         }
+        Set<Long> unindexed = new HashSet<>(segmentPaths.keySet());
+        unindexed.removeAll(ids);
+        if(unindexed.size() > 1) return false;
+        if(unindexed.size() == 1) {
+            long id = unindexed.iterator().next();
+            if(id != segmentPaths.lastKey() || isCompressedSegment(segmentPaths.get(id))) return false;
+        }
+        if(!segmentPaths.isEmpty() && segmentPaths.lastKey() == ids.stream().max(Long::compareTo).orElse(Long.MIN_VALUE)
+                && !isCompressedSegment(segmentPaths.lastEntry().getValue())) return false;
         return true;
     }
 
@@ -633,7 +764,7 @@ public final class DamageEventJournal {
         }
     }
 
-    private void writeResetSequences() {
+    private boolean writeResetSequences() {
         Path target = directory.resolve(RESET_FILE_NAME);
         Path temporary = target.resolveSibling(target.getFileName() + ".tmp");
         try {
@@ -650,8 +781,10 @@ public final class DamageEventJournal {
                 }
             }
             moveIntoPlace(temporary, target);
+            return true;
         } catch (IOException e) {
             LOGGER.error("写出原始伤害事件重置边界失败：{}", target, e);
+            return false;
         } finally {
             try {
                 Files.deleteIfExists(temporary);

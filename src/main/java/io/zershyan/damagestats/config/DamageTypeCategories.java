@@ -72,6 +72,10 @@ public final class DamageTypeCategories {
         return BY_TYPE.get(damageTypeId);
     }
 
+    public static boolean hasCategory(String category) {
+        return CATEGORIES.containsKey(category);
+    }
+
     private static void putCategory(Map<String, List<ResourceLocation>> categories,
                                     Map<ResourceLocation, String> byType,
                                     String category, List<String> typeIds) {

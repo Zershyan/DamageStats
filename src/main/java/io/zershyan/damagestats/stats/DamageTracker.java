@@ -7,7 +7,6 @@ import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import org.jetbrains.annotations.Nullable;
 
@@ -106,7 +105,7 @@ public class DamageTracker {
         return nameCache.get(id);
     }
 
-    public void touchInstance(LivingEntity entity, long nowMillis) {
+    public void touchInstance(Entity entity, long nowMillis) {
         instanceDirectory.touch(entity, nowMillis);
     }
 

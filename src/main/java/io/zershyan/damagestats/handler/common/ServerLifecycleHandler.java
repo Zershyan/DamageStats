@@ -102,16 +102,16 @@ public final class ServerLifecycleHandler {
         shutdownSaved = true;
     }
 
-    private static void flush() {
+    private static boolean flush() {
         DamageEventJournal journal = ServerStats.journal();
         if(journal != null) journal.flush();
-        saveStats();
+        return saveStats();
     }
 
-    private static void saveStats() {
+    private static boolean saveStats() {
         DamageTracker tracker = ServerStats.tracker();
-        if(tracker == null || worldDirectory == null) return;
-        StatsStorage.save(worldDirectory, tracker);
+        if(tracker == null || worldDirectory == null) return false;
+        return StatsStorage.save(worldDirectory, tracker);
     }
 
     public static void saveNow() {
@@ -121,13 +121,16 @@ public final class ServerLifecycleHandler {
     /** 显式重置不服从自动保存开关，必须让磁盘中的旧统计同步失效。 */
     public static boolean persistReset(@Nullable EntityRef owner) {
         if(worldDirectory == null) return false;
+        DamageTracker tracker = ServerStats.tracker();
         if(owner == null) {
             DamageEventJournal journal = ServerStats.journal();
             if(journal != null && !journal.clear()) return false;
-            DamageTracker tracker = ServerStats.tracker();
             if(tracker != null) tracker.reset();
+        } else {
+            DamageEventJournal journal = ServerStats.journal();
+            if(journal != null && !journal.markReset(owner)) return false;
+            if(tracker != null) tracker.resetFor(owner);
         }
-        flush();
-        return true;
+        return flush();
     }
 }

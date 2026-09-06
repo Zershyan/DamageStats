@@ -62,7 +62,8 @@ public final class StatsDetailsScreen extends Screen {
         for (int index = scrollOffset; index < Math.min(lines.size(), scrollOffset + visible); index++) {
             DetailLine line = lines.get(index);
             int y = top + (index - scrollOffset) * LINE_HEIGHT;
-            graphics.drawString(font, font.plainSubstrByWidth(line.text().getString(), width - SIDE * 2), SIDE, y, line.color());
+            graphics.drawString(font, font.plainSubstrByWidth(line.text().getString(), Math.max(1, width - SIDE * 2)),
+                    SIDE, y, line.color());
         }
         renderables.forEach(renderable -> renderable.render(graphics, mouseX, mouseY, partialTick));
     }

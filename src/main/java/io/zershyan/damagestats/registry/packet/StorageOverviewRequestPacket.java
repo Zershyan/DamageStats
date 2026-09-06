@@ -32,8 +32,7 @@ public record StorageOverviewRequestPacket() implements CustomPacketPayload {
                 return;
             }
             PacketDistributor.sendToPlayer(player, StorageOverviewPacket.updated(
-                    StorageMaintenance.overview(StatsStorage.directory(player.getServer()), ServerStats.journal()),
-                    io.zershyan.damagestats.stats.save.StorageCleanupTarget.NONE));
+                    StorageMaintenance.overview(StatsStorage.directory(player.getServer()), ServerStats.journal())));
         });
     }
 }

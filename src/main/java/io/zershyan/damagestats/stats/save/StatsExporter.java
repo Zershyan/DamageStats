@@ -21,6 +21,7 @@ import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -33,24 +34,47 @@ import java.util.Locale;
  * JSON 是完整的，CSV 只放分组明细——那部分才是真正表格状的数据，适合丢进 Excel 画图。
  */
 public final class StatsExporter {
+    private static final Object EXPORT_LOCK = new Object();
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final String EXPORT_DIR = "exports";
     private static final DateTimeFormatter FILE_STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS");
-    private static final String CSV_HEADER = "scope,dimension,name,damage,share_percent,hits";
+    private static final String CSV_HEADER = "scope,dimension,name,damage,original_damage,reduced_damage,share_percent,hits";
 
     /** 返回导出目录，失败返回 null。文件名带时间戳，不会覆盖旧的导出 */
     public static @Nullable Path export(StatsSnapshot snapshot, Path baseDirectory) {
+        synchronized (EXPORT_LOCK) {
+            return exportLocked(snapshot, baseDirectory);
+        }
+    }
+
+    private static @Nullable Path exportLocked(StatsSnapshot snapshot, Path baseDirectory) {
         Path directory = baseDirectory.resolve(EXPORT_DIR);
         String stamp = LocalDateTime.now().format(FILE_STAMP);
+        Path jsonTemporary = null;
+        Path csvTemporary = null;
+        Path jsonFile = null;
+        Path csvFile = null;
         try {
             Files.createDirectories(directory);
             String baseName = nextBaseName(directory, stamp);
-            writeJson(directory.resolve(baseName + ".json"), snapshot);
-            writeCsv(directory.resolve(baseName + ".csv"), snapshot);
+            jsonFile = directory.resolve(baseName + ".json");
+            csvFile = directory.resolve(baseName + ".csv");
+            jsonTemporary = Files.createTempFile(directory, baseName + "-", ".json.tmp");
+            csvTemporary = Files.createTempFile(directory, baseName + "-", ".csv.tmp");
+            writeJson(jsonTemporary, snapshot);
+            writeCsv(csvTemporary, snapshot);
+            publish(jsonTemporary, jsonFile);
+            jsonTemporary = null;
+            publish(csvTemporary, csvFile);
+            csvTemporary = null;
             return directory;
         } catch (IOException | RuntimeException e) {
             LOGGER.error("导出伤害统计失败：{}", directory, e);
+            deleteIfExists(jsonTemporary);
+            deleteIfExists(csvTemporary);
+            deleteIfExists(jsonFile);
+            deleteIfExists(csvFile);
             return null;
         }
     }
@@ -75,7 +99,8 @@ public final class StatsExporter {
             fights.add(object);
         });
         root.add("finishedFights", fights);
-        try (Writer writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW)) {
+        try (Writer writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8,
+                StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)) {
             GSON.toJson(root, writer);
         }
     }
@@ -101,6 +126,7 @@ public final class StatsExporter {
         object.addProperty("kills", metrics.killCount());
         object.addProperty("averageHit", metrics.averageDamage());
         object.addProperty("maxHit", metrics.maxSingle());
+        object.addProperty("maxOriginalHit", metrics.maxOriginal());
         object.addProperty("maxHitType", metrics.maxSingleTypeName().getString());
         object.add("maxHitTypeId", resourceLocationJson(metrics.maxSingleDamageTypeId()));
         object.add("maxHitDirectSource", entityRefJson(metrics.maxSingleDirectSource()));
@@ -109,8 +135,11 @@ public final class StatsExporter {
         object.addProperty("minHit", metrics.minSingle());
         object.addProperty("averageDps", metrics.averageDps());
         object.addProperty("realtimeDps", metrics.realtimeDps());
+        object.addProperty("averageOriginalDps", metrics.averageOriginalDps());
+        object.addProperty("realtimeOriginalDps", metrics.realtimeOriginalDps());
         object.addProperty("hitsPerSecond", metrics.hitsPerSecond());
         object.addProperty("durationSeconds", metrics.durationSeconds());
+        object.addProperty("durationTicks", metrics.durationTicks());
         return object;
     }
 
@@ -148,6 +177,7 @@ public final class StatsExporter {
         filter.target().ifPresent(selector -> object.add("target", selectorJson(selector)));
         filter.directSource().ifPresent(selector -> object.add("directSource", selectorJson(selector)));
         filter.damageType().ifPresent(selector -> object.add("damageType", damageTypeSelectorJson(selector)));
+        object.addProperty("sourceIsDirectSource", filter.sourceIsDirectSource());
         return object;
     }
 
@@ -219,7 +249,8 @@ public final class StatsExporter {
         lines.add(CSV_HEADER);
         appendScope(lines, "currentFight", snapshot.session());
         appendScope(lines, "lifetime", snapshot.lifetime());
-        Files.write(file, lines, StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
+        Files.write(file, lines, StandardCharsets.UTF_8,
+                StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING);
     }
 
     private static void appendScope(List<String> lines, String scope, StatsView view) {
@@ -235,6 +266,8 @@ public final class StatsExporter {
                 dimension,
                 csvField(group.name().getString()),
                 number(group.damage()),
+                number(group.originalDamage()),
+                number(Math.max(0, group.originalDamage() - group.damage())),
                 number(group.share() * 100),
                 String.valueOf(group.hitCount()))));
     }
@@ -259,5 +292,22 @@ public final class StatsExporter {
             baseName = "damagestats-" + stamp + "-" + suffix++;
         }
         return baseName;
+    }
+
+    private static void publish(Path temporary, Path target) throws IOException {
+        try {
+            Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE);
+        } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+            Files.move(temporary, target);
+        }
+    }
+
+    private static void deleteIfExists(@Nullable Path path) {
+        if(path == null) return;
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException e) {
+            LOGGER.warn("清理导出临时文件失败：{}", path, e);
+        }
     }
 }

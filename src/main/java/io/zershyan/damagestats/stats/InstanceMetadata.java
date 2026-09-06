@@ -4,7 +4,8 @@ import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
 
 /** 实例目录只保存识别和定位所需的最后交互信息，不承担伤害明细的存储职责。 */
 public record InstanceMetadata(
@@ -28,11 +29,14 @@ public record InstanceMetadata(
             Codec.LONG.optionalFieldOf("lastInteractionGameTime", 0L).forGetter(InstanceMetadata::lastInteractionGameTime)
     ).apply(instance, InstanceMetadata::new));
 
-    public static InstanceMetadata from(LivingEntity entity, long nowMillis) {
+    public static InstanceMetadata from(Entity entity, long nowMillis) {
         BlockPos position = entity.blockPosition();
+        String displayName = entity instanceof Player player
+                ? player.getGameProfile().getName()
+                : entity.getCustomName() == null ? "" : entity.getCustomName().getString();
         return new InstanceMetadata(
                 EntityRef.of(entity),
-                entity.getName().getString(),
+                displayName,
                 entity.level().dimension().location(),
                 position.getX(),
                 position.getY(),

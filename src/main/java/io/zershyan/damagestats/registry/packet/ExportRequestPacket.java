@@ -3,7 +3,9 @@ package io.zershyan.damagestats.registry.packet;
 import io.zershyan.damagestats.DamageStats;
 import io.zershyan.damagestats.stats.DamageTracker;
 import io.zershyan.damagestats.stats.ServerStats;
+import io.zershyan.damagestats.stats.filter.DamageTypeGrouping;
 import io.zershyan.damagestats.stats.filter.StatsFilter;
+import io.zershyan.damagestats.stats.filter.StatsSubjectSlot;
 import io.zershyan.damagestats.stats.focus.StatsFocusManager;
 import io.zershyan.damagestats.stats.view.*;
 import net.minecraft.network.RegistryFriendlyByteBuf;
@@ -19,11 +21,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /** 客户端请求当前浏览条件的完整导出，服务端授权后分块返回所有分组和历史。 */
-public record ExportRequestPacket(StatsFilter filter, int requestId) implements CustomPacketPayload {
+public record ExportRequestPacket(StatsFilter filter, DamageTypeGrouping typeGrouping, int requestId) implements CustomPacketPayload {
     private static final int CHUNK_SIZE = 50;
     public static final Type<ExportRequestPacket> TYPE = new Type<>(DamageStats.id("export_request"));
     public static final StreamCodec<RegistryFriendlyByteBuf, ExportRequestPacket> STREAM_CODEC = StreamCodec.composite(
             StatsFilter.STREAM_CODEC, ExportRequestPacket::filter,
+            DamageTypeGrouping.STREAM_CODEC, ExportRequestPacket::typeGrouping,
             ByteBufCodecs.VAR_INT, ExportRequestPacket::requestId,
             ExportRequestPacket::new
     );
@@ -43,7 +46,9 @@ public record ExportRequestPacket(StatsFilter filter, int requestId) implements 
                 PacketDistributor.sendToPlayer(player, ExportStartPacket.denied(payload.requestId()));
                 return;
             }
-            StatsSnapshot snapshot = StatsViewBuilder.snapshotFor(tracker, player, payload.filter());
+            StatsSnapshot snapshot = StatsViewBuilder.snapshotFor(tracker, player, payload.filter(),
+                    StatsSubjectSlot.SOURCE.resolve(payload.filter()),
+                    payload.typeGrouping());
             List<ExportChunkPacket> chunks = chunks(payload.requestId(), snapshot);
             PacketDistributor.sendToPlayer(player, ExportStartPacket.accepted(payload.requestId(), snapshot, chunks.size()));
             chunks.forEach(chunk -> PacketDistributor.sendToPlayer(player, chunk));

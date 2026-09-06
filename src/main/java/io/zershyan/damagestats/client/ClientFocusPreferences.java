@@ -110,11 +110,13 @@ public final class ClientFocusPreferences {
     }
 
     private static void remember(String key, FocusScopeView scope) {
+        // 实例焦点只在当前连接有效，恢复时必须回到当前玩家，不能把它误存成全局来源。
+        boolean sourceUnrestricted = scope.source().isEmpty() && !scope.sourceIsDirectSource();
         Optional<EntitySelector> source = scope.sourceIsDirectSource() ? Optional.empty() : scope.source();
         String sourceType = typeId(source).orElse(null);
         String targetType = typeId(scope.target()).orElse(null);
         if(sourceType == null && targetType == null) focuses().remove(key);
-        else focuses().put(key, new SavedFocus(sourceType, targetType, source.isEmpty()));
+        else focuses().put(key, new SavedFocus(sourceType, targetType, sourceUnrestricted));
         write();
     }
 

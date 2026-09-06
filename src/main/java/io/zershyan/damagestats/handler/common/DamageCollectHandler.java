@@ -53,8 +53,8 @@ public final class DamageCollectHandler {
         );
         tracker.record(record);
         tracker.touchInstance(target, nowMillis);
-        touchIfLiving(tracker, sourceEntity, nowMillis);
-        touchIfLiving(tracker, directSourceEntity, nowMillis);
+        touchIfPresent(tracker, sourceEntity, nowMillis);
+        touchIfPresent(tracker, directSourceEntity, nowMillis);
         cacheNames(tracker, target, sourceEntity, directSourceEntity);
         DamageEventJournal journal = ServerStats.journal();
         if(journal != null) journal.append(record);
@@ -68,8 +68,8 @@ public final class DamageCollectHandler {
         cacheIfPresent(tracker, directSourceEntity);
     }
 
-    private static void touchIfLiving(DamageTracker tracker, @Nullable Entity entity, long nowMillis) {
-        if(entity instanceof LivingEntity living) tracker.touchInstance(living, nowMillis);
+    private static void touchIfPresent(DamageTracker tracker, @Nullable Entity entity, long nowMillis) {
+        if(entity != null) tracker.touchInstance(entity, nowMillis);
     }
 
     private static void cacheIfPresent(DamageTracker tracker, @Nullable Entity entity) {

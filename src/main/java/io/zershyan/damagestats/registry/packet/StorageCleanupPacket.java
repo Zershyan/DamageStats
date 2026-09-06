@@ -34,21 +34,16 @@ public record StorageCleanupPacket(StorageCleanupTarget target) implements Custo
                 PacketDistributor.sendToPlayer(player, StorageOverviewPacket.denied());
                 return;
             }
-            switch (payload.target()) {
+            boolean succeeded = switch (payload.target()) {
                 case TEMPORARY_AND_BACKUPS -> StorageMaintenance.cleanTemporaryAndBackups(
                         StatsStorage.directory(player.getServer()));
                 case EXPORTS -> StorageMaintenance.cleanExports(StatsStorage.directory(player.getServer()));
                 case ALL_RECORDS -> StatsResetService.resetAll(player.getServer());
-                case NONE -> {
-                    PacketDistributor.sendToPlayer(player, StorageOverviewPacket.updated(
-                            StorageMaintenance.overview(StatsStorage.directory(player.getServer()), ServerStats.journal()),
-                            StorageCleanupTarget.NONE));
-                    return;
-                }
-            }
+                case NONE -> true;
+            };
             PacketDistributor.sendToPlayer(player, StorageOverviewPacket.updated(
                     StorageMaintenance.overview(StatsStorage.directory(player.getServer()), ServerStats.journal()),
-                    payload.target()));
+                    payload.target(), succeeded));
         });
     }
 }

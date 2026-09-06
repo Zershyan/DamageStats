@@ -3,7 +3,7 @@ package io.zershyan.damagestats.stats;
 import com.mojang.serialization.Codec;
 import io.zershyan.damagestats.config.DSConfig;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Entity;
 
 import java.util.*;
 
@@ -14,7 +14,7 @@ public class InstanceDirectory {
 
     private final Map<UUID, InstanceMetadata> entries = new HashMap<>();
 
-    public void touch(LivingEntity entity, long nowMillis) {
+    public void touch(Entity entity, long nowMillis) {
         InstanceMetadata metadata = InstanceMetadata.from(entity, nowMillis);
         entries.put(metadata.ref().id(), metadata);
         prune(nowMillis);
@@ -40,7 +40,8 @@ public class InstanceDirectory {
     }
 
     public boolean contains(EntityRef ref) {
-        return entries.containsKey(ref.id());
+        InstanceMetadata metadata = entries.get(ref.id());
+        return metadata != null && metadata.ref().equals(ref);
     }
 
     public boolean containsType(ResourceLocation typeId) {

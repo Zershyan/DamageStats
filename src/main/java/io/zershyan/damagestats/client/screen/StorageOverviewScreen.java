@@ -78,7 +78,7 @@ public final class StorageOverviewScreen extends Screen {
         for (int index = scrollOffset; index < Math.min(lines.size(), scrollOffset + visible); index++) {
             Component line = lines.get(index);
             int y = top + (index - scrollOffset) * LINE_HEIGHT;
-            graphics.drawString(font, font.plainSubstrByWidth(line.getString(), width - SIDE * 2), SIDE, y,
+            graphics.drawString(font, font.plainSubstrByWidth(line.getString(), Math.max(1, width - SIDE * 2)), SIDE, y,
                     index == 0 ? ACCENT : MUTED);
         }
         renderables.forEach(renderable -> renderable.render(graphics, mouseX, mouseY, partialTick));

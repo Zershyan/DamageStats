@@ -1,6 +1,7 @@
 package io.zershyan.damagestats.registry.packet;
 
 import io.zershyan.damagestats.DamageStats;
+import io.zershyan.damagestats.datagen.init.DSKeyLang;
 import io.zershyan.damagestats.handler.common.ServerLifecycleHandler;
 import io.zershyan.damagestats.handler.common.StatsResetService;
 import io.zershyan.damagestats.handler.common.StatsSyncHandler;
@@ -9,7 +10,6 @@ import io.zershyan.damagestats.stats.EntityRef;
 import io.zershyan.damagestats.stats.ServerStats;
 import io.zershyan.damagestats.stats.focus.FocusChangeResult;
 import io.zershyan.damagestats.stats.focus.StatsFocusManager;
-import io.zershyan.damagestats.stats.save.DamageEventJournal;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
@@ -47,14 +47,12 @@ public record ResetStatsPacket(boolean global) implements CustomPacketPayload {
                 return;
             }
             EntityRef self = EntityRef.of(player);
-            tracker.resetFor(self);
-            DamageEventJournal journal = ServerStats.journal();
-            if(journal != null) journal.markReset(self);
-            ServerLifecycleHandler.persistReset(self);
+            boolean persisted = ServerLifecycleHandler.persistReset(self);
             StatsFocusManager manager = ServerStats.focusManager();
-            if(manager != null) manager.invalidateSummaryCaches();
+            if(manager != null) manager.invalidateSummaryCache(player);
             PacketDistributor.sendToPlayer(player, StatsInvalidatedPacket.INSTANCE);
             StatsSyncHandler.pushFocusState(tracker, player, FocusChangeResult.ACCEPTED);
+            if(!persisted) player.displayClientMessage(DSKeyLang.ResetFailed.copy(), false);
         });
     }
 }

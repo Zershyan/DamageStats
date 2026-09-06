@@ -8,9 +8,7 @@ import io.zershyan.damagestats.config.DamageTypeCategories;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
 import io.zershyan.damagestats.registry.packet.StorageOverviewPacket;
 import io.zershyan.damagestats.stats.DamageTracker;
-import io.zershyan.damagestats.stats.EntityRef;
 import io.zershyan.damagestats.stats.ServerStats;
-import io.zershyan.damagestats.stats.filter.EntitySelector;
 import io.zershyan.damagestats.stats.filter.StatsFilter;
 import io.zershyan.damagestats.stats.save.StatsExporter;
 import io.zershyan.damagestats.stats.save.StatsStorage;
@@ -74,8 +72,7 @@ public final class DSCommands {
         DamageTracker tracker = ServerStats.tracker();
         if(tracker == null) return 0;
         Path directory = StatsExporter.export(
-                StatsViewBuilder.snapshotFor(tracker, player,
-                        StatsFilter.fromSource(new EntitySelector.Instance(EntityRef.of(player)))),
+                StatsViewBuilder.snapshotFor(tracker, player, StatsFilter.NONE),
                 StatsStorage.directory(source.getServer()));
         if(directory == null) {
             source.sendFailure(DSKeyLang.ExportFailed.copy());

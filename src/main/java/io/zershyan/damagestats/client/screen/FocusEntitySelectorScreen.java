@@ -129,10 +129,11 @@ public class FocusEntitySelectorScreen extends Screen {
             int y = TOP + row * ROW_HEIGHT;
             if(isInsideRow(mouseX, mouseY, y)) graphics.fill(SIDE, y, width - SIDE, y + ROW_HEIGHT - 1, ROW_HOVER);
             if(entry == selected) graphics.fill(SIDE, y, width - SIDE, y + ROW_HEIGHT - 1, 0x4066CCFF);
-            graphics.drawString(font, font.plainSubstrByWidth(entry.name().getString(), width - SIDE * 2 - 4),
+            int textWidth = Math.max(1, width - SIDE * 2 - 4);
+            graphics.drawString(font, font.plainSubstrByWidth(entry.name().getString(), textWidth),
                     SIDE + 2, y + 2, 0xFFFFFFFF);
             if(!entry.detail().getString().isEmpty()) {
-                graphics.drawString(font, font.plainSubstrByWidth(entry.detail().getString(), width - SIDE * 2 - 4),
+                graphics.drawString(font, font.plainSubstrByWidth(entry.detail().getString(), textWidth),
                         SIDE + 2, y + 12, 0xFFAAAAAA);
             }
         }

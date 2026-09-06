@@ -17,7 +17,7 @@ public final class StatsResetService {
         if(tracker == null) return false;
         if(!ServerLifecycleHandler.persistReset(null)) return false;
         StatsFocusManager manager = ServerStats.focusManager();
-        if(manager != null) manager.invalidateSummaryCaches();
+        if(manager != null) manager.invalidateSummaryCaches(server.getPlayerList().getPlayers());
         StatsSyncHandler.clear();
         PacketDistributor.sendToAllPlayers(StatsInvalidatedPacket.INSTANCE);
         server.getPlayerList().getPlayers().forEach(online ->

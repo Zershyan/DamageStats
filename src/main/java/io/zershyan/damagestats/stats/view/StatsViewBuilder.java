@@ -31,17 +31,19 @@ public final class StatsViewBuilder {
         StatsView session;
         StatsView lifetime;
         List<SessionView> history;
-        if(journal != null) {
+        if(journal != null && !(journal.eventCount() == 0 && fast != null)) {
             // 导出与按需查询以完整事件日志为准，旧聚合缓存只作为日志不可用时的兼容后备。
             session = fromHistory(tracker, filter, subjectSlot, typeGrouping, true, gameTime, window);
             lifetime = fromHistory(tracker, filter, subjectSlot, typeGrouping, false, gameTime, window);
             history = historyFromJournal(filter, gameTime);
         } else if(fast != null) {
             DamageSession current = fast.getCurrentSession();
+            boolean active = current != null
+                    && !current.isTimedOut(gameTime, DSConfig.SessionTimeoutTicks.get());
             // 实时 DPS 是「当下」的量，和看本场还是累计无关，所以两个视图给同一个值
-            float realtimeDps = current == null ? 0 : current.getRealtimeDps(gameTime, window);
-            float realtimeOriginalDps = current == null ? 0 : current.getRealtimeOriginalDps(gameTime, window);
-            session = current == null
+            float realtimeDps = active ? current.getRealtimeDps(gameTime, window) : 0;
+            float realtimeOriginalDps = active ? current.getRealtimeOriginalDps(gameTime, window) : 0;
+            session = !active
                     ? StatsView.EMPTY
                     : view(tracker, current.getAccumulator(), realtimeDps, realtimeOriginalDps, subjectSlot, typeGrouping);
             lifetime = view(tracker, fast.getLifetime(), realtimeDps, realtimeOriginalDps, subjectSlot, typeGrouping);
@@ -79,9 +81,11 @@ public final class StatsViewBuilder {
         StatsEntry fast = fastPathEntry(tracker, filter);
         if(fast != null) {
             DamageSession current = fast.getCurrentSession();
-            float realtimeDps = current == null ? 0 : current.getRealtimeDps(gameTime, windowTicks);
-            float realtimeOriginalDps = current == null ? 0 : current.getRealtimeOriginalDps(gameTime, windowTicks);
-            FocusMetricsView session = current == null ? FocusMetricsView.EMPTY
+            boolean active = current != null
+                    && !current.isTimedOut(gameTime, DSConfig.SessionTimeoutTicks.get());
+            float realtimeDps = active ? current.getRealtimeDps(gameTime, windowTicks) : 0;
+            float realtimeOriginalDps = active ? current.getRealtimeOriginalDps(gameTime, windowTicks) : 0;
+            FocusMetricsView session = !active ? FocusMetricsView.EMPTY
                     : focusMetrics(tracker, current.getAccumulator(), realtimeDps, realtimeOriginalDps);
             FocusMetricsView lifetime = focusMetrics(tracker, fast.getLifetime(), realtimeDps, realtimeOriginalDps);
             return new FocusSummary(0, scope, session, lifetime, current != null, ServerStats.worldId());
@@ -102,9 +106,13 @@ public final class StatsViewBuilder {
         StatsSubjectSlot subjectSlot = dimension == FocusChartDimension.RESPONSIBLE_SOURCE
                 ? StatsSubjectSlot.TARGET
                 : filter.source().isPresent() ? StatsSubjectSlot.SOURCE : StatsSubjectSlot.TARGET;
-        // 图表是按需请求的，始终从完整事件日志聚合，不能把可能已过期的旧聚合缓存当作权威来源。
-        StatsView view = fromHistory(tracker, filter, subjectSlot, typeGrouping,
-                scope == FocusChartScope.SESSION, player.level().getGameTime(), DSConfig.DpsWindowTicks.get());
+        long gameTime = player.level().getGameTime();
+        StatsEntry fast = fastPathEntry(tracker, filter);
+        // 新版日志有数据时始终从日志读取；只有旧版仍留有聚合缓存而没有事件日志时才回退。
+        StatsView view = fast != null && (ServerStats.journal() == null || ServerStats.journal().eventCount() == 0)
+                ? cachedView(tracker, fast, subjectSlot, typeGrouping, scope, gameTime)
+                : fromHistory(tracker, filter, subjectSlot, typeGrouping,
+                        scope == FocusChartScope.SESSION, gameTime, DSConfig.DpsWindowTicks.get());
         List<GroupView> groups = switch (dimension) {
             case DAMAGE_TYPE -> view.byType();
             case DIRECT_SOURCE -> view.bySource();
@@ -161,9 +169,11 @@ public final class StatsViewBuilder {
 
     /** 从完整原始事件历史现聚合。对手维度取「另一边」：筛了目标就看来源，否则看目标 */
     private static StatsView fromHistory(DamageTracker tracker, StatsFilter filter, StatsSubjectSlot subjectSlot,
-                                         DamageTypeGrouping typeGrouping, boolean sessionOnly,
-                                         long gameTime, int windowTicks) {
-        long since = sessionOnly ? sessionStart(tracker, filter, subjectSlot, gameTime) : Long.MIN_VALUE;
+                                          DamageTypeGrouping typeGrouping, boolean sessionOnly,
+                                          long gameTime, int windowTicks) {
+        long currentSessionStart = sessionStart(tracker, filter, subjectSlot, gameTime);
+        boolean active = currentSessionStart <= gameTime;
+        long since = sessionOnly ? currentSessionStart : Long.MIN_VALUE;
         DamageEventJournal journal = ServerStats.journal();
         List<DamageRecord> matched = journal == null ? List.of() : journal.matching(filter).stream()
                 .filter(record -> record.gameTime() >= since)
@@ -176,8 +186,8 @@ public final class StatsViewBuilder {
         for (DamageRecord record : matched) {
             accumulator.accept(record, opponentIsSource ? record.source() : record.target());
         }
-        return view(tracker, accumulator, windowDps(matched, gameTime, windowTicks),
-                windowOriginalDps(matched, gameTime, windowTicks), subjectSlot, typeGrouping);
+        return view(tracker, accumulator, active ? windowDps(matched, gameTime, windowTicks) : 0,
+                active ? windowOriginalDps(matched, gameTime, windowTicks) : 0, subjectSlot, typeGrouping);
     }
 
     /** 「本场」优先采用主体预聚合会话的起点，否则从筛选后的原始记录重新切分 */
@@ -190,7 +200,8 @@ public final class StatsViewBuilder {
             return journal.currentSessionStart(filter, gameTime, DSConfig.SessionTimeoutTicks.get());
         }
         DamageSession session = entry.getCurrentSession();
-        return session == null ? gameTime + 1 : session.getStartTime();
+        return session == null || session.isTimedOut(gameTime, DSConfig.SessionTimeoutTicks.get())
+                ? gameTime + 1 : session.getStartTime();
     }
 
     /** 从权威事件历史恢复最近已结束会话，避免旧聚合缓存关闭保存后丢失历史页和导出内容。 */
@@ -239,8 +250,8 @@ public final class StatsViewBuilder {
             lifetime.accept(record, record.target());
             if(active && record.gameTime() >= sessionStart) session.accept(record, record.target());
         }
-        float realtimeDps = windowDps(records, gameTime, windowTicks);
-        float realtimeOriginalDps = windowOriginalDps(records, gameTime, windowTicks);
+        float realtimeDps = active ? windowDps(records, gameTime, windowTicks) : 0;
+        float realtimeOriginalDps = active ? windowOriginalDps(records, gameTime, windowTicks) : 0;
         return new FocusSummary(0, scope,
                 active ? focusMetrics(tracker, session, realtimeDps, realtimeOriginalDps) : FocusMetricsView.EMPTY,
                 focusMetrics(tracker, lifetime, realtimeDps, realtimeOriginalDps),
@@ -249,12 +260,30 @@ public final class StatsViewBuilder {
 
     private static @Nullable StatsEntry sessionEntry(DamageTracker tracker, StatsFilter filter,
                                                      StatsSubjectSlot subjectSlot) {
-        if(filter.sourceIsDirectSource()) return null;
+        if(filter.sourceIsDirectSource() || filter.directSource().isPresent() || filter.damageType().isPresent()
+                || (filter.source().isPresent() && filter.target().isPresent())) return null;
         return switch (subjectSlot) {
             case SOURCE -> filter.source().map(selector -> entryFor(tracker, selector, true)).orElse(null);
             case TARGET -> filter.target().map(selector -> entryFor(tracker, selector, false)).orElse(null);
             case GLOBAL -> tracker.global();
         };
+    }
+
+    private static StatsView cachedView(DamageTracker tracker, StatsEntry entry, StatsSubjectSlot subjectSlot,
+                                        DamageTypeGrouping typeGrouping, FocusChartScope scope, long gameTime) {
+        DamageSession current = entry.getCurrentSession();
+        boolean active = current != null
+                && !current.isTimedOut(gameTime, DSConfig.SessionTimeoutTicks.get());
+        float realtimeDps = active
+                ? current.getRealtimeDps(gameTime, DSConfig.DpsWindowTicks.get()) : 0;
+        float realtimeOriginalDps = active
+                ? current.getRealtimeOriginalDps(gameTime, DSConfig.DpsWindowTicks.get()) : 0;
+        if(scope == FocusChartScope.SESSION) {
+            return !active ? StatsView.EMPTY
+                    : view(tracker, current.getAccumulator(), realtimeDps, realtimeOriginalDps,
+                    subjectSlot, typeGrouping);
+        }
+        return view(tracker, entry.getLifetime(), realtimeDps, realtimeOriginalDps, subjectSlot, typeGrouping);
     }
 
     private static float windowDps(List<DamageRecord> records, long gameTime, int windowTicks) {

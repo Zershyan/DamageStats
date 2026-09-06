@@ -24,7 +24,10 @@ public final class ClientStorageOverview {
         overview = payload.overview();
         completedCleanup = payload.completedCleanup();
         if(completedCleanup != StorageCleanupTarget.NONE && minecraft.player != null) {
-            minecraft.player.displayClientMessage(DSKeyLang.StorageCleanupDone.get(cleanupLabel(completedCleanup)), false);
+            Component message = payload.cleanupSucceeded()
+                    ? DSKeyLang.StorageCleanupDone.get(cleanupLabel(completedCleanup))
+                    : DSKeyLang.StorageCleanupFailed.get(cleanupLabel(completedCleanup));
+            minecraft.player.displayClientMessage(message, false);
         }
         if(payload.openScreen()) minecraft.setScreen(new StorageOverviewScreen());
     }

@@ -58,6 +58,10 @@ public final class FocusSummaryCache {
 
     public FocusSummary summary(DamageTracker tracker, long gameTime) {
         DamageSession current = session;
+        if(current != null && current.isTimedOut(gameTime, DSConfig.SessionTimeoutTicks.get())) {
+            session = null;
+            current = null;
+        }
         float realtimeDps = current == null ? 0 : current.getRealtimeDps(gameTime, DSConfig.DpsWindowTicks.get());
         float realtimeOriginalDps = current == null ? 0
                 : current.getRealtimeOriginalDps(gameTime, DSConfig.DpsWindowTicks.get());

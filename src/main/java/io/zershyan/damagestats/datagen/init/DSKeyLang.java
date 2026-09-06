@@ -45,10 +45,14 @@ public class DSKeyLang extends DSLang {
             "Exported to %s", "已导出到 %s");
     public static final MutableComponent ExportFailed = entry(MessagePrefix + "export_failed",
             "Export failed, see the log for details", "导出失败，详情见日志");
+    public static final MutableComponent ResetFailed = entry(MessagePrefix + "reset_failed",
+            "Statistics reset could not be persisted", "统计清理未能持久化");
     public static final MutableComponent StatsPrivate = entry(MessagePrefix + "stats_private",
             "These statistics are private", "统计数据当前为私有");
     public static final LazyComponent StorageCleanupDone = entryLazy(MessagePrefix + "storage_cleanup_done",
             "Storage cleanup completed: %s", "存储清理已完成：%s");
+    public static final LazyComponent StorageCleanupFailed = entryLazy(MessagePrefix + "storage_cleanup_failed",
+            "Storage cleanup failed: %s", "存储清理失败：%s");
 
     // 区块标题
     public static final MutableComponent TitleOutgoing = entry(StatsPrefix + "title.outgoing",

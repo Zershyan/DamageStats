@@ -14,7 +14,7 @@ public sealed interface EntitySelector {
     record Instance(EntityRef ref) implements EntitySelector {
         @Override
         public boolean matches(EntityRef candidate) {
-            return ref.id().equals(candidate.id());
+            return ref.equals(candidate);
         }
     }
 

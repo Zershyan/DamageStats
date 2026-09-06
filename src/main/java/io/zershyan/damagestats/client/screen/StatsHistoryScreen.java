@@ -72,7 +72,7 @@ public final class StatsHistoryScreen extends Screen {
         scrollOffset = Mth.clamp(scrollOffset, 0, Math.max(0, lines.size() - visible));
         for (int index = scrollOffset; index < Math.min(lines.size(), scrollOffset + visible); index++) {
             HistoryLine line = lines.get(index);
-            graphics.drawString(font, font.plainSubstrByWidth(line.text().getString(), width - SIDE * 2), SIDE,
+            graphics.drawString(font, font.plainSubstrByWidth(line.text().getString(), Math.max(1, width - SIDE * 2)), SIDE,
                     top + (index - scrollOffset) * ROW_HEIGHT, line.color());
         }
         renderables.forEach(renderable -> renderable.render(graphics, mouseX, mouseY, partialTick));
@@ -91,11 +91,12 @@ public final class StatsHistoryScreen extends Screen {
         requestId = ClientStats.nextHistoryRequestId();
         adopted = null;
         scrollOffset = 0;
-        PacketDistributor.sendToServer(new HistoryRequestPacket(requestId));
+        PacketDistributor.sendToServer(new HistoryRequestPacket(parent.browsingFilter(), requestId));
     }
 
     private static List<HistoryLine> lines(@Nullable HistoryPage page) {
         if(page == null) return List.of(new HistoryLine(DSKeyLang.NoData.copy(), MUTED));
+        if(!page.allowed()) return List.of(new HistoryLine(DSKeyLang.StatsPrivate.copy(), MUTED));
         if(page.outgoing().isEmpty() && page.incoming().isEmpty()) return List.of(new HistoryLine(DSKeyLang.NoData.copy(), MUTED));
         List<HistoryLine> lines = new ArrayList<>();
         append(lines, DSKeyLang.TitleOutgoing.copy(), page.outgoing());

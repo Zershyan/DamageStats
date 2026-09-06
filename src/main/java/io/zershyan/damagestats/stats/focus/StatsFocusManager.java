@@ -1,5 +1,7 @@
 package io.zershyan.damagestats.stats.focus;
 
+import io.zershyan.damagestats.config.DSConfig;
+import io.zershyan.damagestats.config.DamageTypeCategories;
 import io.zershyan.damagestats.stats.DamageRecord;
 import io.zershyan.damagestats.stats.DamageTracker;
 import io.zershyan.damagestats.stats.EntityRef;
@@ -78,8 +80,13 @@ public final class StatsFocusManager {
     }
 
     public boolean canBrowse(ServerPlayer player, StatsFilter filter, DamageTracker tracker) {
+        if(!isValidFilter(player, filter, tracker)) return false;
         if(player.hasPermissions(2)) return true;
-        return canBrowseSource(player, filter.source(), filter.target(), filter.sourceIsDirectSource(), tracker);
+        boolean sourceAllowed = canBrowseSource(player, filter.source(), filter.target(),
+                filter.sourceIsDirectSource(), tracker);
+        if(!sourceAllowed) return false;
+        if(DSConfig.PublicStats.get()) return true;
+        return isPrivateSource(player, filter.source(), filter.sourceIsDirectSource(), tracker);
     }
 
     public boolean canBrowseSource(ServerPlayer player, Optional<EntitySelector> source,
@@ -89,10 +96,10 @@ public final class StatsFocusManager {
         EntitySelector self = new EntitySelector.Instance(EntityRef.of(player));
         PlayerFocus state = stateFor(player);
         if(sourceIsDirectSource) return source.get() instanceof EntitySelector.Instance(EntityRef ref)
+                && isLivingRef(ref) && tracker.instanceDirectory().contains(ref)
                 && (state.delegatedSources.contains(ref) || isDirectSourceOfPlayer(player, target, ref, tracker));
-        if(source.filter(self::equals).isPresent()) return true;
-        return source.get() instanceof EntitySelector.Instance(EntityRef ref)
-                && state.delegatedSources.contains(ref);
+        return source.filter(self::equals).isPresent()
+                && isValidSourceSelector(player, source.get(), tracker);
     }
 
     /** 普通玩家关闭 GUI 后立即失去实体来源下钻权限，并恢复为自身来源。 */
@@ -100,8 +107,9 @@ public final class StatsFocusManager {
         PlayerFocus state = focuses.get(player.getUUID());
         if(state == null) return false;
         state.delegatedSources.clear();
+        if(player.hasPermissions(2)) return false;
         EntitySelector self = new EntitySelector.Instance(EntityRef.of(player));
-        if(state.focus.source().filter(self::equals).isPresent()) return false;
+        if(!state.focus.sourceIsDirectSource() && state.focus.source().filter(self::equals).isPresent()) return false;
         state.focus = state.focus.next(Optional.of(self), state.focus.target(), false);
         state.summaryCache = null;
         reindex(player.getUUID(), state.focus);
@@ -110,7 +118,7 @@ public final class StatsFocusManager {
 
     /** 仅允许从当前玩家自身输出链路中出现过的 LivingEntity 直接来源下钻。 */
     public FocusChangeResult selectDirectSource(ServerPlayer player, EntityRef source, DamageTracker tracker) {
-        if(!tracker.instanceDirectory().contains(source)) return FocusChangeResult.UNKNOWN_SOURCE;
+        if(!isLivingRef(source) || !tracker.instanceDirectory().contains(source)) return FocusChangeResult.UNKNOWN_SOURCE;
         PlayerFocus state = stateFor(player);
         if(player.hasPermissions(2)) {
             state.focus = state.focus.next(Optional.of(new EntitySelector.Instance(source)), state.focus.target(), true);
@@ -159,8 +167,26 @@ public final class StatsFocusManager {
         return expired;
     }
 
-    public void invalidateSummaryCaches() {
-        focuses.values().forEach(state -> state.summaryCache = null);
+    public void invalidateSummaryCaches(Collection<ServerPlayer> onlinePlayers) {
+        Map<UUID, ServerPlayer> online = new HashMap<>();
+        onlinePlayers.forEach(player -> online.put(player.getUUID(), player));
+        focuses.forEach((playerId, state) -> {
+            state.summaryCache = null;
+            state.delegatedSources.clear();
+            ServerPlayer player = online.get(playerId);
+            if(player != null && !player.hasPermissions(2)) restoreOrdinarySource(state, playerId);
+            reindex(playerId, state.focus);
+        });
+    }
+
+    public void invalidateSummaryCache(ServerPlayer player) {
+        UUID playerId = player.getUUID();
+        PlayerFocus state = focuses.get(playerId);
+        if(state == null) return;
+        state.summaryCache = null;
+        state.delegatedSources.clear();
+        if(!player.hasPermissions(2)) restoreOrdinarySource(state, playerId);
+        reindex(playerId, state.focus);
     }
 
     public void remove(UUID playerId) {
@@ -192,14 +218,23 @@ public final class StatsFocusManager {
     private FocusChangeResult validateSource(ServerPlayer player, Optional<EntitySelector> source,
                                              Optional<EntitySelector> target, boolean sourceIsDirectSource,
                                              PlayerFocus state, EntitySelector self, DamageTracker tracker) {
-        if(player.hasPermissions(2)) {
-            if(source.isEmpty() || isKnown(source.get(), tracker)) return FocusChangeResult.ACCEPTED;
-            return FocusChangeResult.UNKNOWN_SOURCE;
+        if(sourceIsDirectSource) {
+            if(!(source.orElse(null) instanceof EntitySelector.Instance(EntityRef ref))
+                    || !isLivingRef(ref) || !tracker.instanceDirectory().contains(ref)) {
+                return FocusChangeResult.UNKNOWN_SOURCE;
+            }
+            if(player.hasPermissions(2)) return FocusChangeResult.ACCEPTED;
+            if(isDirectSourceOfPlayer(player, target, ref, tracker)) {
+                state.delegatedSources.add(ref);
+                return FocusChangeResult.ACCEPTED;
+            }
+            return FocusChangeResult.SOURCE_NOT_ALLOWED;
         }
-        if(sourceIsDirectSource && source.orElse(null) instanceof EntitySelector.Instance(EntityRef ref)
-                && isDirectSourceOfPlayer(player, target, ref, tracker)) {
-            state.delegatedSources.add(ref);
-            return FocusChangeResult.ACCEPTED;
+        if(player.hasPermissions(2)) {
+            if(source.isEmpty() || isValidSourceSelector(player, source.get(), tracker)) {
+                return FocusChangeResult.ACCEPTED;
+            }
+            return FocusChangeResult.UNKNOWN_SOURCE;
         }
         if(source.filter(self::equals).isPresent()) return FocusChangeResult.ACCEPTED;
         return FocusChangeResult.SOURCE_NOT_ALLOWED;
@@ -216,23 +251,87 @@ public final class StatsFocusManager {
         return !journal.matching(proof).isEmpty();
     }
 
-    private static boolean isKnown(EntitySelector selector, DamageTracker tracker) {
+    private static boolean isValidSourceSelector(ServerPlayer player, EntitySelector selector,
+                                                 DamageTracker tracker) {
         return switch (selector) {
-            case EntitySelector.Instance(EntityRef ref) -> tracker.instanceDirectory().contains(ref);
-            case EntitySelector.Type(ResourceLocation typeId) -> tracker.instanceDirectory().containsType(typeId);
+            case EntitySelector.Instance(EntityRef ref) -> isLivingRef(ref)
+                    && (ref.equals(EntityRef.of(player)) || tracker.instanceDirectory().contains(ref));
+            case EntitySelector.Type(ResourceLocation typeId) -> isRecordedLivingSourceType(typeId);
         };
     }
 
     private static boolean isKnownTarget(EntitySelector selector, DamageTracker tracker) {
         return switch (selector) {
-            case EntitySelector.Instance(EntityRef ref) -> tracker.instanceDirectory().contains(ref);
+            case EntitySelector.Instance(EntityRef ref) -> isLivingRef(ref) && tracker.instanceDirectory().contains(ref);
             case EntitySelector.Type(ResourceLocation typeId) -> isLivingType(typeId);
         };
+    }
+
+    private static boolean isLivingRef(EntityRef ref) {
+        return ref.typeId() != null && isLivingType(ref.typeId());
+    }
+
+    private static boolean isValidFilter(ServerPlayer player, StatsFilter filter, DamageTracker tracker) {
+        if(filter.sourceIsDirectSource()) {
+            if(!(filter.source().orElse(null) instanceof EntitySelector.Instance(EntityRef ref))
+                    || !isLivingRef(ref) || !tracker.instanceDirectory().contains(ref)) return false;
+        } else if(filter.source().isPresent()
+                && !isValidSourceSelector(player, filter.source().get(), tracker)) return false;
+        if(filter.target().isPresent() && !isKnownTarget(filter.target().get(), tracker)) return false;
+        if(filter.directSource().isPresent()
+                && !isValidDirectSourceSelector(filter.directSource().get(), tracker)) return false;
+        return filter.damageType().isEmpty() || isValidDamageTypeSelector(filter.damageType().get());
+    }
+
+    private static boolean isValidDirectSourceSelector(EntitySelector selector, DamageTracker tracker) {
+        return switch (selector) {
+            case EntitySelector.Instance(EntityRef ref) -> ref.typeId() != null
+                    && tracker.instanceDirectory().contains(ref);
+            case EntitySelector.Type(ResourceLocation typeId) -> {
+                DamageEventJournal journal = ServerStats.journal();
+                yield journal != null && journal.recordedDirectSourceTypes().contains(typeId);
+            }
+        };
+    }
+
+    private static boolean isValidDamageTypeSelector(
+            io.zershyan.damagestats.stats.filter.DamageTypeSelector selector) {
+        return switch (selector) {
+            case io.zershyan.damagestats.stats.filter.DamageTypeSelector.Category category ->
+                    DamageTypeCategories.hasCategory(category.name());
+            case io.zershyan.damagestats.stats.filter.DamageTypeSelector.Exact exact -> {
+                DamageEventJournal journal = ServerStats.journal();
+                yield journal != null && journal.recordedDamageTypes().contains(exact.id());
+            }
+        };
+    }
+
+    private boolean isPrivateSource(ServerPlayer player, Optional<EntitySelector> source,
+                                    boolean sourceIsDirectSource, DamageTracker tracker) {
+        EntitySelector self = new EntitySelector.Instance(EntityRef.of(player));
+        if(source.filter(self::equals).isPresent()) return true;
+        if(!(source.orElse(null) instanceof EntitySelector.Instance(EntityRef ref))) return false;
+        if(!isLivingRef(ref)) return false;
+        PlayerFocus state = stateFor(player);
+        return sourceIsDirectSource && (state.delegatedSources.contains(ref)
+                || isDirectSourceOfPlayer(player, Optional.empty(), ref, tracker));
     }
 
     private static boolean isLivingType(ResourceLocation typeId) {
         EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.get(typeId);
         return type != null && LivingEntity.class.isAssignableFrom(type.getBaseClass());
+    }
+
+    private static boolean isRecordedLivingSourceType(ResourceLocation typeId) {
+        if(!isLivingType(typeId)) return false;
+        DamageEventJournal journal = ServerStats.journal();
+        return journal != null && journal.recordedSourceTypes().contains(typeId);
+    }
+
+    private static void restoreOrdinarySource(PlayerFocus state, UUID playerId) {
+        if(!state.focus.sourceIsDirectSource()) return;
+        EntityRef self = new EntityRef(playerId, ResourceLocation.withDefaultNamespace("player"));
+        state.focus = state.focus.next(Optional.of(new EntitySelector.Instance(self)), state.focus.target(), false);
     }
 
     private void reindex(UUID playerId, StatsFocus focus) {

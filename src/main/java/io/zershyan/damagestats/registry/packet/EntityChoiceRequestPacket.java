@@ -70,10 +70,13 @@ public record EntityChoiceRequestPacket(
             if(tracker == null || manager == null) return;
             boolean allowed = switch (payload.slot()) {
                 case TARGET -> manager.canBrowse(player, withoutSlot(payload.contextFilter(), FocusSelectionSlot.TARGET), tracker);
-                case SOURCE -> player.hasPermissions(2);
+                case SOURCE -> player.hasPermissions(2)
+                        && manager.canBrowse(player, withoutSlot(payload.contextFilter(), FocusSelectionSlot.SOURCE), tracker);
                 case DIRECT_SOURCE -> payload.typeFilter().isPresent()
                         && manager.canBrowse(player, payload.contextFilter(), tracker);
             };
+            allowed &= payload.typeFilter().isEmpty()
+                    || validTypeFilter(payload.slot(), payload.typeFilter().get(), tracker);
             long focusVersion = manager.focusFor(player).version();
             if(!allowed) {
                 PacketDistributor.sendToPlayer(player, new EntityChoicePagePacket(new EntityChoicePage(
@@ -97,22 +100,22 @@ public record EntityChoiceRequestPacket(
 
     private static List<EntityChoiceView> typeChoices(DamageTracker tracker, String search, FocusSelectionSlot slot) {
         String normalized = search.toLowerCase(Locale.ROOT);
+        Set<ResourceLocation> recordedTypes = recordedTypes(slot);
         return (slot == FocusSelectionSlot.TARGET
                 ? BuiltInRegistries.ENTITY_TYPE.entrySet().stream()
                         .filter(entry -> LivingEntity.class.isAssignableFrom(entry.getValue().getBaseClass()))
                         .map(entry -> BuiltInRegistries.ENTITY_TYPE.getKey(entry.getValue()))
-                : tracker.instanceDirectory().entries().stream()
-                        .map(metadata -> metadata.ref().typeId())
-                        .filter(Objects::nonNull)
-                        .distinct())
+                : recordedTypes.stream())
                 .sorted(Comparator.comparing(ResourceLocation::toString))
+                .filter(typeId -> slot != FocusSelectionSlot.SOURCE || isLivingType(typeId))
                 .filter(typeId -> matches(StatsNames.entityType(typeId), typeId.toString(), normalized))
                 .map(typeId -> new EntityChoiceView(new EntitySelector.Type(typeId), StatsNames.entityType(typeId), Component.empty()))
                 .toList();
     }
 
     private static List<EntityChoiceView> instanceChoices(DamageTracker tracker, ResourceLocation typeId, String search,
-                                                          FocusSelectionSlot slot, StatsFilter contextFilter) {
+                                                           FocusSelectionSlot slot, StatsFilter contextFilter) {
+        if(!validTypeFilter(slot, typeId, tracker)) return List.of();
         String normalized = search.toLowerCase(Locale.ROOT);
         Map<UUID, QueryContribution> contributions = queryContributions(slot, contextFilter);
         return tracker.instanceDirectory().entries().stream()
@@ -163,7 +166,7 @@ public record EntityChoiceRequestPacket(
     private static StatsFilter withoutSlot(StatsFilter filter, FocusSelectionSlot slot) {
         return switch (slot) {
             case SOURCE -> new StatsFilter(Optional.empty(), filter.target(), filter.directSource(),
-                    filter.damageType(), filter.sourceIsDirectSource());
+                    filter.damageType(), false);
             case TARGET -> new StatsFilter(filter.source(), Optional.empty(), filter.directSource(),
                     filter.damageType(), filter.sourceIsDirectSource());
             case DIRECT_SOURCE -> new StatsFilter(filter.source(), filter.target(), Optional.empty(),
@@ -194,5 +197,30 @@ public record EntityChoiceRequestPacket(
     private static Component displayName(DamageTracker tracker, InstanceMetadata metadata) {
         if(!metadata.displayName().isEmpty()) return Component.literal(metadata.displayName());
         return StatsNames.opponent(tracker, metadata.ref());
+    }
+
+    private static Set<ResourceLocation> recordedTypes(FocusSelectionSlot slot) {
+        DamageEventJournal journal = ServerStats.journal();
+        if(journal == null) return Set.of();
+        return switch (slot) {
+            case SOURCE -> journal.recordedSourceTypes();
+            case TARGET -> journal.recordedTargetTypes();
+            case DIRECT_SOURCE -> journal.recordedDirectSourceTypes();
+        };
+    }
+
+    private static boolean validTypeFilter(FocusSelectionSlot slot, ResourceLocation typeId, DamageTracker tracker) {
+        if(slot == FocusSelectionSlot.TARGET) return isLivingType(typeId);
+        if(slot == FocusSelectionSlot.SOURCE) {
+            DamageEventJournal journal = ServerStats.journal();
+            return isLivingType(typeId) && journal != null && journal.recordedSourceTypes().contains(typeId);
+        }
+        DamageEventJournal journal = ServerStats.journal();
+        return journal != null && journal.recordedDirectSourceTypes().contains(typeId);
+    }
+
+    private static boolean isLivingType(ResourceLocation typeId) {
+        var type = BuiltInRegistries.ENTITY_TYPE.get(typeId);
+        return type != null && LivingEntity.class.isAssignableFrom(type.getBaseClass());
     }
 }
