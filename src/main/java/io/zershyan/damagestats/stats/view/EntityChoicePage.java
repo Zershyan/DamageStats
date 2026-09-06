@@ -14,6 +14,9 @@ public record EntityChoicePage(
         FocusSelectionSlot slot,
         long focusVersion,
         int requestId,
+        long snapshotId,
+        String cursor,
+        String nextCursor,
         boolean allowed,
         Optional<ResourceLocation> typeFilter,
         List<EntityChoiceView> entries,
@@ -30,6 +33,9 @@ public record EntityChoicePage(
         FocusSelectionSlot.STREAM_CODEC.encode(buf, page.slot);
         buf.writeVarLong(page.focusVersion);
         buf.writeVarInt(page.requestId);
+        buf.writeVarLong(page.snapshotId);
+        buf.writeUtf(page.cursor, 128);
+        buf.writeUtf(page.nextCursor, 128);
         buf.writeBoolean(page.allowed);
         ByteBufCodecs.optional(ResourceLocation.STREAM_CODEC).encode(buf, page.typeFilter);
         LIST_CODEC.encode(buf, page.entries);
@@ -41,6 +47,9 @@ public record EntityChoicePage(
                 FocusSelectionSlot.STREAM_CODEC.decode(buf),
                 buf.readVarLong(),
                 buf.readVarInt(),
+                buf.readVarLong(),
+                buf.readUtf(128),
+                buf.readUtf(128),
                 buf.readBoolean(),
                 ByteBufCodecs.optional(ResourceLocation.STREAM_CODEC).decode(buf),
                 LIST_CODEC.decode(buf),

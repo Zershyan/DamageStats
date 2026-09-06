@@ -21,6 +21,32 @@ import java.util.function.Function;
 
 /** 服务端侧把聚合结果转成可传输的视图。名字在这一步就解析好，客户端不必再查注册表 */
 public final class StatsViewBuilder {
+    private static final int MAX_CURSOR_LENGTH = 128;
+    private static final int MAX_CHART_CURSORS = 256;
+    private static final Map<DamageEventJournal, LinkedHashMap<String, ChartCursor>> CHART_CURSORS =
+            new WeakHashMap<>();
+    private static long nextChartSnapshotId;
+
+    private record ChartCursor(
+            UUID owner,
+            DamageEventJournal journal,
+            long journalRevision,
+            long directoryRevision,
+            long focusVersion,
+            StatsFilter filter,
+            FocusChartDimension dimension,
+            FocusChartScope scope,
+            DamageTypeGrouping typeGrouping,
+            long snapshotId,
+            List<GroupView> groups,
+            int start
+    ) {
+        private ChartCursor at(int newStart) {
+            return new ChartCursor(owner, journal, journalRevision, directoryRevision, focusVersion, filter,
+                    dimension, scope, typeGrouping, snapshotId, groups, newStart);
+        }
+    }
+
     public static StatsSnapshot snapshotFor(DamageTracker tracker, ServerPlayer player, StatsFilter filter,
                                             StatsSubjectSlot subjectSlot, DamageTypeGrouping typeGrouping) {
         Component subject = subjectName(tracker, filter, subjectSlot);
@@ -96,37 +122,93 @@ public final class StatsViewBuilder {
     /** 页间图表按需计算并切成固定页，后台焦点同步不会调用此方法。 */
     public static FocusChartPage focusChartPage(DamageTracker tracker, ServerPlayer player, StatsFocus focus,
                                                 StatsFilter filter, FocusChartDimension dimension, FocusChartScope scope,
-                                                DamageTypeGrouping typeGrouping, int cursor) {
+                                                DamageTypeGrouping typeGrouping, String cursor) {
         boolean allowed = switch (dimension) {
             case RESPONSIBLE_SOURCE -> filter.source().isEmpty() && filter.target().isPresent();
             case TARGET -> filter.source().isPresent() && filter.target().isEmpty();
             case DAMAGE_TYPE, DIRECT_SOURCE -> true;
         };
-        if(!allowed) return new FocusChartPage(focus.version(), 0, false, dimension, scope, typeGrouping, List.of(), false);
+        if(!allowed) return new FocusChartPage(focus.version(), 0, 0, "", "", false, dimension, scope, typeGrouping,
+                List.of(), false);
         StatsSubjectSlot subjectSlot = dimension == FocusChartDimension.RESPONSIBLE_SOURCE
                 ? StatsSubjectSlot.TARGET
                 : filter.source().isPresent() ? StatsSubjectSlot.SOURCE : StatsSubjectSlot.TARGET;
         long gameTime = player.level().getGameTime();
-        StatsEntry fast = fastPathEntry(tracker, filter);
-        // 新版日志有数据时始终从日志读取；只有旧版仍留有聚合缓存而没有事件日志时才回退。
-        StatsView view = fast != null && (ServerStats.journal() == null || ServerStats.journal().eventCount() == 0)
-                ? cachedView(tracker, fast, subjectSlot, typeGrouping, scope, gameTime)
-                : fromHistory(tracker, filter, subjectSlot, typeGrouping,
-                        scope == FocusChartScope.SESSION, gameTime, DSConfig.DpsWindowTicks.get());
-        List<GroupView> groups = switch (dimension) {
-            case DAMAGE_TYPE -> view.byType();
-            case DIRECT_SOURCE -> view.bySource();
-            case RESPONSIBLE_SOURCE, TARGET -> view.byOpponent();
-        };
-        int start = Math.clamp(cursor, 0, groups.size());
+        DamageEventJournal journal = ServerStats.journal();
+        ChartCursor page = cursor == null || cursor.isEmpty()
+                ? null : findChartCursor(journal, cursor, player, tracker, focus, filter, dimension, scope, typeGrouping);
+        if(cursor != null && !cursor.isEmpty() && page == null) {
+            return new FocusChartPage(focus.version(), 0, 0, "", "", true, dimension, scope, typeGrouping,
+                    List.of(), false);
+        }
+        String currentCursor = cursor == null ? "" : cursor;
+        if(page == null) {
+            StatsEntry fast = fastPathEntry(tracker, filter);
+            // 新版日志有数据时始终从日志读取；只有旧版仍留有聚合缓存而没有事件日志时才回退。
+            StatsView view = fast != null && (journal == null || journal.eventCount() == 0)
+                    ? cachedView(tracker, fast, subjectSlot, typeGrouping, scope, gameTime)
+                    : fromHistory(tracker, filter, subjectSlot, typeGrouping,
+                            scope == FocusChartScope.SESSION, gameTime, DSConfig.DpsWindowTicks.get());
+            List<GroupView> groups = switch (dimension) {
+                case DAMAGE_TYPE -> view.byType();
+                case DIRECT_SOURCE -> view.bySource();
+                case RESPONSIBLE_SOURCE, TARGET -> view.byOpponent();
+            };
+            if(journal == null) {
+                int end = Math.min(groups.size(), FocusChartPage.PAGE_SIZE);
+                return new FocusChartPage(focus.version(), 0, 1, "", "", true, dimension, scope, typeGrouping,
+                        groups.subList(0, end), end < groups.size());
+            }
+            page = new ChartCursor(player.getUUID(), journal, journal.queryRevision(),
+                    tracker.instanceDirectory().revision(), focus.version(), filter, dimension, scope, typeGrouping,
+                    ++nextChartSnapshotId, List.copyOf(groups), 0);
+            currentCursor = UUID.randomUUID().toString();
+            storeChartCursor(currentCursor, page);
+        }
+        List<GroupView> groups = page.groups();
+        int start = Math.clamp(page.start(), 0, groups.size());
         int end = Math.min(groups.size(), start + FocusChartPage.PAGE_SIZE);
-        return new FocusChartPage(focus.version(), 0, true, dimension, scope, typeGrouping,
-                groups.subList(start, end), end < groups.size());
+        String nextCursor = "";
+        if(end < groups.size()) {
+            nextCursor = UUID.randomUUID().toString();
+            storeChartCursor(nextCursor, page.at(end));
+        }
+        return new FocusChartPage(focus.version(), 0, page.snapshotId(), currentCursor, nextCursor, true, dimension, scope,
+                typeGrouping, groups.subList(start, end), end < groups.size());
     }
 
     public static FocusChartPage deniedFocusChartPage(StatsFocus focus, FocusChartDimension dimension,
                                                        FocusChartScope scope, DamageTypeGrouping typeGrouping) {
-        return new FocusChartPage(focus.version(), 0, false, dimension, scope, typeGrouping, List.of(), false);
+        return new FocusChartPage(focus.version(), 0, 0, "", "", false, dimension, scope, typeGrouping, List.of(), false);
+    }
+
+    private static ChartCursor findChartCursor(DamageEventJournal journal, String cursor, ServerPlayer player,
+                                               DamageTracker tracker, StatsFocus focus, StatsFilter filter,
+                                               FocusChartDimension dimension, FocusChartScope scope,
+                                               DamageTypeGrouping typeGrouping) {
+        if(journal == null || cursor.length() > MAX_CURSOR_LENGTH) return null;
+        LinkedHashMap<String, ChartCursor> cursors = CHART_CURSORS.get(journal);
+        if(cursors == null) return null;
+        ChartCursor page = cursors.get(cursor);
+        if(page == null || page.owner().equals(player.getUUID()) == false) return null;
+        if(page.journal() != journal || page.journalRevision() != journal.queryRevision()
+                || page.directoryRevision() != tracker.instanceDirectory().revision()
+                || page.focusVersion() != focus.version() || !page.filter().equals(filter)
+                || page.dimension() != dimension || page.scope() != scope || page.typeGrouping() != typeGrouping) {
+            return null;
+        }
+        return page;
+    }
+
+    private static void storeChartCursor(String cursor, ChartCursor page) {
+        LinkedHashMap<String, ChartCursor> cursors = CHART_CURSORS.computeIfAbsent(page.journal(), ignored ->
+                new LinkedHashMap<>(16, 0.75f, true) {
+                    @Override
+                    protected boolean removeEldestEntry(Map.Entry<String, ChartCursor> eldest) {
+                        return size() > MAX_CHART_CURSORS;
+                    }
+                });
+        cursors.put(cursor, page);
     }
 
     private static Component subjectName(DamageTracker tracker, StatsFilter filter, StatsSubjectSlot subjectSlot) {
@@ -171,23 +253,24 @@ public final class StatsViewBuilder {
     private static StatsView fromHistory(DamageTracker tracker, StatsFilter filter, StatsSubjectSlot subjectSlot,
                                           DamageTypeGrouping typeGrouping, boolean sessionOnly,
                                           long gameTime, int windowTicks) {
-        long currentSessionStart = sessionStart(tracker, filter, subjectSlot, gameTime);
-        boolean active = currentSessionStart <= gameTime;
-        long since = sessionOnly ? currentSessionStart : Long.MIN_VALUE;
         DamageEventJournal journal = ServerStats.journal();
-        List<DamageRecord> matched = journal == null ? List.of() : journal.matching(filter).stream()
-                .filter(record -> record.gameTime() >= since)
-                .toList();
-        DamageAccumulator.OpponentGrouping grouping = sessionOnly
-                ? DamageAccumulator.OpponentGrouping.INSTANCE
-                : DamageAccumulator.OpponentGrouping.TYPE;
-        DamageAccumulator accumulator = new DamageAccumulator(grouping);
         boolean opponentIsSource = subjectSlot == StatsSubjectSlot.TARGET;
-        for (DamageRecord record : matched) {
-            accumulator.accept(record, opponentIsSource ? record.source() : record.target());
-        }
-        return view(tracker, accumulator, active ? windowDps(matched, gameTime, windowTicks) : 0,
-                active ? windowOriginalDps(matched, gameTime, windowTicks) : 0, subjectSlot, typeGrouping);
+        if(journal == null) return StatsView.EMPTY;
+        DamageEventJournal.QueryResult query = journal.query(filter);
+        int timeoutTicks = DSConfig.SessionTimeoutTicks.get();
+        boolean active = query.isSessionActive(gameTime, timeoutTicks);
+        DamageAccumulator accumulator = sessionOnly
+                ? active ? query.session(opponentIsSource, timeoutTicks)
+                        : new DamageAccumulator(DamageAccumulator.OpponentGrouping.INSTANCE)
+                : query.lifetime(opponentIsSource);
+        float realtimeDps = !active ? 0 : sessionOnly
+                ? query.currentSessionDps(gameTime, windowTicks, timeoutTicks)
+                : query.realtimeDps(gameTime, windowTicks);
+        float realtimeOriginalDps = !active ? 0 : sessionOnly
+                ? query.currentSessionOriginalDps(gameTime, windowTicks, timeoutTicks)
+                : query.realtimeOriginalDps(gameTime, windowTicks);
+        return sessionOnly && !active ? StatsView.EMPTY
+                : view(tracker, accumulator, realtimeDps, realtimeOriginalDps, subjectSlot, typeGrouping);
     }
 
     /** 「本场」优先采用主体预聚合会话的起点，否则从筛选后的原始记录重新切分 */
@@ -197,7 +280,7 @@ public final class StatsViewBuilder {
         if(entry == null) {
             DamageEventJournal journal = ServerStats.journal();
             if(journal == null) return gameTime + 1;
-            return journal.currentSessionStart(filter, gameTime, DSConfig.SessionTimeoutTicks.get());
+            return journal.query(filter).currentSessionStart(gameTime, DSConfig.SessionTimeoutTicks.get());
         }
         DamageSession session = entry.getCurrentSession();
         return session == null || session.isTimedOut(gameTime, DSConfig.SessionTimeoutTicks.get())
@@ -208,32 +291,11 @@ public final class StatsViewBuilder {
     public static List<SessionView> historyFromJournal(StatsFilter filter, long gameTime) {
         DamageEventJournal journal = ServerStats.journal();
         if(journal == null || DSConfig.KeepFinishedSessions.get() == 0) return List.of();
-        List<DamageRecord> records = journal.matching(filter).stream()
-                .sorted(Comparator.comparingLong(DamageRecord::gameTime))
+        return journal.query(filter).finishedSessions(gameTime, DSConfig.SessionTimeoutTicks.get(),
+                        DSConfig.KeepFinishedSessions.get()).stream()
+                .map(session -> new SessionView(session.totalDamage(), session.averageDps(),
+                        session.durationTicks() / DamageAccumulator.TICKS_PER_SECOND, session.hitCount()))
                 .toList();
-        if(records.isEmpty()) return List.of();
-        int timeout = DSConfig.SessionTimeoutTicks.get();
-        int limit = DSConfig.KeepFinishedSessions.get();
-        Deque<SessionView> sessions = new ArrayDeque<>();
-        DamageAccumulator accumulator = new DamageAccumulator(DamageAccumulator.OpponentGrouping.TYPE);
-        long lastGameTime = -1;
-        for (DamageRecord record : records) {
-            if(lastGameTime >= 0 && record.gameTime() - lastGameTime > timeout) {
-                addHistorySession(sessions, accumulator, limit);
-                accumulator = new DamageAccumulator(DamageAccumulator.OpponentGrouping.TYPE);
-            }
-            accumulator.accept(record, record.target());
-            lastGameTime = record.gameTime();
-        }
-        if(lastGameTime >= 0 && gameTime - lastGameTime > timeout) addHistorySession(sessions, accumulator, limit);
-        return List.copyOf(sessions);
-    }
-
-    private static void addHistorySession(Deque<SessionView> sessions, DamageAccumulator accumulator, int limit) {
-        if(accumulator.getHitCount() == 0) return;
-        sessions.addLast(new SessionView(accumulator.getTotalActual(), accumulator.getAverageDps(),
-                accumulator.getDurationTicks() / DamageAccumulator.TICKS_PER_SECOND, accumulator.getHitCount()));
-        while(sessions.size() > limit) sessions.removeFirst();
     }
 
     private static FocusSummary focusSummaryFromHistory(DamageTracker tracker, FocusScopeView scope,
@@ -241,17 +303,15 @@ public final class StatsViewBuilder {
         DamageEventJournal journal = ServerStats.journal();
         if(journal == null) return new FocusSummary(0, scope, FocusMetricsView.EMPTY, FocusMetricsView.EMPTY, false,
                 ServerStats.worldId());
-        List<DamageRecord> records = journal.matching(filter);
-        long sessionStart = journal.currentSessionStart(filter, gameTime, DSConfig.SessionTimeoutTicks.get());
-        boolean active = sessionStart <= gameTime;
-        DamageAccumulator lifetime = new DamageAccumulator(DamageAccumulator.OpponentGrouping.TYPE);
-        DamageAccumulator session = new DamageAccumulator(DamageAccumulator.OpponentGrouping.TYPE);
-        for (DamageRecord record : records) {
-            lifetime.accept(record, record.target());
-            if(active && record.gameTime() >= sessionStart) session.accept(record, record.target());
-        }
-        float realtimeDps = active ? windowDps(records, gameTime, windowTicks) : 0;
-        float realtimeOriginalDps = active ? windowOriginalDps(records, gameTime, windowTicks) : 0;
+        DamageEventJournal.QueryResult query = journal.query(filter);
+        int timeoutTicks = DSConfig.SessionTimeoutTicks.get();
+        boolean active = query.isSessionActive(gameTime, timeoutTicks);
+        DamageAccumulator lifetime = query.lifetime(false);
+        DamageAccumulator session = active
+                ? query.session(false, timeoutTicks)
+                : new DamageAccumulator(DamageAccumulator.OpponentGrouping.INSTANCE);
+        float realtimeDps = active ? query.realtimeDps(gameTime, windowTicks) : 0;
+        float realtimeOriginalDps = active ? query.realtimeOriginalDps(gameTime, windowTicks) : 0;
         return new FocusSummary(0, scope,
                 active ? focusMetrics(tracker, session, realtimeDps, realtimeOriginalDps) : FocusMetricsView.EMPTY,
                 focusMetrics(tracker, lifetime, realtimeDps, realtimeOriginalDps),
@@ -284,24 +344,6 @@ public final class StatsViewBuilder {
                     subjectSlot, typeGrouping);
         }
         return view(tracker, entry.getLifetime(), realtimeDps, realtimeOriginalDps, subjectSlot, typeGrouping);
-    }
-
-    private static float windowDps(List<DamageRecord> records, long gameTime, int windowTicks) {
-        long cutoff = gameTime - windowTicks;
-        float sum = 0;
-        for (DamageRecord record : records) {
-            if(record.gameTime() >= cutoff) sum += record.actualDamage();
-        }
-        return sum / (windowTicks / DamageAccumulator.TICKS_PER_SECOND);
-    }
-
-    private static float windowOriginalDps(List<DamageRecord> records, long gameTime, int windowTicks) {
-        long cutoff = gameTime - windowTicks;
-        float sum = 0;
-        for (DamageRecord record : records) {
-            if(record.gameTime() >= cutoff) sum += record.originalDamage();
-        }
-        return sum / (windowTicks / DamageAccumulator.TICKS_PER_SECOND);
     }
 
     public static StatsView view(DamageTracker tracker, DamageAccumulator acc,

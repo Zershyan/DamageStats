@@ -13,6 +13,9 @@ import java.util.List;
 public record FocusChartPage(
         long focusVersion,
         int requestId,
+        long snapshotId,
+        String cursor,
+        String nextCursor,
         boolean allowed,
         FocusChartDimension dimension,
         FocusChartScope scope,
@@ -30,6 +33,9 @@ public record FocusChartPage(
     private static void encode(RegistryFriendlyByteBuf buf, FocusChartPage page) {
         buf.writeVarLong(page.focusVersion);
         buf.writeVarInt(page.requestId);
+        buf.writeVarLong(page.snapshotId);
+        buf.writeUtf(page.cursor, 128);
+        buf.writeUtf(page.nextCursor, 128);
         buf.writeBoolean(page.allowed);
         FocusChartDimension.STREAM_CODEC.encode(buf, page.dimension);
         FocusChartScope.STREAM_CODEC.encode(buf, page.scope);
@@ -39,12 +45,14 @@ public record FocusChartPage(
     }
 
     private static FocusChartPage decode(RegistryFriendlyByteBuf buf) {
-        return new FocusChartPage(buf.readVarLong(), buf.readVarInt(), buf.readBoolean(),
+        return new FocusChartPage(buf.readVarLong(), buf.readVarInt(), buf.readVarLong(), buf.readUtf(128),
+                buf.readUtf(128), buf.readBoolean(),
                 FocusChartDimension.STREAM_CODEC.decode(buf), FocusChartScope.STREAM_CODEC.decode(buf),
                 DamageTypeGrouping.STREAM_CODEC.decode(buf), ROWS_CODEC.decode(buf), buf.readBoolean());
     }
 
     public FocusChartPage withRequestId(int newRequestId) {
-        return new FocusChartPage(focusVersion, newRequestId, allowed, dimension, scope, typeGrouping, rows, hasNext);
+        return new FocusChartPage(focusVersion, newRequestId, snapshotId, cursor, nextCursor, allowed, dimension, scope,
+                typeGrouping, rows, hasNext);
     }
 }

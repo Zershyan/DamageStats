@@ -25,7 +25,7 @@ public record FocusChartRequestPacket(
         FocusChartDimension dimension,
         FocusChartScope scope,
         DamageTypeGrouping typeGrouping,
-        int cursor,
+        String cursor,
         int requestId
 ) implements CustomPacketPayload {
     public static final Type<FocusChartRequestPacket> TYPE = new Type<>(DamageStats.id("focus_chart"));
@@ -34,7 +34,7 @@ public record FocusChartRequestPacket(
             FocusChartDimension.STREAM_CODEC, FocusChartRequestPacket::dimension,
             FocusChartScope.STREAM_CODEC, FocusChartRequestPacket::scope,
             DamageTypeGrouping.STREAM_CODEC, FocusChartRequestPacket::typeGrouping,
-            ByteBufCodecs.VAR_INT, FocusChartRequestPacket::cursor,
+            ByteBufCodecs.STRING_UTF8, FocusChartRequestPacket::cursor,
             ByteBufCodecs.VAR_INT, FocusChartRequestPacket::requestId,
             FocusChartRequestPacket::new
     );

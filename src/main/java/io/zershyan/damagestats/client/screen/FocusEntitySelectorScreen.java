@@ -19,6 +19,8 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.function.BiConsumer;
 
@@ -35,7 +37,8 @@ public class FocusEntitySelectorScreen extends Screen {
     private final @Nullable ResourceLocation typeFilter;
     private final BiConsumer<EntitySelector, Component> selectionConsumer;
     private final StatsFilter contextFilter;
-    private int cursor;
+    private String cursor = "";
+    private final List<String> cursorHistory = new ArrayList<>();
     private int requestId;
     private int rowOffset;
     private @Nullable EntityChoiceView selected;
@@ -84,7 +87,7 @@ public class FocusEntitySelectorScreen extends Screen {
         int searchWidth = Math.min(260, width - SIDE * 2 - 56);
         searchBox = addRenderableWidget(new EditBox(font, SIDE, 30, searchWidth, 18, DSKeyLang.ScreenSearch.copy()));
         searchBox.setHint(DSKeyLang.ScreenSearch.copy());
-        addRenderableWidget(Button.builder(DSKeyLang.ScreenSearch.copy(), button -> request(0))
+        addRenderableWidget(Button.builder(DSKeyLang.ScreenSearch.copy(), button -> requestFirstPage())
                 .bounds(SIDE + searchWidth + 4, 30, 52, 18).build());
         setButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenSelect.copy(), button -> select())
                 .bounds(width - SIDE - 108, height - BOTTOM, 108, 20).build());
@@ -92,11 +95,11 @@ public class FocusEntitySelectorScreen extends Screen {
                 .bounds(width - SIDE - 218, height - BOTTOM, 106, 20).build());
         addRenderableWidget(Button.builder(CommonComponents.GUI_BACK, button -> minecraft.setScreen(parent))
                 .bounds(SIDE, height - BOTTOM, 80, 20).build());
-        previousButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenPrevious.copy(), button -> request(cursor - EntityChoicePage.PAGE_SIZE))
+        previousButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenPrevious.copy(), button -> previousPage())
                 .bounds(SIDE + 84, height - BOTTOM, 72, 20).build());
-        nextButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenNext.copy(), button -> request(cursor + EntityChoicePage.PAGE_SIZE))
+        nextButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenNext.copy(), button -> nextPage())
                 .bounds(SIDE + 160, height - BOTTOM, 72, 20).build());
-        request(cursor);
+        requestFirstPage();
         refreshActions();
     }
 
@@ -106,7 +109,14 @@ public class FocusEntitySelectorScreen extends Screen {
         EntityChoicePage page = ClientStats.entityChoices();
         if(page != null && page != adopted && page.requestId() == requestId
                 && page.slot() == slot && page.typeFilter().equals(Optional.ofNullable(typeFilter))) {
+            boolean invalidated = page.snapshotId() == 0 && !cursor.isEmpty();
+            if(invalidated) {
+                cursorHistory.clear();
+                requestFirstPage();
+                return;
+            }
             adopted = page;
+            cursor = page.cursor();
             selected = null;
             rowOffset = 0;
             refreshActions();
@@ -164,14 +174,30 @@ public class FocusEntitySelectorScreen extends Screen {
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if(keyCode == 257 || keyCode == 335) {
-            request(0);
+            requestFirstPage();
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
-    private void request(int newCursor) {
-        cursor = Math.max(0, newCursor);
+    private void requestFirstPage() {
+        cursorHistory.clear();
+        request("");
+    }
+
+    private void nextPage() {
+        if(adopted == null || !adopted.hasNext() || adopted.nextCursor().isEmpty()) return;
+        cursorHistory.add(cursor);
+        request(adopted.nextCursor());
+    }
+
+    private void previousPage() {
+        if(cursorHistory.isEmpty()) return;
+        request(cursorHistory.removeLast());
+    }
+
+    private void request(String newCursor) {
+        cursor = newCursor == null ? "" : newCursor;
         adopted = null;
         selected = null;
         rowOffset = 0;
@@ -194,7 +220,7 @@ public class FocusEntitySelectorScreen extends Screen {
     private void refreshActions() {
         if(setButton != null) setButton.active = selected != null;
         if(instancesButton != null) instancesButton.active = selected != null && selected.selector() instanceof EntitySelector.Type;
-        if(previousButton != null) previousButton.active = cursor > 0;
+        if(previousButton != null) previousButton.active = !cursorHistory.isEmpty();
         if(nextButton != null) nextButton.active = adopted != null && adopted.hasNext();
     }
 

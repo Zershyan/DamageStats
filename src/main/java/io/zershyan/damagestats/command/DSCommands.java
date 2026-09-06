@@ -58,6 +58,7 @@ public final class DSCommands {
 
     private static int reload(CommandContext<CommandSourceStack> context) {
         DamageTypeCategories.load();
+        if(ServerStats.journal() != null) ServerStats.journal().invalidateDamageTypeCategoryCache();
         context.getSource().sendSuccess(DSKeyLang.CategoriesReloaded::copy, true);
         return 1;
     }

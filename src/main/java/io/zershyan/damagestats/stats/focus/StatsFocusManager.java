@@ -325,7 +325,7 @@ public final class StatsFocusManager {
     private static boolean isRecordedLivingSourceType(ResourceLocation typeId) {
         if(!isLivingType(typeId)) return false;
         DamageEventJournal journal = ServerStats.journal();
-        return journal != null && journal.recordedSourceTypes().contains(typeId);
+        return journal != null && journal.recordedSourceTypesIncludingDirect().contains(typeId);
     }
 
     private static void restoreOrdinarySource(PlayerFocus state, UUID playerId) {

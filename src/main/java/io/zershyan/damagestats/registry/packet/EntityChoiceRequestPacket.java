@@ -26,23 +26,45 @@ import net.minecraft.world.entity.LivingEntity;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-/** 请求一个实体类型页，或指定类型下的实例页；游标只能前进且每页最多 50 条。 */
+/** 请求一个实体类型页，或指定类型下的实例页；游标绑定服务端快照且每页最多 50 条。 */
 public record EntityChoiceRequestPacket(
         FocusSelectionSlot slot,
         Optional<ResourceLocation> typeFilter,
         String search,
-        int cursor,
+        String cursor,
         int requestId,
         StatsFilter contextFilter
 ) implements CustomPacketPayload {
     private static final int MAX_SEARCH_LENGTH = 64;
+    private static final int MAX_CURSOR_LENGTH = 128;
+    private static final int MAX_CURSORS = 64;
+    private static final Map<DamageEventJournal,
+            LinkedHashMap<String, ChoiceCursor>> CHOICE_CURSORS =
+            new WeakHashMap<>();
 
-    private record QueryContribution(float damage, int hitCount) {
-        private QueryContribution add(float additionalDamage) {
-            return new QueryContribution(damage + additionalDamage, hitCount + 1);
+    private static long nextSnapshotId;
+
+    private record ChoiceCursor(
+            UUID owner,
+            @Nullable DamageEventJournal journal,
+            long queryRevision,
+            long directoryRevision,
+            long focusVersion,
+            FocusSelectionSlot slot,
+            Optional<ResourceLocation> typeFilter,
+            String search,
+            StatsFilter contextFilter,
+            long snapshotId,
+            List<EntityChoiceView> entries,
+            int start
+    ) {
+        private ChoiceCursor at(int newStart) {
+            return new ChoiceCursor(owner, journal, queryRevision, directoryRevision, focusVersion, slot,
+                    typeFilter, search, contextFilter, snapshotId, entries, newStart);
         }
     }
 
@@ -51,7 +73,7 @@ public record EntityChoiceRequestPacket(
             FocusSelectionSlot.STREAM_CODEC, EntityChoiceRequestPacket::slot,
             ByteBufCodecs.optional(ResourceLocation.STREAM_CODEC), EntityChoiceRequestPacket::typeFilter,
             ByteBufCodecs.STRING_UTF8, EntityChoiceRequestPacket::search,
-            ByteBufCodecs.VAR_INT, EntityChoiceRequestPacket::cursor,
+            ByteBufCodecs.STRING_UTF8, EntityChoiceRequestPacket::cursor,
             ByteBufCodecs.VAR_INT, EntityChoiceRequestPacket::requestId,
             StatsFilter.STREAM_CODEC, EntityChoiceRequestPacket::contextFilter,
             EntityChoiceRequestPacket::new
@@ -80,22 +102,100 @@ public record EntityChoiceRequestPacket(
             long focusVersion = manager.focusFor(player).version();
             if(!allowed) {
                 PacketDistributor.sendToPlayer(player, new EntityChoicePagePacket(new EntityChoicePage(
-                        payload.slot(), focusVersion, payload.requestId(), false, payload.typeFilter(), List.of(), false)));
+                        payload.slot(), focusVersion, payload.requestId(), 0, "", "", false,
+                        payload.typeFilter(), List.of(), false)));
                 return;
             }
             String search = payload.search().length() > MAX_SEARCH_LENGTH
                     ? payload.search().substring(0, MAX_SEARCH_LENGTH)
                     : payload.search();
-            List<EntityChoiceView> entries = payload.slot() == FocusSelectionSlot.DIRECT_SOURCE
-                    ? directSourceChoices(tracker, payload.typeFilter().orElseThrow(), search, payload.contextFilter())
-                    : payload.typeFilter().map(typeId -> instanceChoices(tracker, typeId, search,
-                                    payload.slot(), payload.contextFilter()))
-                            .orElseGet(() -> typeChoices(tracker, search, payload.slot()));
-            int cursor = Math.clamp(payload.cursor(), 0, entries.size());
-            int end = Math.min(entries.size(), cursor + EntityChoicePage.PAGE_SIZE);
-            PacketDistributor.sendToPlayer(player, new EntityChoicePagePacket(new EntityChoicePage(
-                    payload.slot(), focusVersion, payload.requestId(), true, payload.typeFilter(), entries.subList(cursor, end), end < entries.size())));
+            DamageEventJournal journal = ServerStats.journal();
+            if(journal == null) {
+                List<EntityChoiceView> entries = buildEntries(tracker, payload.slot(), payload.typeFilter(), search,
+                        payload.contextFilter());
+                sendPage(player, payload, focusVersion, new ChoiceCursor(player.getUUID(), null, 0,
+                        tracker.instanceDirectory().revision(), focusVersion, payload.slot(), payload.typeFilter(), search,
+                        payload.contextFilter(), 1, List.copyOf(entries), 0), "");
+                return;
+            }
+            ChoiceCursor page = payload.cursor() == null || payload.cursor().isEmpty()
+                    ? new ChoiceCursor(player.getUUID(), journal, journal.queryRevision(),
+                    tracker.instanceDirectory().revision(), focusVersion, payload.slot(), payload.typeFilter(), search,
+                    payload.contextFilter(), ++nextSnapshotId,
+                    List.copyOf(buildEntries(tracker, payload.slot(), payload.typeFilter(), search, payload.contextFilter())), 0)
+                    : findCursor(journal, payload.cursor(), player, tracker, manager, payload, search);
+            if(page == null) {
+                sendPage(player, payload, focusVersion, null, "");
+                return;
+            }
+            String currentCursor = payload.cursor();
+            if(currentCursor.isEmpty()) {
+                currentCursor = UUID.randomUUID().toString();
+                storeCursor(currentCursor, page);
+            }
+            sendPage(player, payload, focusVersion, page, currentCursor);
         });
+    }
+
+    private static void sendPage(ServerPlayer player, EntityChoiceRequestPacket payload, long focusVersion,
+                                 @Nullable ChoiceCursor page, String currentCursor) {
+        if(page == null) {
+            PacketDistributor.sendToPlayer(player, new EntityChoicePagePacket(new EntityChoicePage(
+                    payload.slot(), focusVersion, payload.requestId(), 0, "", "", true,
+                    payload.typeFilter(), List.of(), false)));
+            return;
+        }
+        List<EntityChoiceView> entries = page.entries();
+        int start = Math.clamp(page.start(), 0, entries.size());
+        int end = Math.min(entries.size(), start + EntityChoicePage.PAGE_SIZE);
+        String nextCursor = "";
+        if(end < entries.size() && page.journal() != null) {
+            nextCursor = UUID.randomUUID().toString();
+            storeCursor(nextCursor, page.at(end));
+        }
+        PacketDistributor.sendToPlayer(player, new EntityChoicePagePacket(new EntityChoicePage(
+                page.slot(), focusVersion, payload.requestId(), page.snapshotId(), currentCursor, nextCursor, true,
+                page.typeFilter(), entries.subList(start, end), !nextCursor.isEmpty())));
+    }
+
+    private static @Nullable ChoiceCursor findCursor(DamageEventJournal journal, String cursor, ServerPlayer player,
+                                                     DamageTracker tracker, StatsFocusManager manager,
+                                                     EntityChoiceRequestPacket payload, String search) {
+        if(cursor.length() > MAX_CURSOR_LENGTH) return null;
+        ChoiceCursor page;
+        synchronized (CHOICE_CURSORS) {
+            LinkedHashMap<String, ChoiceCursor> cursors = CHOICE_CURSORS.get(journal);
+            page = cursors == null ? null : cursors.get(cursor);
+        }
+        if(page == null || !page.owner().equals(player.getUUID())) return null;
+        if(page.journal() != journal || page.queryRevision() != journal.queryRevision()
+                || page.directoryRevision() != tracker.instanceDirectory().revision()
+                || page.focusVersion() != manager.focusFor(player).version()
+                || page.slot() != payload.slot() || !page.typeFilter().equals(payload.typeFilter())
+                || !page.search().equals(search) || !page.contextFilter().equals(payload.contextFilter())) return null;
+        return page;
+    }
+
+    private static void storeCursor(String cursor, ChoiceCursor page) {
+        synchronized (CHOICE_CURSORS) {
+            LinkedHashMap<String, ChoiceCursor> cursors = CHOICE_CURSORS.computeIfAbsent(page.journal(), ignored ->
+                    new LinkedHashMap<>(16, 0.75f, true) {
+                        @Override
+                        protected boolean removeEldestEntry(Map.Entry<String, ChoiceCursor> eldest) {
+                            return size() > MAX_CURSORS;
+                        }
+                    });
+            cursors.put(cursor, page);
+        }
+    }
+
+    private static List<EntityChoiceView> buildEntries(DamageTracker tracker, FocusSelectionSlot slot,
+                                                       Optional<ResourceLocation> typeFilter, String search,
+                                                       StatsFilter contextFilter) {
+        return slot == FocusSelectionSlot.DIRECT_SOURCE
+                ? directSourceChoices(tracker, typeFilter.orElseThrow(), search, contextFilter)
+                : typeFilter.map(typeId -> instanceChoices(tracker, typeId, search, slot, contextFilter))
+                        .orElseGet(() -> typeChoices(tracker, search, slot));
     }
 
     private static List<EntityChoiceView> typeChoices(DamageTracker tracker, String search, FocusSelectionSlot slot) {
@@ -117,13 +217,33 @@ public record EntityChoiceRequestPacket(
                                                            FocusSelectionSlot slot, StatsFilter contextFilter) {
         if(!validTypeFilter(slot, typeId, tracker)) return List.of();
         String normalized = search.toLowerCase(Locale.ROOT);
-        Map<UUID, QueryContribution> contributions = queryContributions(slot, contextFilter);
+        DamageEventJournal journal = ServerStats.journal();
+        if(journal == null) return List.of();
+        StatsFilter queryFilter = withoutSlot(contextFilter, slot);
+        DamageEventJournal.ContributionDimension dimension = contributionDimension(slot, contextFilter);
+        DamageEventJournal.QueryResult query = journal.query(queryFilter);
+        return instanceEntries(tracker, journal, typeId, normalized, queryFilter, dimension, query, false);
+    }
+
+    private static List<EntityChoiceView> instanceEntries(
+            DamageTracker tracker, DamageEventJournal journal, ResourceLocation typeId, String normalized,
+            StatsFilter queryFilter, DamageEventJournal.ContributionDimension dimension,
+            DamageEventJournal.QueryResult query, boolean contributingOnly) {
+        return buildInstanceEntries(tracker, typeId, normalized,
+                query.contributions(dimension), contributingOnly);
+    }
+
+    private static List<EntityChoiceView> buildInstanceEntries(
+            DamageTracker tracker, ResourceLocation typeId, String normalized,
+            Map<UUID, DamageEventJournal.DamageContribution> contributions, boolean contributingOnly) {
         return tracker.instanceDirectory().entries().stream()
                 .filter(metadata -> typeId.equals(metadata.ref().typeId()))
+                .filter(metadata -> !contributingOnly || contributions.containsKey(metadata.ref().id()))
                 .filter(metadata -> matches(StatsNames.opponent(tracker, metadata.ref()), metadata.displayName(), normalized))
                 .map(metadata -> new EntityChoiceView(new EntitySelector.Instance(metadata.ref()),
                         displayName(tracker, metadata), detail(metadata,
-                                contributions.getOrDefault(metadata.ref().id(), new QueryContribution(0, 0)))))
+                                contributions.getOrDefault(metadata.ref().id(),
+                                        new DamageEventJournal.DamageContribution(0, 0)))))
                 .sorted(Comparator.comparingDouble((EntityChoiceView entry) -> contribution(entry, contributions)).reversed()
                         .thenComparing(EntityChoiceView::name, Comparator.comparing(Component::getString)))
                 .toList();
@@ -133,34 +253,28 @@ public record EntityChoiceRequestPacket(
                                                                String search, StatsFilter contextFilter) {
         DamageEventJournal journal = ServerStats.journal();
         if(journal == null) return List.of();
-        Map<UUID, QueryContribution> contributions = queryContributions(FocusSelectionSlot.DIRECT_SOURCE, contextFilter);
         String normalized = search.toLowerCase(Locale.ROOT);
-        return tracker.instanceDirectory().entries().stream()
-                .filter(metadata -> typeId.equals(metadata.ref().typeId()))
-                .filter(metadata -> contributions.containsKey(metadata.ref().id()))
-                .filter(metadata -> matches(StatsNames.opponent(tracker, metadata.ref()), metadata.displayName(), normalized))
-                .map(metadata -> new EntityChoiceView(new EntitySelector.Instance(metadata.ref()),
-                        displayName(tracker, metadata), detail(metadata,
-                                contributions.get(metadata.ref().id()))))
-                .sorted(Comparator.comparingDouble((EntityChoiceView entry) -> contribution(entry, contributions)).reversed()
-                        .thenComparing(EntityChoiceView::name, Comparator.comparing(Component::getString)))
-                .toList();
+        StatsFilter queryFilter = withoutSlot(contextFilter, FocusSelectionSlot.DIRECT_SOURCE);
+        return instanceEntries(tracker, journal, typeId, normalized, queryFilter,
+                DamageEventJournal.ContributionDimension.DIRECT_SOURCE, journal.query(queryFilter), true);
     }
 
-    private static Map<UUID, QueryContribution> queryContributions(FocusSelectionSlot slot, StatsFilter contextFilter) {
+    private static Map<UUID, DamageEventJournal.DamageContribution> queryContributions(
+            FocusSelectionSlot slot, StatsFilter contextFilter) {
         DamageEventJournal journal = ServerStats.journal();
         if(journal == null) return Map.of();
-        Map<UUID, QueryContribution> contributions = new HashMap<>();
-        journal.forEachMatching(withoutSlot(contextFilter, slot), record -> {
-            UUID id = switch (slot) {
-                case SOURCE -> (contextFilter.sourceIsDirectSource() ? record.directSource() : record.source()).id();
-                case TARGET -> record.target().id();
-                case DIRECT_SOURCE -> record.directSource().id();
-            };
-            contributions.merge(id, new QueryContribution(record.actualDamage(), 1),
-                    (left, right) -> left.add(right.damage()));
-        });
-        return contributions;
+        return journal.contributions(withoutSlot(contextFilter, slot), contributionDimension(slot, contextFilter));
+    }
+
+    private static DamageEventJournal.ContributionDimension contributionDimension(
+            FocusSelectionSlot slot, StatsFilter contextFilter) {
+        return switch (slot) {
+            case SOURCE -> contextFilter.sourceIsDirectSource()
+                    ? DamageEventJournal.ContributionDimension.DIRECT_SOURCE
+                    : DamageEventJournal.ContributionDimension.SOURCE;
+            case TARGET -> DamageEventJournal.ContributionDimension.TARGET;
+            case DIRECT_SOURCE -> DamageEventJournal.ContributionDimension.DIRECT_SOURCE;
+        };
     }
 
     private static StatsFilter withoutSlot(StatsFilter filter, FocusSelectionSlot slot) {
@@ -174,9 +288,11 @@ public record EntityChoiceRequestPacket(
         };
     }
 
-    private static float contribution(EntityChoiceView entry, Map<UUID, QueryContribution> contributions) {
+    private static float contribution(EntityChoiceView entry,
+                                      Map<UUID, DamageEventJournal.DamageContribution> contributions) {
         if(!(entry.selector() instanceof EntitySelector.Instance instance)) return 0;
-        return contributions.getOrDefault(instance.ref().id(), new QueryContribution(0, 0)).damage();
+        return contributions.getOrDefault(instance.ref().id(),
+                new DamageEventJournal.DamageContribution(0, 0)).damage();
     }
 
     private static boolean matches(Component name, String fallback, String search) {
@@ -185,7 +301,7 @@ public record EntityChoiceRequestPacket(
                 || fallback.toLowerCase(Locale.ROOT).contains(search);
     }
 
-    private static Component detail(InstanceMetadata metadata, QueryContribution contribution) {
+    private static Component detail(InstanceMetadata metadata, DamageEventJournal.DamageContribution contribution) {
         Component location = Component.literal(metadata.dimensionId() + " " + metadata.blockX() + ", "
                 + metadata.blockY() + ", " + metadata.blockZ());
         MutableComponent detail = DSKeyLang.InstanceLastInteraction.get(metadata.lastInteractionGameTime(), location);
@@ -203,7 +319,7 @@ public record EntityChoiceRequestPacket(
         DamageEventJournal journal = ServerStats.journal();
         if(journal == null) return Set.of();
         return switch (slot) {
-            case SOURCE -> journal.recordedSourceTypes();
+            case SOURCE -> journal.recordedSourceTypesIncludingDirect();
             case TARGET -> journal.recordedTargetTypes();
             case DIRECT_SOURCE -> journal.recordedDirectSourceTypes();
         };
@@ -213,7 +329,8 @@ public record EntityChoiceRequestPacket(
         if(slot == FocusSelectionSlot.TARGET) return isLivingType(typeId);
         if(slot == FocusSelectionSlot.SOURCE) {
             DamageEventJournal journal = ServerStats.journal();
-            return isLivingType(typeId) && journal != null && journal.recordedSourceTypes().contains(typeId);
+            return isLivingType(typeId) && journal != null
+                    && journal.recordedSourceTypesIncludingDirect().contains(typeId);
         }
         DamageEventJournal journal = ServerStats.journal();
         return journal != null && journal.recordedDirectSourceTypes().contains(typeId);

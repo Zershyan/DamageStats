@@ -5,6 +5,8 @@ import com.mojang.logging.LogUtils;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.JsonOps;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import io.zershyan.damagestats.config.DamageTypeCategories;
+import io.zershyan.damagestats.stats.DamageAccumulator;
 import io.zershyan.damagestats.stats.DamageRecord;
 import io.zershyan.damagestats.stats.DamageReduction;
 import io.zershyan.damagestats.stats.EntityRef;
@@ -57,6 +59,216 @@ public final class DamageEventJournal {
     }
 
     private record JournalEntry(long sequence, DamageRecord record) {}
+
+    public enum ContributionDimension {
+        SOURCE,
+        TARGET,
+        DIRECT_SOURCE
+    }
+
+    public record DamageContribution(float damage, int hitCount) {
+        private DamageContribution add(DamageContribution other) {
+            return new DamageContribution(damage + other.damage, hitCount + other.hitCount);
+        }
+    }
+
+    public record SessionAggregate(float totalDamage, float averageDps, long durationTicks,
+                                   int hitCount, long lastGameTime) {}
+
+    /**
+     * 一次筛选的不可变事件快照。第一次查询时建立，图表、历史和实例选择共用它，
+     * 避免每个页面再次读取事件段并重复聚合。
+     */
+    public static final class QueryResult {
+        private final List<DamageRecord> records;
+        private final long[] gameTimes;
+        private final double[] actualPrefix;
+        private final double[] originalPrefix;
+        private final DamageAccumulator outgoingLifetime;
+        private final DamageAccumulator incomingLifetime;
+        private final Map<Integer, TemporalResult> temporalResults = new HashMap<>();
+        private final EnumMap<ContributionDimension, Map<UUID, DamageContribution>> contributions =
+                new EnumMap<>(ContributionDimension.class);
+
+        private QueryResult(List<JournalEntry> matched) {
+            List<JournalEntry> ordered = matched.stream()
+                    .sorted(Comparator.comparingLong((JournalEntry entry) -> entry.record().gameTime())
+                            .thenComparingLong(JournalEntry::sequence))
+                    .toList();
+            records = ordered.stream().map(JournalEntry::record).toList();
+            gameTimes = new long[records.size()];
+            actualPrefix = new double[records.size() + 1];
+            originalPrefix = new double[records.size() + 1];
+            outgoingLifetime = new DamageAccumulator(DamageAccumulator.OpponentGrouping.TYPE);
+            incomingLifetime = new DamageAccumulator(DamageAccumulator.OpponentGrouping.TYPE);
+            for (int index = 0; index < records.size(); index++) {
+                DamageRecord record = records.get(index);
+                gameTimes[index] = record.gameTime();
+                actualPrefix[index + 1] = actualPrefix[index] + record.actualDamage();
+                originalPrefix[index + 1] = originalPrefix[index] + record.originalDamage();
+                outgoingLifetime.accept(record, record.target());
+                incomingLifetime.accept(record, record.source());
+            }
+        }
+
+        public List<DamageRecord> records() {
+            return records;
+        }
+
+        public DamageAccumulator lifetime(boolean opponentIsSource) {
+            return opponentIsSource ? incomingLifetime : outgoingLifetime;
+        }
+
+        public synchronized DamageAccumulator session(boolean opponentIsSource, int timeoutTicks) {
+            TemporalResult temporal = temporal(timeoutTicks);
+            return opponentIsSource ? temporal.incomingSession : temporal.outgoingSession;
+        }
+
+        public boolean isSessionActive(long gameTime, int timeoutTicks) {
+            if(records.isEmpty()) return false;
+            return gameTime - gameTimes[gameTimes.length - 1] <= timeoutTicks;
+        }
+
+        public synchronized long currentSessionStart(long gameTime, int timeoutTicks) {
+            if(!isSessionActive(gameTime, timeoutTicks)) return gameTime + 1;
+            return gameTimes[temporal(timeoutTicks).currentStartIndex];
+        }
+
+        public float realtimeDps(long gameTime, int windowTicks) {
+            return windowDps(actualPrefix, gameTime, windowTicks, 0);
+        }
+
+        public float realtimeOriginalDps(long gameTime, int windowTicks) {
+            return windowDps(originalPrefix, gameTime, windowTicks, 0);
+        }
+
+        public synchronized float currentSessionDps(long gameTime, int windowTicks, int timeoutTicks) {
+            TemporalResult temporal = temporal(timeoutTicks);
+            if(!isSessionActive(gameTime, timeoutTicks)) return 0;
+            return windowDps(actualPrefix, gameTime, windowTicks, temporal.currentStartIndex);
+        }
+
+        public synchronized float currentSessionOriginalDps(long gameTime, int windowTicks, int timeoutTicks) {
+            TemporalResult temporal = temporal(timeoutTicks);
+            if(!isSessionActive(gameTime, timeoutTicks)) return 0;
+            return windowDps(originalPrefix, gameTime, windowTicks, temporal.currentStartIndex);
+        }
+
+        public synchronized List<SessionAggregate> finishedSessions(long gameTime, int timeoutTicks, int limit) {
+            if(limit <= 0) return List.of();
+            List<SessionAggregate> finished = temporal(timeoutTicks).sessions.stream()
+                    .filter(session -> gameTime - session.lastGameTime() > timeoutTicks)
+                    .toList();
+            int start = Math.max(0, finished.size() - limit);
+            return List.copyOf(finished.subList(start, finished.size()));
+        }
+
+        public synchronized Map<UUID, DamageContribution> contributions(ContributionDimension dimension) {
+            Map<UUID, DamageContribution> cached = contributions.get(dimension);
+            if(cached != null) return cached;
+            Map<UUID, DamageContribution> result = new HashMap<>();
+            for (DamageRecord record : records) {
+                UUID id = switch (dimension) {
+                    case SOURCE -> record.source().id();
+                    case TARGET -> record.target().id();
+                    case DIRECT_SOURCE -> record.directSource().id();
+                };
+                result.merge(id, new DamageContribution(record.actualDamage(), 1), DamageContribution::add);
+            }
+            Map<UUID, DamageContribution> immutable = Map.copyOf(result);
+            contributions.put(dimension, immutable);
+            return immutable;
+        }
+
+        private synchronized TemporalResult temporal(int timeoutTicks) {
+            TemporalResult cached = temporalResults.get(timeoutTicks);
+            if(cached != null) return cached;
+            TemporalResult result = buildTemporal(timeoutTicks);
+            temporalResults.put(timeoutTicks, result);
+            return result;
+        }
+
+        private TemporalResult buildTemporal(int timeoutTicks) {
+            if(records.isEmpty()) {
+                return new TemporalResult(-1,
+                        new DamageAccumulator(DamageAccumulator.OpponentGrouping.INSTANCE),
+                        new DamageAccumulator(DamageAccumulator.OpponentGrouping.INSTANCE), List.of());
+            }
+            List<SessionAggregate> sessions = new ArrayList<>();
+            int sessionStart = 0;
+            for (int index = 1; index < records.size(); index++) {
+                if(gameTimes[index] - gameTimes[index - 1] <= timeoutTicks) continue;
+                sessions.add(sessionAggregate(sessionStart, index));
+                sessionStart = index;
+            }
+            sessions.add(sessionAggregate(sessionStart, records.size()));
+
+            DamageAccumulator outgoing = new DamageAccumulator(DamageAccumulator.OpponentGrouping.INSTANCE);
+            DamageAccumulator incoming = new DamageAccumulator(DamageAccumulator.OpponentGrouping.INSTANCE);
+            for (int index = sessionStart; index < records.size(); index++) {
+                DamageRecord record = records.get(index);
+                outgoing.accept(record, record.target());
+                incoming.accept(record, record.source());
+            }
+            return new TemporalResult(sessionStart, outgoing, incoming, List.copyOf(sessions));
+        }
+
+        private SessionAggregate sessionAggregate(int start, int end) {
+            DamageAccumulator accumulator = new DamageAccumulator(DamageAccumulator.OpponentGrouping.NONE);
+            for (int index = start; index < end; index++) {
+                DamageRecord record = records.get(index);
+                accumulator.accept(record, record.target());
+            }
+            return new SessionAggregate(accumulator.getTotalActual(), accumulator.getAverageDps(),
+                    accumulator.getDurationTicks(), accumulator.getHitCount(), gameTimes[end - 1]);
+        }
+
+        private float windowDps(double[] prefix, long gameTime, int windowTicks, int minimumIndex) {
+            long cutoff = gameTime - windowTicks;
+            int start = Math.max(minimumIndex, lowerBound(gameTimes, cutoff));
+            int end = upperBound(gameTimes, gameTime);
+            if(start >= end) return 0;
+            double sum = prefix[end] - prefix[start];
+            return (float) (sum / (windowTicks / DamageAccumulator.TICKS_PER_SECOND));
+        }
+
+        private static int lowerBound(long[] values, long target) {
+            int low = 0;
+            int high = values.length;
+            while(low < high) {
+                int middle = (low + high) >>> 1;
+                if(values[middle] < target) low = middle + 1;
+                else high = middle;
+            }
+            return low;
+        }
+
+        private static int upperBound(long[] values, long target) {
+            int low = 0;
+            int high = values.length;
+            while(low < high) {
+                int middle = (low + high) >>> 1;
+                if(values[middle] <= target) low = middle + 1;
+                else high = middle;
+            }
+            return low;
+        }
+
+        private static final class TemporalResult {
+            private final int currentStartIndex;
+            private final DamageAccumulator outgoingSession;
+            private final DamageAccumulator incomingSession;
+            private final List<SessionAggregate> sessions;
+
+            private TemporalResult(int currentStartIndex, DamageAccumulator outgoingSession,
+                                   DamageAccumulator incomingSession, List<SessionAggregate> sessions) {
+                this.currentStartIndex = currentStartIndex;
+                this.outgoingSession = outgoingSession;
+                this.incomingSession = incomingSession;
+                this.sessions = sessions;
+            }
+        }
+    }
 
     private record SegmentMetadata(
             long id,
@@ -158,9 +370,26 @@ public final class DamageEventJournal {
     private final Deque<JournalEntry> pending = new ArrayDeque<>();
     private final List<SegmentMetadata> sealedSegments = new ArrayList<>();
     private final Map<UUID, Long> resetSequences = new HashMap<>();
+    private final List<JournalEntry> queryEntries = new ArrayList<>();
+    private final Map<UUID, List<JournalEntry>> sourceIdIndex = new HashMap<>();
+    private final Map<ResourceLocation, List<JournalEntry>> sourceTypeIndex = new HashMap<>();
+    private final Map<UUID, List<JournalEntry>> targetIdIndex = new HashMap<>();
+    private final Map<ResourceLocation, List<JournalEntry>> targetTypeIndex = new HashMap<>();
+    private final Map<UUID, List<JournalEntry>> directSourceIdIndex = new HashMap<>();
+    private final Map<ResourceLocation, List<JournalEntry>> directSourceTypeIndex = new HashMap<>();
+    private final Map<ResourceLocation, List<JournalEntry>> damageTypeIndex = new HashMap<>();
+    private final Map<String, List<JournalEntry>> damageCategoryIndex = new HashMap<>();
+    private final LinkedHashMap<StatsFilter, QueryResult> queryCache = new LinkedHashMap<>(16, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<StatsFilter, QueryResult> eldest) {
+            return size() > 8;
+        }
+    };
+    private boolean queryIndexLoaded;
     private SegmentBuilder activeSegment;
     private long nextSequence;
     private long eventCount;
+    private long queryRevision;
     private boolean closed;
     private StorageIndexState indexState = StorageIndexState.EMPTY;
 
@@ -172,17 +401,21 @@ public final class DamageEventJournal {
     public static DamageEventJournal open(Path statsDirectory) {
         DamageEventJournal journal = new DamageEventJournal(statsDirectory.resolve(DIRECTORY_NAME));
         journal.initialize();
+        journal.rebuildQueryIndex();
         return journal;
     }
 
-    public void append(DamageRecord record) {
+    public synchronized void append(DamageRecord record) {
         if(closed) return;
-        pending.addLast(new JournalEntry(nextSequence++, record));
+        JournalEntry entry = new JournalEntry(nextSequence++, record);
+        pending.addLast(entry);
         eventCount++;
+        invalidateQueryCaches();
+        if(queryIndexLoaded) indexEntry(entry);
     }
 
     /** 每次批量落盘最多重写一个段索引，原始事件帧则直接追加到活跃段。 */
-    public void flush() {
+    public synchronized void flush() {
         if(closed || pending.isEmpty()) return;
         try {
             Files.createDirectories(directory);
@@ -196,7 +429,7 @@ public final class DamageEventJournal {
     }
 
     /** 正常关闭时封存未满段并写入索引；异常关闭的活跃段会在下次启动时自动恢复。 */
-    public void close() {
+    public synchronized void close() {
         if(closed) return;
         flush();
         if(!activeSegment.isEmpty()) sealActiveSegment();
@@ -204,39 +437,50 @@ public final class DamageEventJournal {
     }
 
     /** 服务端查询只读取可能命中的段，最终仍逐条匹配，索引误命中不会影响准确性。 */
-    public void forEachMatching(StatsFilter filter, Consumer<DamageRecord> consumer) {
-        sealedSegments.stream()
-                .filter(metadata -> metadata.mayMatch(filter))
-                .sorted(Comparator.comparingLong(SegmentMetadata::firstSequence))
-                .forEach(metadata -> readRecords(segmentPath(metadata.id), filter, consumer));
-        if(!activeSegment.isEmpty() && activeSegment.build().mayMatch(filter)) {
-            readRecords(segmentPath(activeSegment.id), filter, consumer);
+    public synchronized void forEachMatching(StatsFilter filter, Consumer<DamageRecord> consumer) {
+        matching(filter).forEach(consumer);
+    }
+
+    public synchronized List<DamageRecord> matching(StatsFilter filter) {
+        return query(filter).records();
+    }
+
+    /** 按筛选条件复用同一份事件、聚合和时间索引快照。 */
+    public synchronized QueryResult query(StatsFilter filter) {
+        QueryResult cached = queryCache.get(filter);
+        if(cached != null) return cached;
+        List<JournalEntry> matched = new ArrayList<>();
+        for (JournalEntry entry : candidateEntries(filter)) {
+            if(visibleToFilter(entry, filter) && filter.matches(entry.record())) matched.add(entry);
         }
-        pending.stream()
-                .filter(entry -> visibleToFilter(entry, filter) && filter.matches(entry.record()))
-                .map(JournalEntry::record)
-                .forEach(consumer);
+        QueryResult result = new QueryResult(matched);
+        queryCache.put(filter, result);
+        return result;
     }
 
-    public List<DamageRecord> matching(StatsFilter filter) {
-        List<DamageRecord> matched = new ArrayList<>();
-        forEachMatching(filter, matched::add);
-        return matched;
+    public synchronized Map<UUID, DamageContribution> contributions(StatsFilter filter, ContributionDimension dimension) {
+        return query(filter).contributions(dimension);
     }
 
-    public Set<ResourceLocation> recordedSourceTypes() {
+    public synchronized Set<ResourceLocation> recordedSourceTypes() {
         return recordedTypes(SegmentMetadata::sourceTypes, record -> record.source().typeIdOrEnvironment());
     }
 
-    public Set<ResourceLocation> recordedTargetTypes() {
+    public synchronized Set<ResourceLocation> recordedSourceTypesIncludingDirect() {
+        Set<ResourceLocation> types = new HashSet<>(recordedSourceTypes());
+        types.addAll(recordedDirectSourceTypes());
+        return Set.copyOf(types);
+    }
+
+    public synchronized Set<ResourceLocation> recordedTargetTypes() {
         return recordedTypes(SegmentMetadata::targetTypes, record -> record.target().typeIdOrEnvironment());
     }
 
-    public Set<ResourceLocation> recordedDirectSourceTypes() {
+    public synchronized Set<ResourceLocation> recordedDirectSourceTypes() {
         return recordedTypes(SegmentMetadata::directSourceTypes, record -> record.directSource().typeIdOrEnvironment());
     }
 
-    public Set<ResourceLocation> recordedDamageTypes() {
+    public synchronized Set<ResourceLocation> recordedDamageTypes() {
         return recordedTypes(SegmentMetadata::damageTypes, record -> record.damageTypeId());
     }
 
@@ -253,36 +497,138 @@ public final class DamageEventJournal {
      * 个人清空不删除共享的完整事件历史，只记录该实体的可见性边界。
      * 这样它仍不会从其他实体的查询结果中消失，和旧版单实例重置的语义一致。
      */
-    public boolean markReset(EntityRef owner) {
+    public synchronized boolean markReset(EntityRef owner) {
         Long previous = resetSequences.put(owner.id(), nextSequence);
-        if(writeResetSequences()) return true;
+        if(writeResetSequences()) {
+            invalidateQueryCaches();
+            return true;
+        }
         if(previous == null) resetSequences.remove(owner.id());
         else resetSequences.put(owner.id(), previous);
         return false;
     }
 
     /** 组合筛选没有可复用的预聚合会话时，按完整事件历史切分当前一场战斗。 */
-    public long currentSessionStart(StatsFilter filter, long gameTime, int timeoutTicks) {
-        long[] start = {-1};
-        long[] last = {-1};
-        forEachMatching(filter, record -> {
-            if(last[0] < 0 || record.gameTime() - last[0] > timeoutTicks) start[0] = record.gameTime();
-            last[0] = record.gameTime();
-        });
-        return last[0] < 0 || gameTime - last[0] > timeoutTicks ? gameTime + 1 : start[0];
+    public synchronized long currentSessionStart(StatsFilter filter, long gameTime, int timeoutTicks) {
+        return query(filter).currentSessionStart(gameTime, timeoutTicks);
     }
 
-    public boolean clear() {
+    public synchronized boolean clear() {
         if(!clearDirectoryAtomically()) return false;
         pending.clear();
         sealedSegments.clear();
         resetSequences.clear();
+        clearQueryIndex();
+        queryIndexLoaded = true;
         activeSegment = new SegmentBuilder(0);
         nextSequence = 0;
         eventCount = 0;
+        queryRevision++;
         closed = false;
         indexState = StorageIndexState.EMPTY;
         return true;
+    }
+
+    public synchronized void invalidateQueryCaches() {
+        queryRevision++;
+        queryCache.clear();
+    }
+
+    public synchronized void invalidateDamageTypeCategoryCache() {
+        if(queryIndexLoaded) rebuildDamageCategoryIndex();
+        invalidateQueryCaches();
+    }
+
+    public synchronized long queryRevision() {
+        return queryRevision;
+    }
+
+    private synchronized void rebuildQueryIndex() {
+        clearQueryIndex();
+        List<JournalEntry> restored = new ArrayList<>();
+        sealedSegments.stream()
+                .sorted(Comparator.comparingLong(SegmentMetadata::firstSequence))
+                .forEach(metadata -> readEntries(segmentPath(metadata.id), restored::add));
+        if(!activeSegment.isEmpty()) readEntries(segmentPath(activeSegment.id), restored::add);
+        restored.addAll(pending);
+        restored.sort(Comparator.comparingLong(JournalEntry::sequence));
+        restored.forEach(this::indexEntry);
+        queryIndexLoaded = true;
+    }
+
+    private void clearQueryIndex() {
+        queryEntries.clear();
+        sourceIdIndex.clear();
+        sourceTypeIndex.clear();
+        targetIdIndex.clear();
+        targetTypeIndex.clear();
+        directSourceIdIndex.clear();
+        directSourceTypeIndex.clear();
+        damageTypeIndex.clear();
+        damageCategoryIndex.clear();
+        queryCache.clear();
+        queryIndexLoaded = false;
+    }
+
+    private void indexEntry(JournalEntry entry) {
+        queryEntries.add(entry);
+        DamageRecord record = entry.record();
+        addIndex(sourceIdIndex, record.source().id(), entry);
+        addIndex(sourceTypeIndex, record.source().typeIdOrEnvironment(), entry);
+        addIndex(targetIdIndex, record.target().id(), entry);
+        addIndex(targetTypeIndex, record.target().typeIdOrEnvironment(), entry);
+        addIndex(directSourceIdIndex, record.directSource().id(), entry);
+        addIndex(directSourceTypeIndex, record.directSource().typeIdOrEnvironment(), entry);
+        addIndex(damageTypeIndex, record.damageTypeId(), entry);
+        String category = DamageTypeCategories.categoryOf(record.damageTypeId());
+        if(category != null) addIndex(damageCategoryIndex, category, entry);
+    }
+
+    private void rebuildDamageCategoryIndex() {
+        damageCategoryIndex.clear();
+        for (JournalEntry entry : queryEntries) {
+            String category = DamageTypeCategories.categoryOf(entry.record().damageTypeId());
+            if(category != null) addIndex(damageCategoryIndex, category, entry);
+        }
+    }
+
+    private static <K> void addIndex(Map<K, List<JournalEntry>> index, K key, JournalEntry entry) {
+        index.computeIfAbsent(key, ignored -> new ArrayList<>()).add(entry);
+    }
+
+    private List<JournalEntry> candidateEntries(StatsFilter filter) {
+        List<List<JournalEntry>> candidates = new ArrayList<>(5);
+        if(filter.sourceIsDirectSource()) {
+            addCandidates(candidates, filter.source(), directSourceIdIndex, directSourceTypeIndex);
+        } else {
+            addCandidates(candidates, filter.source(), sourceIdIndex, sourceTypeIndex);
+        }
+        addCandidates(candidates, filter.target(), targetIdIndex, targetTypeIndex);
+        addCandidates(candidates, filter.directSource(), directSourceIdIndex, directSourceTypeIndex);
+        filter.damageType().ifPresent(selector -> {
+            switch (selector) {
+                case DamageTypeSelector.Category category -> candidates.add(
+                        damageCategoryIndex.getOrDefault(category.name(), List.of()));
+                case DamageTypeSelector.Exact exact -> candidates.add(
+                        damageTypeIndex.getOrDefault(exact.id(), List.of()));
+            }
+        });
+        return candidates.stream()
+                .min(Comparator.comparingInt(List::size))
+                .orElse(queryEntries);
+    }
+
+    private static void addCandidates(List<List<JournalEntry>> candidates,
+                                      Optional<EntitySelector> selector,
+                                      Map<UUID, List<JournalEntry>> instanceIndex,
+                                      Map<ResourceLocation, List<JournalEntry>> typeIndex) {
+        if(selector.isEmpty()) return;
+        candidates.add(switch (selector.get()) {
+            case EntitySelector.Instance(EntityRef ref) ->
+                    instanceIndex.getOrDefault(ref.id(), List.of());
+            case EntitySelector.Type(ResourceLocation typeId) ->
+                    typeIndex.getOrDefault(typeId, List.of());
+        });
     }
 
     /** 准备空目录后切换；切换失败时恢复旧目录，避免内存和磁盘状态分离。 */
