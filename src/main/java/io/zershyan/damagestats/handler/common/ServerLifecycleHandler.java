@@ -1,5 +1,6 @@
 package io.zershyan.damagestats.handler.common;
 
+import com.mojang.logging.LogUtils;
 import io.zershyan.damagestats.DamageStats;
 import io.zershyan.damagestats.config.DSConfig;
 import io.zershyan.damagestats.stats.DamageTracker;
@@ -17,6 +18,7 @@ import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
 
 import java.nio.file.Path;
 
@@ -26,9 +28,11 @@ import java.nio.file.Path;
  */
 @EventBusSubscriber(modid = DamageStats.MODID)
 public final class ServerLifecycleHandler {
+    private static final Logger LOGGER = LogUtils.getLogger();
     /** 启动时就把目录记下来。崩服兜底那一步 stopServer 已经跑完了，不能再向 server 要路径 */
     private static @Nullable Path worldDirectory;
     private static boolean shutdownSaved;
+    private static boolean storageWritesBlocked;
     private static final int JOURNAL_FLUSH_INTERVAL_TICKS = 100;
     private static final int INSTANCE_PRUNE_INTERVAL_TICKS = 1200;
 
@@ -36,8 +40,12 @@ public final class ServerLifecycleHandler {
     public static void onServerStarted(ServerStartedEvent event) {
         worldDirectory = StatsStorage.directory(event.getServer());
         shutdownSaved = false;
+        storageWritesBlocked = !StatsStorage.recoverPendingReset(worldDirectory);
+        if(storageWritesBlocked) {
+            LOGGER.error("伤害统计清理事务恢复失败，本次运行不会写入统计数据：{}", worldDirectory);
+        }
         // 原始事件日志是权威数据；此缓存仍保存实例目录、名称和快速聚合，不能因关闭定时快照而丢失。
-        DamageTracker restored = StatsStorage.load(event.getServer());
+        DamageTracker restored = storageWritesBlocked ? null : StatsStorage.load(event.getServer());
         ServerStats.start(restored, DamageEventJournal.open(worldDirectory), StatsStorage.focusWorldId(worldDirectory));
         ServerStats.tracker().pruneInstanceDirectory(System.currentTimeMillis());
     }
@@ -58,6 +66,7 @@ public final class ServerLifecycleHandler {
         ServerStats.stop();
         StatsSyncHandler.clear();
         worldDirectory = null;
+        storageWritesBlocked = false;
     }
 
     @SubscribeEvent
@@ -86,7 +95,9 @@ public final class ServerLifecycleHandler {
         }
         if(gameTime % JOURNAL_FLUSH_INTERVAL_TICKS == 0) {
             DamageEventJournal journal = ServerStats.journal();
-            if(journal != null) journal.flush();
+            if(!storageWritesBlocked && journal != null && !journal.isClearing() && !journal.flush()) {
+                LOGGER.error("定期写出原始伤害事件失败，将在下一次保存或停服时重试");
+            }
         }
         int interval = DSConfig.AutoSaveIntervalTicks.get();
         if(interval <= 0 || !DSConfig.AutoSave.get()) return;
@@ -96,21 +107,34 @@ public final class ServerLifecycleHandler {
 
     private static void saveOnShutdown() {
         if(shutdownSaved) return;
+        if(storageWritesBlocked) {
+            shutdownSaved = true;
+            return;
+        }
         DamageEventJournal journal = ServerStats.journal();
-        if(journal != null) journal.close();
-        saveStats();
+        if(journal != null && !journal.close()) {
+            LOGGER.error("停服时原始伤害事件未能完整刷新或封存，保留状态等待再次尝试");
+            return;
+        }
+        if(!saveStats()) {
+            LOGGER.error("停服时伤害统计聚合缓存保存失败，保留状态等待再次尝试");
+            return;
+        }
         shutdownSaved = true;
     }
 
     private static boolean flush() {
+        if(storageWritesBlocked) return false;
         DamageEventJournal journal = ServerStats.journal();
-        if(journal != null) journal.flush();
+        if(journal != null && journal.isClearing()) return false;
+        if(journal != null && !journal.flush()) return false;
         return saveStats();
     }
 
     private static boolean saveStats() {
         DamageTracker tracker = ServerStats.tracker();
-        if(tracker == null || worldDirectory == null) return false;
+        DamageEventJournal journal = ServerStats.journal();
+        if(storageWritesBlocked || tracker == null || worldDirectory == null || journal != null && journal.isClearing()) return false;
         return StatsStorage.save(worldDirectory, tracker);
     }
 
@@ -120,17 +144,22 @@ public final class ServerLifecycleHandler {
 
     /** 显式重置不服从自动保存开关，必须让磁盘中的旧统计同步失效。 */
     public static boolean persistReset(@Nullable EntityRef owner) {
-        if(worldDirectory == null) return false;
+        if(worldDirectory == null || storageWritesBlocked) return false;
         DamageTracker tracker = ServerStats.tracker();
         if(owner == null) {
             DamageEventJournal journal = ServerStats.journal();
-            if(journal != null && !journal.clear()) return false;
-            if(tracker != null) tracker.reset();
+            if(journal == null || tracker == null) return false;
+            return StatsStorage.resetAllAtomically(worldDirectory, journal, tracker);
         } else {
             DamageEventJournal journal = ServerStats.journal();
             if(journal != null && !journal.markReset(owner)) return false;
             if(tracker != null) tracker.resetFor(owner);
         }
         return flush();
+    }
+
+    /** 事务恢复状态不明时禁止采集和保存，直到下次启动成功恢复为止。 */
+    public static boolean storageWritesBlocked() {
+        return storageWritesBlocked;
     }
 }

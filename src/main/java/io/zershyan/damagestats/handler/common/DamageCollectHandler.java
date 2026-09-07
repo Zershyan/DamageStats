@@ -25,6 +25,9 @@ public final class DamageCollectHandler {
         if(!DSConfig.TrackingEnabled.get()) return;
         DamageTracker tracker = ServerStats.tracker();
         if(tracker == null) return;
+        DamageEventJournal journal = ServerStats.journal();
+        if(journal != null && journal.isClearing()) return;
+        if(ServerLifecycleHandler.storageWritesBlocked()) return;
 
         LivingEntity target = event.getEntity();
         if(target.level().isClientSide) return;
@@ -56,7 +59,6 @@ public final class DamageCollectHandler {
         touchIfPresent(tracker, sourceEntity, nowMillis);
         touchIfPresent(tracker, directSourceEntity, nowMillis);
         cacheNames(tracker, target, sourceEntity, directSourceEntity);
-        DamageEventJournal journal = ServerStats.journal();
         if(journal != null) journal.append(record);
         StatsSyncHandler.onDamageRecorded(record);
     }

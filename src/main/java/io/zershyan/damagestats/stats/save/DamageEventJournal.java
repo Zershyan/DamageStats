@@ -19,6 +19,7 @@ import org.slf4j.Logger;
 import java.io.*;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 import java.util.function.Consumer;
@@ -391,6 +392,7 @@ public final class DamageEventJournal {
     private long eventCount;
     private long queryRevision;
     private boolean closed;
+    private boolean clearing;
     private StorageIndexState indexState = StorageIndexState.EMPTY;
 
     private DamageEventJournal(Path directory) {
@@ -406,7 +408,7 @@ public final class DamageEventJournal {
     }
 
     public synchronized void append(DamageRecord record) {
-        if(closed) return;
+        if(closed || clearing) return;
         JournalEntry entry = new JournalEntry(nextSequence++, record);
         pending.addLast(entry);
         eventCount++;
@@ -415,25 +417,43 @@ public final class DamageEventJournal {
     }
 
     /** 每次批量落盘最多重写一个段索引，原始事件帧则直接追加到活跃段。 */
-    public synchronized void flush() {
-        if(closed || pending.isEmpty()) return;
+    public synchronized boolean flush() {
+        if(clearing) return false;
+        if(closed) return true;
+        if(pending.isEmpty()) return retryFailedIndex();
         try {
             Files.createDirectories(directory);
             while(!pending.isEmpty()) {
-                if(activeSegment.isFull() && !sealActiveSegment()) return;
+                if(activeSegment.isFull() && !sealActiveSegment()) return false;
                 writePendingToActiveSegment();
             }
-        } catch (IOException e) {
+            return retryFailedIndex();
+        } catch (IOException | RuntimeException e) {
             LOGGER.error("写出原始伤害事件段失败：{}", segmentPath(activeSegment.id), e);
+            return false;
         }
     }
 
     /** 正常关闭时封存未满段并写入索引；异常关闭的活跃段会在下次启动时自动恢复。 */
-    public synchronized void close() {
-        if(closed) return;
-        flush();
-        if(!activeSegment.isEmpty()) sealActiveSegment();
+    public synchronized boolean close() {
+        if(closed) return true;
+        if(clearing) return false;
+        if(!flush() || !pending.isEmpty()) {
+            LOGGER.error("正常关闭时原始伤害事件仍有待写记录，保留日志以便重试：{}", pending.size());
+            return false;
+        }
+        if(!activeSegment.isEmpty() && !sealActiveSegment()) {
+            if(!activeSegment.isEmpty() || !retryFailedIndex()) {
+                LOGGER.error("正常关闭时原始伤害事件段封存失败，日志未标记为关闭：{}", directory);
+                return false;
+            }
+        }
+        if(!retryFailedIndex()) {
+            LOGGER.error("正常关闭时原始伤害事件索引写入失败，日志未标记为关闭：{}", directory);
+            return false;
+        }
         closed = true;
+        return true;
     }
 
     /** 服务端查询只读取可能命中的段，最终仍逐条匹配，索引误命中不会影响准确性。 */
@@ -513,8 +533,15 @@ public final class DamageEventJournal {
         return query(filter).currentSessionStart(gameTime, timeoutTicks);
     }
 
-    public synchronized boolean clear() {
-        if(!clearDirectoryAtomically()) return false;
+    /** 开始跨文件清理事务；事务完成前拒绝新的事件追加。 */
+    public synchronized boolean beginClear() {
+        if(closed || clearing) return false;
+        clearing = true;
+        return true;
+    }
+
+    /** 存储层提交清理事务后，丢弃内存中的事件、索引和查询缓存。 */
+    public synchronized void completeClear() {
         pending.clear();
         sealedSegments.clear();
         resetSequences.clear();
@@ -526,7 +553,17 @@ public final class DamageEventJournal {
         queryRevision++;
         closed = false;
         indexState = StorageIndexState.EMPTY;
-        return true;
+        clearing = false;
+    }
+
+    /** 清理事务失败时恢复追加能力，并保留尚未提交的内存数据。 */
+    public synchronized void abortClear() {
+        clearing = false;
+    }
+
+    /** 已提交磁盘清理但内存状态尚未清空时，调用方不得把旧聚合或事件再次写回磁盘。 */
+    public synchronized boolean isClearing() {
+        return clearing;
     }
 
     public synchronized void invalidateQueryCaches() {
@@ -629,55 +666,6 @@ public final class DamageEventJournal {
             case EntitySelector.Type(ResourceLocation typeId) ->
                     typeIndex.getOrDefault(typeId, List.of());
         });
-    }
-
-    /** 准备空目录后切换；切换失败时恢复旧目录，避免内存和磁盘状态分离。 */
-    private boolean clearDirectoryAtomically() {
-        Path parent = directory.getParent();
-        Path quarantined = directory.resolveSibling(directory.getFileName() + ".clearing-" + UUID.randomUUID());
-        Path replacement = directory.resolveSibling(directory.getFileName() + ".clearing-new-" + UUID.randomUUID());
-        boolean oldMoved = false;
-        boolean replacementMoved = false;
-        try {
-            if(parent != null) Files.createDirectories(parent);
-            Files.createDirectory(replacement);
-            if(Files.exists(directory)) {
-                moveDirectory(directory, quarantined);
-                oldMoved = true;
-            }
-            moveDirectory(replacement, directory);
-            replacementMoved = true;
-        } catch (IOException e) {
-            if(oldMoved && !Files.exists(directory)) {
-                try {
-                    moveDirectory(quarantined, directory);
-                } catch (IOException restoreFailure) {
-                    LOGGER.error("切换原始伤害事件目录失败且无法恢复旧目录：{}", directory, restoreFailure);
-                }
-            }
-            if(!replacementMoved) deleteTree(replacement);
-            LOGGER.error("切换原始伤害事件目录失败：{}", directory, e);
-            return false;
-        }
-        deleteTree(quarantined);
-        return true;
-    }
-
-    private void moveDirectory(Path source, Path target) throws IOException {
-        try {
-            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
-        } catch (AtomicMoveNotSupportedException e) {
-            Files.move(source, target);
-        }
-    }
-
-    private void deleteTree(Path root) {
-        if(!Files.exists(root)) return;
-        try (Stream<Path> paths = Files.walk(root)) {
-            paths.sorted(Comparator.reverseOrder()).forEach(this::deleteFile);
-        } catch (IOException e) {
-            LOGGER.warn("清理已隔离的原始伤害事件目录失败：{}，该目录不会再次参与统计读取", root, e);
-        }
     }
 
     private void initialize() {
@@ -792,9 +780,11 @@ public final class DamageEventJournal {
         }
         entries.sort(Comparator.comparingLong(LegacyJournalEntry::sequence));
         for (LegacyJournalEntry entry : entries) append(entry.record());
-        flush();
-        if(!pending.isEmpty()) return false;
-        if(!activeSegment.isEmpty()) sealActiveSegment();
+        if(!flush() || !pending.isEmpty()) return false;
+        if(!activeSegment.isEmpty() && !sealActiveSegment()) {
+            if(!activeSegment.isEmpty() || !retryFailedIndex()) return false;
+        }
+        if(!retryFailedIndex()) return false;
         for (Path legacyPath : legacyPaths) {
             Path migrated = legacyPath.resolveSibling(legacyPath.getFileName() + ".migrated");
             try {
@@ -807,14 +797,38 @@ public final class DamageEventJournal {
     }
 
     private boolean readLegacyEntries(Path legacyPath, List<LegacyJournalEntry> entries) {
-        try (Stream<String> lines = Files.lines(legacyPath)) {
-            for (String line : lines.toList()) {
-                LegacyJournalEntry.CODEC.parse(JsonOps.INSTANCE, JsonParser.parseString(line))
-                        .resultOrPartial(error -> LOGGER.error("旧版原始伤害事件解析失败：{}", error))
-                        .ifPresent(entries::add);
+        int lineNumber = 0;
+        int importedCount = 0;
+        int skippedCount = 0;
+        try (BufferedReader reader = Files.newBufferedReader(legacyPath, StandardCharsets.UTF_8)) {
+            String line;
+            while((line = reader.readLine()) != null) {
+                lineNumber++;
+                if(line.isBlank()) continue;
+                int currentLine = lineNumber;
+                try {
+                    Optional<LegacyJournalEntry> parsed = LegacyJournalEntry.CODEC
+                            .parse(JsonOps.INSTANCE, JsonParser.parseString(line))
+                            .resultOrPartial(error -> LOGGER.warn(
+                                    "旧版原始伤害事件第 {} 行解析失败，将跳过：{}，文件：{}",
+                                    currentLine, error, legacyPath));
+                    if(parsed.isPresent()) {
+                        entries.add(parsed.get());
+                        importedCount++;
+                    } else {
+                        skippedCount++;
+                    }
+                } catch (RuntimeException e) {
+                    skippedCount++;
+                    LOGGER.warn("旧版原始伤害事件第 {} 行不是有效 JSON，将跳过，文件：{}",
+                            currentLine, legacyPath, e);
+                }
             }
+            if(skippedCount > 0) LOGGER.warn(
+                    "旧版原始伤害事件已按行迁移：导入 {} 行，跳过 {} 行损坏数据，原文件会保留为迁移副本：{}",
+                    importedCount, skippedCount, legacyPath);
             return true;
-        } catch (IOException | RuntimeException e) {
+        } catch (IOException e) {
             LOGGER.error("读取旧版原始伤害事件段失败，已保留原文件：{}", legacyPath, e);
             return false;
         }
@@ -847,9 +861,17 @@ public final class DamageEventJournal {
         if(!compressSegment(activeSegment.id)) return false;
         sealedSegments.add(activeSegment.build());
         sealedSegments.sort(Comparator.comparingLong(SegmentMetadata::id));
-        indexState = writeIndex() ? StorageIndexState.LOADED : StorageIndexState.FAILED;
         activeSegment = new SegmentBuilder(activeSegment.id + 1);
-        return true;
+        boolean indexWritten = writeIndex();
+        indexState = indexWritten ? StorageIndexState.LOADED : StorageIndexState.FAILED;
+        return indexWritten;
+    }
+
+    private boolean retryFailedIndex() {
+        if(indexState != StorageIndexState.FAILED) return true;
+        boolean indexWritten = writeIndex();
+        if(indexWritten) indexState = StorageIndexState.LOADED;
+        return indexWritten;
     }
 
     /** 活跃段不压缩，避免每次批量写入都重写整段；封存后再压缩可获得跨事件字段的压缩率。 */

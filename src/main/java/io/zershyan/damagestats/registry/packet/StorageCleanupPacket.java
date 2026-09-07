@@ -36,7 +36,7 @@ public record StorageCleanupPacket(StorageCleanupTarget target) implements Custo
             }
             boolean succeeded = switch (payload.target()) {
                 case TEMPORARY_AND_BACKUPS -> StorageMaintenance.cleanTemporaryAndBackups(
-                        StatsStorage.directory(player.getServer()));
+                        StatsStorage.directory(player.getServer()), ServerStats.journal());
                 case EXPORTS -> StorageMaintenance.cleanExports(StatsStorage.directory(player.getServer()));
                 case ALL_RECORDS -> StatsResetService.resetAll(player.getServer());
                 case NONE -> true;

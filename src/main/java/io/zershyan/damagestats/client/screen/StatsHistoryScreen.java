@@ -21,8 +21,7 @@ import java.util.List;
 /** 已结束战斗的可滚动摘要页，当前战斗仍在焦点页头展示。 */
 public final class StatsHistoryScreen extends Screen {
     private static final int SIDE = 18;
-    private static final int HEADER_HEIGHT = 32;
-    private static final int FOOTER_HEIGHT = 32;
+    private static final int PREFERRED_HEADER_HEIGHT = 32;
     private static final int ROW_HEIGHT = 14;
     private static final int BACKGROUND = 0xE015181C;
     private static final int HEADER = 0xEE20262C;
@@ -35,6 +34,7 @@ public final class StatsHistoryScreen extends Screen {
     private int requestId;
     private int scrollOffset;
     private @Nullable HistoryPage adopted;
+    private List<Component> tooltip = List.of();
 
     public StatsHistoryScreen(StatsScreen parent) {
         super(DSKeyLang.ScreenHistory.copy());
@@ -43,48 +43,78 @@ public final class StatsHistoryScreen extends Screen {
 
     @Override
     protected void init() {
+        ScreenLayout.Flow footer = footerFlow();
+        ScreenLayout.Bounds refresh = footer.bounds().getFirst();
+        ScreenLayout.Bounds done = footer.bounds().getLast();
         addRenderableWidget(Button.builder(DSKeyLang.ScreenRefresh.copy(), button -> request())
-                .bounds(SIDE, height - FOOTER_HEIGHT + 6, 72, 20).build());
+                .bounds(refresh.x(), refresh.y(), refresh.width(), refresh.height()).build());
         addRenderableWidget(Button.builder(CommonComponents.GUI_DONE, button -> minecraft.setScreen(parent))
-                .bounds(width - SIDE - 84, height - FOOTER_HEIGHT + 6, 84, 20).build());
+                .bounds(done.x(), done.y(), done.width(), done.height()).build());
         request();
     }
 
     @Override
     public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         renderBackground(graphics, mouseX, mouseY, partialTick);
+        int headerHeight = headerHeight();
+        ScreenLayout.Flow footer = footerFlow();
+        int footerTop = footer.top();
         HistoryPage page = ClientStats.historyPage();
         if(page != null && page.requestId() == requestId && page != adopted) {
             adopted = page;
             scrollOffset = 0;
         }
         graphics.fill(0, 0, width, height, BACKGROUND);
-        graphics.fill(0, 0, width, HEADER_HEIGHT, HEADER);
-        graphics.fill(0, height - FOOTER_HEIGHT, width, height, HEADER);
-        graphics.fill(0, HEADER_HEIGHT - 1, width, HEADER_HEIGHT, BORDER);
-        graphics.fill(0, height - FOOTER_HEIGHT, width, height - FOOTER_HEIGHT + 1, BORDER);
-        graphics.drawCenteredString(font, title, width / 2, 11, TEXT);
+        graphics.fill(0, 0, width, headerHeight, HEADER);
+        graphics.fill(0, footerTop, width, height, HEADER);
+        if(headerHeight > 0) graphics.fill(0, headerHeight - 1, width, headerHeight, BORDER);
+        if(footerTop < height) graphics.fill(0, footerTop, width, Math.min(height, footerTop + 1), BORDER);
+        if(headerHeight >= 10) {
+            graphics.drawCenteredString(font, title, width / 2,
+                    Math.clamp(11, 0, Math.max(0, headerHeight - 1)), TEXT);
+        }
 
         List<HistoryLine> lines = lines(page != null && page.requestId() == requestId ? page : null);
-        int top = HEADER_HEIGHT + 6;
-        int bottom = height - FOOTER_HEIGHT - 6;
-        int visible = Math.max(1, (bottom - top) / ROW_HEIGHT);
+        int top = headerHeight + 6;
+        int bottom = footerTop - 6;
+        int visible = Math.max(0, (bottom - top) / ROW_HEIGHT);
         scrollOffset = Mth.clamp(scrollOffset, 0, Math.max(0, lines.size() - visible));
-        for (int index = scrollOffset; index < Math.min(lines.size(), scrollOffset + visible); index++) {
-            HistoryLine line = lines.get(index);
-            graphics.drawString(font, font.plainSubstrByWidth(line.text().getString(), Math.max(1, width - SIDE * 2)), SIDE,
-                    top + (index - scrollOffset) * ROW_HEIGHT, line.color());
+        tooltip = List.of();
+        if(bottom > top && visible > 0) {
+            int left = ScreenLayout.left(width, SIDE);
+            int right = ScreenLayout.right(width, SIDE);
+            int textWidth = Math.max(1, right - left);
+            graphics.enableScissor(0, top, width, bottom);
+            for(int index = scrollOffset; index < Math.min(lines.size(), scrollOffset + visible); index++) {
+                HistoryLine line = lines.get(index);
+                int y = top + (index - scrollOffset) * ROW_HEIGHT;
+                graphics.drawString(font, font.plainSubstrByWidth(line.text().getString(), textWidth), left, y, line.color());
+                if(mouseX >= left && mouseX <= right && mouseY >= y && mouseY < y + ROW_HEIGHT
+                        && font.width(line.text()) > textWidth) tooltip = List.of(line.text());
+            }
+            graphics.disableScissor();
         }
         renderables.forEach(renderable -> renderable.render(graphics, mouseX, mouseY, partialTick));
+        if(!tooltip.isEmpty()) graphics.renderComponentTooltip(font, tooltip, mouseX, mouseY);
     }
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
-        if(mouseY < HEADER_HEIGHT || mouseY >= height - FOOTER_HEIGHT) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
-        int visible = Math.max(1, (height - FOOTER_HEIGHT - 6 - (HEADER_HEIGHT + 6)) / ROW_HEIGHT);
+        int headerHeight = headerHeight();
+        int footerTop = footerFlow().top();
+        if(mouseY < headerHeight || mouseY >= footerTop) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+        int visible = Math.max(0, (footerTop - 6 - (headerHeight + 6)) / ROW_HEIGHT);
         int maxOffset = Math.max(0, lines(adopted).size() - visible);
         scrollOffset = Mth.clamp(scrollOffset - (int) Math.signum(scrollY), 0, maxOffset);
         return true;
+    }
+
+    private int headerHeight() {
+        return Math.min(PREFERRED_HEADER_HEIGHT, Math.min(Math.max(0, height / 3), footerFlow().top()));
+    }
+
+    private ScreenLayout.Flow footerFlow() {
+        return ScreenLayout.bottomFlow(width, height, SIDE, 20, 4, 6, 72, 84);
     }
 
     private void request() {

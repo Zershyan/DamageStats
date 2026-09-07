@@ -22,8 +22,7 @@ import java.util.Locale;
 /** 仅向管理员展示服务端目录摘要，信息区可滚动以适应低高度窗口。 */
 public final class StorageOverviewScreen extends Screen {
     private static final int SIDE = 18;
-    private static final int HEADER_HEIGHT = 32;
-    private static final int FOOTER_HEIGHT = 32;
+    private static final int PREFERRED_HEADER_HEIGHT = 32;
     private static final int LINE_HEIGHT = 13;
     private static final int BACKGROUND = 0xE015181C;
     private static final int HEADER = 0xEE20262C;
@@ -33,6 +32,7 @@ public final class StorageOverviewScreen extends Screen {
     private static final int ACCENT = 0xFF55D6E8;
 
     private int scrollOffset;
+    private List<Component> tooltip = List.of();
 
     public StorageOverviewScreen() {
         super(DSKeyLang.ScreenStorageTitle.copy());
@@ -40,54 +40,78 @@ public final class StorageOverviewScreen extends Screen {
 
     @Override
     protected void init() {
-        int actionWidth = Math.min(180, (width - SIDE * 2 - 4) / 2);
-        int left = width / 2 - actionWidth - 2;
-        int right = width / 2 + 2;
-        int actionTop = actionTop();
-        addRenderableWidget(Button.builder(DSKeyLang.ScreenStorageCleanupTemporary.copy(), button ->
-                        confirm(StorageCleanupTarget.TEMPORARY_AND_BACKUPS))
-                .bounds(left, actionTop, actionWidth, 20).build());
-        addRenderableWidget(Button.builder(DSKeyLang.ScreenStorageCleanupExports.copy(), button ->
-                        confirm(StorageCleanupTarget.EXPORTS))
-                .bounds(right, actionTop, actionWidth, 20).build());
-        addRenderableWidget(Button.builder(DSKeyLang.ScreenStorageCleanupAll.copy(), button ->
-                        confirm(StorageCleanupTarget.ALL_RECORDS))
-                .bounds(width / 2 - Math.min(220, width - SIDE * 2) / 2, actionTop + 24,
-                        Math.min(220, width - SIDE * 2), 20).build());
+        ActionLayout actions = actionLayout();
+        if(actions.bounds().size() == 3) {
+            ScreenLayout.Bounds temporary = actions.bounds().get(0);
+            ScreenLayout.Bounds exports = actions.bounds().get(1);
+            ScreenLayout.Bounds all = actions.bounds().get(2);
+            addRenderableWidget(Button.builder(DSKeyLang.ScreenStorageCleanupTemporary.copy(), button ->
+                            confirm(StorageCleanupTarget.TEMPORARY_AND_BACKUPS))
+                    .bounds(temporary.x(), temporary.y(), temporary.width(), temporary.height()).build());
+            addRenderableWidget(Button.builder(DSKeyLang.ScreenStorageCleanupExports.copy(), button ->
+                            confirm(StorageCleanupTarget.EXPORTS))
+                    .bounds(exports.x(), exports.y(), exports.width(), exports.height()).build());
+            addRenderableWidget(Button.builder(DSKeyLang.ScreenStorageCleanupAll.copy(), button ->
+                            confirm(StorageCleanupTarget.ALL_RECORDS))
+                    .bounds(all.x(), all.y(), all.width(), all.height()).build());
+        }
+        ScreenLayout.Flow footer = footerFlow();
+        ScreenLayout.Bounds refresh = footer.bounds().getFirst();
+        ScreenLayout.Bounds done = footer.bounds().getLast();
         addRenderableWidget(Button.builder(DSKeyLang.ScreenStorageRefresh.copy(), button -> refresh())
-                .bounds(SIDE, height - FOOTER_HEIGHT + 6, 80, 20).build());
+                .bounds(refresh.x(), refresh.y(), refresh.width(), refresh.height()).build());
         addRenderableWidget(Button.builder(CommonComponents.GUI_DONE, button -> onClose())
-                .bounds(width - SIDE - 84, height - FOOTER_HEIGHT + 6, 84, 20).build());
+                .bounds(done.x(), done.y(), done.width(), done.height()).build());
     }
 
     @Override
     public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         renderBackground(graphics, mouseX, mouseY, partialTick);
+        int headerHeight = headerHeight();
+        ScreenLayout.Flow footer = footerFlow();
+        ActionLayout actions = actionLayout();
+        int footerTop = footer.top();
         graphics.fill(0, 0, width, height, BACKGROUND);
-        graphics.fill(0, 0, width, HEADER_HEIGHT, HEADER);
-        graphics.fill(0, height - FOOTER_HEIGHT, width, height, HEADER);
-        graphics.fill(0, HEADER_HEIGHT - 1, width, HEADER_HEIGHT, BORDER);
-        graphics.fill(0, height - FOOTER_HEIGHT, width, height - FOOTER_HEIGHT + 1, BORDER);
-        graphics.drawCenteredString(font, title, width / 2, 11, TEXT);
+        graphics.fill(0, 0, width, headerHeight, HEADER);
+        graphics.fill(0, footerTop, width, height, HEADER);
+        if(headerHeight > 0) graphics.fill(0, headerHeight - 1, width, headerHeight, BORDER);
+        if(footerTop < height) graphics.fill(0, footerTop, width, Math.min(height, footerTop + 1), BORDER);
+        if(headerHeight >= 10) {
+            graphics.drawCenteredString(font, title, width / 2,
+                    Math.clamp(11, 0, Math.max(0, headerHeight - 1)), TEXT);
+        }
 
         List<Component> lines = lines(ClientStorageOverview.overview());
-        int top = HEADER_HEIGHT + 8;
-        int bottom = actionTop() - 8;
-        int visible = Math.max(1, (bottom - top) / LINE_HEIGHT);
+        int top = headerHeight + 8;
+        int bottom = actions.top() - 8;
+        int visible = Math.max(0, (bottom - top) / LINE_HEIGHT);
         scrollOffset = Mth.clamp(scrollOffset, 0, Math.max(0, lines.size() - visible));
-        for (int index = scrollOffset; index < Math.min(lines.size(), scrollOffset + visible); index++) {
-            Component line = lines.get(index);
-            int y = top + (index - scrollOffset) * LINE_HEIGHT;
-            graphics.drawString(font, font.plainSubstrByWidth(line.getString(), Math.max(1, width - SIDE * 2)), SIDE, y,
-                    index == 0 ? ACCENT : MUTED);
+        tooltip = List.of();
+        if(bottom > top && visible > 0) {
+            int left = ScreenLayout.left(width, SIDE);
+            int right = ScreenLayout.right(width, SIDE);
+            int textWidth = Math.max(1, right - left);
+            graphics.enableScissor(0, top, width, bottom);
+            for(int index = scrollOffset; index < Math.min(lines.size(), scrollOffset + visible); index++) {
+                Component line = lines.get(index);
+                int y = top + (index - scrollOffset) * LINE_HEIGHT;
+                graphics.drawString(font, font.plainSubstrByWidth(line.getString(), textWidth), left, y,
+                        index == 0 ? ACCENT : MUTED);
+                if(mouseX >= left && mouseX <= right && mouseY >= y && mouseY < y + LINE_HEIGHT
+                        && font.width(line) > textWidth) tooltip = List.of(line);
+            }
+            graphics.disableScissor();
         }
         renderables.forEach(renderable -> renderable.render(graphics, mouseX, mouseY, partialTick));
+        if(!tooltip.isEmpty()) graphics.renderComponentTooltip(font, tooltip, mouseX, mouseY);
     }
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
-        if(mouseY < HEADER_HEIGHT || mouseY >= actionTop() - 4) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
-        int visible = Math.max(1, (actionTop() - 8 - (HEADER_HEIGHT + 8)) / LINE_HEIGHT);
+        int headerHeight = headerHeight();
+        int actionTop = actionLayout().top();
+        if(mouseY < headerHeight || mouseY >= actionTop) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+        int visible = Math.max(0, (actionTop - 8 - (headerHeight + 8)) / LINE_HEIGHT);
         int maxOffset = Math.max(0, lines(ClientStorageOverview.overview()).size() - visible);
         scrollOffset = Mth.clamp(scrollOffset - (int) Math.signum(scrollY), 0, maxOffset);
         return true;
@@ -105,8 +129,29 @@ public final class StorageOverviewScreen extends Screen {
         PacketDistributor.sendToServer(StorageOverviewRequestPacket.INSTANCE);
     }
 
-    private int actionTop() {
-        return height - FOOTER_HEIGHT - 52;
+    private int headerHeight() {
+        return Math.min(PREFERRED_HEADER_HEIGHT, Math.min(Math.max(0, height / 3), footerFlow().top()));
+    }
+
+    private ScreenLayout.Flow footerFlow() {
+        return ScreenLayout.bottomFlow(width, height, SIDE, 20, 4, 6, 80, 84);
+    }
+
+    private ActionLayout actionLayout() {
+        int[] preferredWidths = {180, 180, 220};
+        int top = headerHeight() + 4;
+        int bottom = footerFlow().top() - 4;
+        int available = bottom - top;
+        if(available <= 0) return new ActionLayout(bottom, 0, 0, List.of());
+        List<ScreenLayout.Bounds> preferred = ScreenLayout.flow(width, SIDE, 0, 20, 4, preferredWidths);
+        int rows = preferred.stream().map(ScreenLayout.Bounds::y).distinct().mapToInt(ignored -> 1).sum();
+        if(available < rows) return new ActionLayout(bottom, 0, 0, List.of());
+        int gap = rows <= 1 ? 0 : Math.min(4, Math.max(0, (available - rows) / (rows - 1)));
+        int buttonHeight = Math.min(20, Math.max(1, (available - gap * (rows - 1)) / rows));
+        int used = rows * buttonHeight + gap * (rows - 1);
+        int actionTop = bottom - used;
+        return new ActionLayout(actionTop, buttonHeight, gap,
+                ScreenLayout.flow(width, SIDE, actionTop, buttonHeight, gap, preferredWidths));
     }
 
     private static List<Component> lines(StorageOverview overview) {
@@ -145,4 +190,6 @@ public final class StorageOverviewScreen extends Screen {
         }
         return String.format(Locale.ROOT, "%.1f %s", value, units[unit]);
     }
+
+    private record ActionLayout(int top, int buttonHeight, int gap, List<ScreenLayout.Bounds> bounds) {}
 }

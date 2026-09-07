@@ -20,8 +20,7 @@ import java.util.List;
 /** 焦点详细指标页直接读取最新摘要，避免为只读指标再发送全量数据。 */
 public final class StatsDetailsScreen extends Screen {
     private static final int SIDE = 18;
-    private static final int HEADER_HEIGHT = 32;
-    private static final int FOOTER_HEIGHT = 32;
+    private static final int PREFERRED_HEADER_HEIGHT = 32;
     private static final int LINE_HEIGHT = 12;
     private static final int BACKGROUND = 0xE015181C;
     private static final int HEADER = 0xEE20262C;
@@ -32,6 +31,7 @@ public final class StatsDetailsScreen extends Screen {
 
     private final StatsScreen parent;
     private int scrollOffset;
+    private List<Component> tooltip = List.of();
 
     public StatsDetailsScreen(StatsScreen parent) {
         super(DSKeyLang.ScreenDetails.copy());
@@ -40,41 +40,70 @@ public final class StatsDetailsScreen extends Screen {
 
     @Override
     protected void init() {
+        ScreenLayout.Flow footer = footerFlow();
+        ScreenLayout.Bounds done = footer.bounds().getFirst();
         addRenderableWidget(Button.builder(CommonComponents.GUI_DONE, button -> minecraft.setScreen(parent))
-                .bounds(width - SIDE - 84, height - FOOTER_HEIGHT + 6, 84, 20).build());
+                .bounds(done.x(), done.y(), done.width(), done.height()).build());
     }
 
     @Override
     public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         renderBackground(graphics, mouseX, mouseY, partialTick);
+        int headerHeight = headerHeight();
+        ScreenLayout.Flow footer = footerFlow();
+        int footerTop = footer.top();
         graphics.fill(0, 0, width, height, BACKGROUND);
-        graphics.fill(0, 0, width, HEADER_HEIGHT, HEADER);
-        graphics.fill(0, height - FOOTER_HEIGHT, width, height, HEADER);
-        graphics.fill(0, HEADER_HEIGHT - 1, width, HEADER_HEIGHT, BORDER);
-        graphics.fill(0, height - FOOTER_HEIGHT, width, height - FOOTER_HEIGHT + 1, BORDER);
-        graphics.drawCenteredString(font, title, width / 2, 11, TEXT);
+        graphics.fill(0, 0, width, headerHeight, HEADER);
+        graphics.fill(0, footerTop, width, height, HEADER);
+        if(headerHeight > 0) graphics.fill(0, headerHeight - 1, width, headerHeight, BORDER);
+        if(footerTop < height) graphics.fill(0, footerTop, width, Math.min(height, footerTop + 1), BORDER);
+        if(headerHeight >= 10) {
+            graphics.drawCenteredString(font, title, width / 2,
+                    Math.clamp(11, 0, Math.max(0, headerHeight - 1)), TEXT);
+        }
 
         List<DetailLine> lines = detailLines(ClientStats.summary());
-        int top = HEADER_HEIGHT + 6;
-        int bottom = height - FOOTER_HEIGHT - 6;
-        int visible = Math.max(1, (bottom - top) / LINE_HEIGHT);
+        int top = headerHeight + 6;
+        int bottom = footerTop - 6;
+        int visible = Math.max(0, (bottom - top) / LINE_HEIGHT);
         scrollOffset = Mth.clamp(scrollOffset, 0, Math.max(0, lines.size() - visible));
-        for (int index = scrollOffset; index < Math.min(lines.size(), scrollOffset + visible); index++) {
-            DetailLine line = lines.get(index);
-            int y = top + (index - scrollOffset) * LINE_HEIGHT;
-            graphics.drawString(font, font.plainSubstrByWidth(line.text().getString(), Math.max(1, width - SIDE * 2)),
-                    SIDE, y, line.color());
+        tooltip = List.of();
+        if(bottom > top && visible > 0) {
+            int textWidth = Math.max(1, ScreenLayout.width(width, SIDE));
+            graphics.enableScissor(0, top, width, bottom);
+            for(int index = scrollOffset; index < Math.min(lines.size(), scrollOffset + visible); index++) {
+                DetailLine line = lines.get(index);
+                int y = top + (index - scrollOffset) * LINE_HEIGHT;
+                graphics.drawString(font, font.plainSubstrByWidth(line.text().getString(), textWidth),
+                        ScreenLayout.left(width, SIDE), y, line.color());
+                if(mouseX >= ScreenLayout.left(width, SIDE) && mouseX <= ScreenLayout.right(width, SIDE)
+                        && mouseY >= y && mouseY < y + LINE_HEIGHT && font.width(line.text()) > textWidth) {
+                    tooltip = List.of(line.text());
+                }
+            }
+            graphics.disableScissor();
         }
         renderables.forEach(renderable -> renderable.render(graphics, mouseX, mouseY, partialTick));
+        if(!tooltip.isEmpty()) graphics.renderComponentTooltip(font, tooltip, mouseX, mouseY);
     }
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
-        if(mouseY < HEADER_HEIGHT || mouseY >= height - FOOTER_HEIGHT) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
-        int visible = Math.max(1, (height - FOOTER_HEIGHT - 6 - (HEADER_HEIGHT + 6)) / LINE_HEIGHT);
+        int headerHeight = headerHeight();
+        int footerTop = footerFlow().top();
+        if(mouseY < headerHeight || mouseY >= footerTop) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+        int visible = Math.max(0, (footerTop - 6 - (headerHeight + 6)) / LINE_HEIGHT);
         int maxOffset = Math.max(0, detailLines(ClientStats.summary()).size() - visible);
         scrollOffset = Mth.clamp(scrollOffset - (int) Math.signum(scrollY), 0, maxOffset);
         return true;
+    }
+
+    private int headerHeight() {
+        return Math.min(PREFERRED_HEADER_HEIGHT, Math.min(Math.max(0, height / 3), footerFlow().top()));
+    }
+
+    private ScreenLayout.Flow footerFlow() {
+        return ScreenLayout.bottomFlow(width, height, SIDE, 20, 4, 6, 84);
     }
 
     private static List<DetailLine> detailLines(FocusSummary summary) {

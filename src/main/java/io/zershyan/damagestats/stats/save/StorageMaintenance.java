@@ -20,6 +20,7 @@ public final class StorageMaintenance {
     private static final String CLEARING_DIRECTORY_PREFIX = "events.clearing-";
     private static final String EXPORTS_DIRECTORY = "exports";
     private static final String CACHE_FILE = "stats.json";
+    private static final String RESET_TRANSACTION_PREFIX = ".reset-";
     private static final String INDEX_FILE = "index.bin";
     private static final String RESET_FILE = "resets.bin";
     private static final Pattern RAW_SEGMENT = Pattern.compile("segment-\\d+\\.bin");
@@ -47,7 +48,14 @@ public final class StorageMaintenance {
     }
 
     public static boolean cleanTemporaryAndBackups(Path storageDirectory) {
-        boolean success = deleteMatching(storageDirectory, name -> name.endsWith(".tmp"));
+        return cleanTemporaryAndBackups(storageDirectory, null);
+    }
+
+    public static boolean cleanTemporaryAndBackups(Path storageDirectory, @Nullable DamageEventJournal journal) {
+        if(journal != null && journal.isClearing()) return false;
+        boolean success = StatsStorage.recoverTemporaryResets(storageDirectory);
+        if(!success) return false;
+        success = deleteMatching(storageDirectory, name -> name.endsWith(".tmp"));
         success = deleteMatching(storageDirectory.resolve(EVENTS_DIRECTORY),
                 name -> MIGRATED_BACKUP.matcher(name).matches()) && success;
         success = deleteClearingDirectories(storageDirectory) && success;
@@ -86,13 +94,20 @@ public final class StorageMaintenance {
 
     private static FileTotals temporaryTotals(Path storageDirectory) {
         return recursiveTotals(storageDirectory, path -> path.getFileName().toString().endsWith(".tmp")
-                || isInClearingDirectory(storageDirectory, path));
+                || isInClearingDirectory(storageDirectory, path)
+                || isInResetTransaction(storageDirectory, path));
     }
 
     private static boolean isInClearingDirectory(Path storageDirectory, Path path) {
         Path relative = storageDirectory.relativize(path);
         return relative.getNameCount() > 0
                 && relative.getName(0).toString().startsWith(CLEARING_DIRECTORY_PREFIX);
+    }
+
+    private static boolean isInResetTransaction(Path storageDirectory, Path path) {
+        Path relative = storageDirectory.relativize(path);
+        return relative.getNameCount() > 0
+                && relative.getName(0).toString().startsWith(RESET_TRANSACTION_PREFIX);
     }
 
     private static boolean deleteMatching(Path directory, Predicate<String> fileNameMatches) {
