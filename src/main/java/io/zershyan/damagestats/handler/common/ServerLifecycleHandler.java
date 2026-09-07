@@ -44,9 +44,17 @@ public final class ServerLifecycleHandler {
         if(storageWritesBlocked) {
             LOGGER.error("伤害统计清理事务恢复失败，本次运行不会写入统计数据：{}", worldDirectory);
         }
-        // 原始事件日志是权威数据；此缓存仍保存实例目录、名称和快速聚合，不能因关闭定时快照而丢失。
+        DamageEventJournal journal = DamageEventJournal.open(worldDirectory);
+        // 原始事件日志是权威数据；缓存损坏时回放它，避免实例选择和快速聚合从空数据开始。
         DamageTracker restored = storageWritesBlocked ? null : StatsStorage.load(event.getServer());
-        ServerStats.start(restored, DamageEventJournal.open(worldDirectory), StatsStorage.focusWorldId(worldDirectory));
+        boolean recoveredFromJournal = !storageWritesBlocked && restored == null;
+        if(recoveredFromJournal) {
+            restored = journal.rebuildTracker(event.getServer().overworld().getGameTime());
+            if(!StatsStorage.save(worldDirectory, restored)) {
+                LOGGER.warn("伤害统计缓存已从事件日志恢复，但修复后的缓存写入失败：{}", worldDirectory);
+            }
+        }
+        ServerStats.start(restored, journal, StatsStorage.focusWorldId(worldDirectory));
         ServerStats.tracker().pruneInstanceDirectory(System.currentTimeMillis());
     }
 
@@ -82,6 +90,7 @@ public final class ServerLifecycleHandler {
         DamageTracker tracker = ServerStats.tracker();
         StatsFocusManager manager = ServerStats.focusManager();
         if(tracker == null || manager == null) return;
+        tracker.cacheName(player);
         manager.focusFor(player);
         StatsSyncHandler.pushFocusState(tracker, player, FocusChangeResult.ACCEPTED);
     }

@@ -47,7 +47,7 @@ public final class StatsStorage {
         return server.getWorldPath(LevelResource.ROOT).resolve(DIR_NAME);
     }
 
-    /** 读不出来就返回 null 让调用方从空数据开始——存档里的统计坏了不该连世界都进不去 */
+    /** 读不出来就返回 null，让调用方从权威事件日志恢复；存档损坏不该阻止世界进入。 */
     public static @Nullable DamageTracker load(MinecraftServer server) {
         return load(directory(server));
     }
@@ -61,7 +61,7 @@ public final class StatsStorage {
                     .resultOrPartial(error -> LOGGER.error("伤害统计存档解析失败：{}", error))
                     .orElse(null);
         } catch (IOException | RuntimeException e) {
-            LOGGER.error("读取伤害统计存档失败，本次从空数据开始", e);
+            LOGGER.error("读取伤害统计存档失败，将由启动流程从事件日志恢复", e);
             return null;
         }
     }

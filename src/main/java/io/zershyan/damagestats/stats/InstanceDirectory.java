@@ -24,20 +24,50 @@ public class InstanceDirectory {
         prune(nowMillis);
     }
 
+    void touchFromRecord(EntityRef ref, DamageRecord record, String recoveredName) {
+        if(ref.isEnvironment() || ref.typeId() == null) return;
+        InstanceMetadata previous = entries.get(ref.id());
+        if(previous != null && previous.lastInteractionMillis() > record.occurredAtMillis()) return;
+        String displayName = recoveredName.isBlank() && previous != null
+                ? previous.displayName() : recoveredName;
+        long occurredAt = record.occurredAtMillis() > 0
+                ? record.occurredAtMillis() : System.currentTimeMillis();
+        entries.put(ref.id(), new InstanceMetadata(ref, displayName, record.dimensionId(),
+                record.blockX(), record.blockY(), record.blockZ(), occurredAt, record.gameTime()));
+        invalidate();
+    }
+
     public void prune(long nowMillis) {
         long retentionMillis = DSConfig.InstanceDirectoryRetentionHours.get() * 60L * 60L * 1000L;
+        // 先按保留期淘汰，但保护玩家条目
         boolean changed = entries.values().removeIf(metadata ->
-                nowMillis - metadata.lastInteractionMillis() > retentionMillis);
+                !isPlayerType(metadata.ref().typeId())
+                && nowMillis - metadata.lastInteractionMillis() > retentionMillis);
+
+        // 按上限淘汰时，保护玩家和高价值实体（如 Boss）
         int limit = DSConfig.InstanceDirectoryLimit.get();
         while(entries.size() > limit) {
             InstanceMetadata oldest = entries.values().stream()
+                    .filter(metadata -> !isProtected(metadata))
                     .min(Comparator.comparingLong(InstanceMetadata::lastInteractionMillis))
                     .orElse(null);
-            if(oldest == null) return;
+            if(oldest == null) return; // 剩余全是受保护的实例
             entries.remove(oldest.ref().id());
             changed = true;
         }
         if(changed) invalidate();
+    }
+
+    /** 玩家条目永不淘汰 */
+    private static boolean isPlayerType(ResourceLocation typeId) {
+        return typeId != null && "minecraft:player".equals(typeId.toString());
+    }
+
+    /** 受保护的实例：玩家、驯服生物（名称非空的非玩家实体视为驯服或命名） */
+    private static boolean isProtected(InstanceMetadata metadata) {
+        if(isPlayerType(metadata.ref().typeId())) return true;
+        // 有自定义名的实体视为玩家关心的重要实体（驯服生物、命名怪物等）
+        return metadata.displayName() != null && !metadata.displayName().isBlank();
     }
 
     public List<InstanceMetadata> entries() {

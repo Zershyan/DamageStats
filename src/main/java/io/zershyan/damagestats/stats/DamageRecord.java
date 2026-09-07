@@ -33,8 +33,19 @@ public record DamageRecord(
         int blockX,
         int blockY,
         int blockZ,
-        long occurredAtMillis
+        long occurredAtMillis,
+        ParticipantNames names
 ) {
+    public record ParticipantNames(String source, String directSource, String target) {
+        public static final ParticipantNames EMPTY = new ParticipantNames("", "", "");
+
+        public static final Codec<ParticipantNames> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+                Codec.STRING.optionalFieldOf("source", "").forGetter(ParticipantNames::source),
+                Codec.STRING.optionalFieldOf("directSource", "").forGetter(ParticipantNames::directSource),
+                Codec.STRING.optionalFieldOf("target", "").forGetter(ParticipantNames::target)
+        ).apply(instance, ParticipantNames::new));
+    }
+
     public static final Codec<DamageRecord> CODEC = RecordCodecBuilder.create(instance -> instance.group(
             EntityRef.CODEC.fieldOf("source").forGetter(DamageRecord::source),
             EntityRef.CODEC.fieldOf("directSource").forGetter(DamageRecord::directSource),
@@ -51,8 +62,21 @@ public record DamageRecord(
             Codec.INT.optionalFieldOf("x", 0).forGetter(DamageRecord::blockX),
             Codec.INT.optionalFieldOf("y", 0).forGetter(DamageRecord::blockY),
             Codec.INT.optionalFieldOf("z", 0).forGetter(DamageRecord::blockZ),
-            Codec.LONG.optionalFieldOf("occurredAt", 0L).forGetter(DamageRecord::occurredAtMillis)
+            Codec.LONG.optionalFieldOf("occurredAt", 0L).forGetter(DamageRecord::occurredAtMillis),
+            ParticipantNames.CODEC.optionalFieldOf("names", ParticipantNames.EMPTY).forGetter(DamageRecord::names)
     ).apply(instance, DamageRecord::new));
+
+    public String sourceName() {
+        return names.source();
+    }
+
+    public String directSourceName() {
+        return names.directSource();
+    }
+
+    public String targetName() {
+        return names.target();
+    }
 
     /**
      * 取原始与实际的差值，而不是 {@link DamageReduction#total()}：

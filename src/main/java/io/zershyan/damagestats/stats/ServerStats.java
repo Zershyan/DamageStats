@@ -9,10 +9,10 @@ import org.jetbrains.annotations.Nullable;
  * 因为玩家会跨维度作战，按维度分开会把一场战斗切成几段。
  */
 public final class ServerStats {
-    private static @Nullable DamageTracker tracker;
-    private static @Nullable DamageEventJournal journal;
-    private static @Nullable StatsFocusManager focusManager;
-    private static String worldId = "";
+    private static volatile @Nullable DamageTracker tracker;
+    private static volatile @Nullable DamageEventJournal journal;
+    private static volatile @Nullable StatsFocusManager focusManager;
+    private static volatile String worldId = "";
 
     public static @Nullable DamageTracker tracker() {
         return tracker;

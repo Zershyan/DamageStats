@@ -20,16 +20,19 @@ import java.util.concurrent.CompletableFuture;
 
 /** 客户端重组受限导出分块，并在网络完成后异步写入本地游戏目录。 */
 public final class ClientExportManager {
+    private static final long EXPORT_TIMEOUT_MILLIS = 10_000; // 10秒超时
     private static int requestId;
     private static long connectionEpoch;
     private static @Nullable ExportAssembly assembly;
     private static boolean writing;
+    private static long assemblyStartTime;
 
     public static int nextRequestId() {
         return ++requestId;
     }
 
     public static boolean isBusy() {
+        checkTimeout();
         return assembly != null || writing;
     }
 
@@ -41,6 +44,7 @@ public final class ClientExportManager {
             return;
         }
         assembly = new ExportAssembly(start);
+        assemblyStartTime = System.currentTimeMillis();
         if(start.chunkCount() == 0) finish(start.requestId());
     }
 
@@ -55,6 +59,16 @@ public final class ClientExportManager {
     public static void clear() {
         assembly = null;
         connectionEpoch++;
+    }
+
+    /** 检查导出是否超时，超时则清空并通知玩家 */
+    private static void checkTimeout() {
+        if(assembly == null) return;
+        long elapsed = System.currentTimeMillis() - assemblyStartTime;
+        if(elapsed > EXPORT_TIMEOUT_MILLIS) {
+            assembly = null;
+            notifyPlayer(DSKeyLang.ExportFailed.copy());
+        }
     }
 
     private static void finish(int completedRequestId) {

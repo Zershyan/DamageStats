@@ -52,7 +52,11 @@ public final class DamageCollectHandler {
                 target.getBlockX(),
                 target.getBlockY(),
                 target.getBlockZ(),
-                nowMillis
+                nowMillis,
+                new DamageRecord.ParticipantNames(
+                        displayName(sourceEntity),
+                        displayName(directSourceEntity),
+                        displayName(target))
         );
         tracker.record(record);
         tracker.touchInstance(target, nowMillis);
@@ -76,5 +80,19 @@ public final class DamageCollectHandler {
 
     private static void cacheIfPresent(DamageTracker tracker, @Nullable Entity entity) {
         if(entity != null) tracker.cacheName(entity);
+    }
+
+    private static String displayName(@Nullable Entity entity) {
+        if(entity == null) return "";
+        if(entity instanceof net.minecraft.world.entity.player.Player player) {
+            return limitName(player.getGameProfile().getName());
+        }
+        if(entity.getCustomName() == null) return "";
+        return limitName(entity.getCustomName().getString());
+    }
+
+    /** 限制名称长度，防止超长名称占用过多网络带宽和导致 GUI 溢出 */
+    private static String limitName(String name) {
+        return name.length() <= 64 ? name : name.substring(0, 64);
     }
 }

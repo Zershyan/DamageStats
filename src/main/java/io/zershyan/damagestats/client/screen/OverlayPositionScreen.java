@@ -94,10 +94,6 @@ public class OverlayPositionScreen extends Screen {
             ScreenLayout.Flow footer
     ) {}
 
-    public OverlayPositionScreen() {
-        this(null);
-    }
-
     public OverlayPositionScreen(@Nullable Screen returnScreen) {
         super(DSKeyLang.EditPositionTitle.copy());
         this.returnScreen = returnScreen;

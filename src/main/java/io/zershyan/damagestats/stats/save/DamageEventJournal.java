@@ -6,10 +6,7 @@ import com.mojang.serialization.Codec;
 import com.mojang.serialization.JsonOps;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import io.zershyan.damagestats.config.DamageTypeCategories;
-import io.zershyan.damagestats.stats.DamageAccumulator;
-import io.zershyan.damagestats.stats.DamageRecord;
-import io.zershyan.damagestats.stats.DamageReduction;
-import io.zershyan.damagestats.stats.EntityRef;
+import io.zershyan.damagestats.stats.*;
 import io.zershyan.damagestats.stats.filter.DamageTypeSelector;
 import io.zershyan.damagestats.stats.filter.EntitySelector;
 import io.zershyan.damagestats.stats.filter.StatsFilter;
@@ -22,6 +19,8 @@ import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.regex.Matcher;
@@ -368,6 +367,7 @@ public final class DamageEventJournal {
     }
 
     private final Path directory;
+    private final ReadWriteLock lock = new ReentrantReadWriteLock();
     private final Deque<JournalEntry> pending = new ArrayDeque<>();
     private final List<SegmentMetadata> sealedSegments = new ArrayList<>();
     private final Map<UUID, Long> resetSequences = new HashMap<>();
@@ -407,101 +407,159 @@ public final class DamageEventJournal {
         return journal;
     }
 
-    public synchronized void append(DamageRecord record) {
-        if(closed || clearing) return;
-        JournalEntry entry = new JournalEntry(nextSequence++, record);
-        pending.addLast(entry);
-        eventCount++;
-        invalidateQueryCaches();
-        if(queryIndexLoaded) indexEntry(entry);
+    public void append(DamageRecord record) {
+        lock.writeLock().lock();
+        try {
+            if(closed || clearing) return;
+            JournalEntry entry = new JournalEntry(nextSequence++, record);
+            pending.addLast(entry);
+            eventCount++;
+            invalidateQueryCaches();
+            if(queryIndexLoaded) indexEntry(entry);
+        } finally {
+            lock.writeLock().unlock();
+        }
     }
 
     /** 每次批量落盘最多重写一个段索引，原始事件帧则直接追加到活跃段。 */
-    public synchronized boolean flush() {
-        if(clearing) return false;
-        if(closed) return true;
-        if(pending.isEmpty()) return retryFailedIndex();
+    public boolean flush() {
+        lock.writeLock().lock();
         try {
-            Files.createDirectories(directory);
-            while(!pending.isEmpty()) {
-                if(activeSegment.isFull() && !sealActiveSegment()) return false;
-                writePendingToActiveSegment();
+            if(clearing) return false;
+            if(closed) return true;
+            if(pending.isEmpty()) return retryFailedIndex();
+            try {
+                Files.createDirectories(directory);
+                while(!pending.isEmpty()) {
+                    if(activeSegment.isFull() && !sealActiveSegment()) return false;
+                    writePendingToActiveSegment();
+                }
+                return retryFailedIndex();
+            } catch (IOException | RuntimeException e) {
+                LOGGER.error("写出原始伤害事件段失败：{}", segmentPath(activeSegment.id), e);
+                return false;
             }
-            return retryFailedIndex();
-        } catch (IOException | RuntimeException e) {
-            LOGGER.error("写出原始伤害事件段失败：{}", segmentPath(activeSegment.id), e);
-            return false;
+        } finally {
+            lock.writeLock().unlock();
         }
     }
 
     /** 正常关闭时封存未满段并写入索引；异常关闭的活跃段会在下次启动时自动恢复。 */
-    public synchronized boolean close() {
-        if(closed) return true;
-        if(clearing) return false;
-        if(!flush() || !pending.isEmpty()) {
-            LOGGER.error("正常关闭时原始伤害事件仍有待写记录，保留日志以便重试：{}", pending.size());
-            return false;
-        }
-        if(!activeSegment.isEmpty() && !sealActiveSegment()) {
-            if(!activeSegment.isEmpty() || !retryFailedIndex()) {
-                LOGGER.error("正常关闭时原始伤害事件段封存失败，日志未标记为关闭：{}", directory);
+    public boolean close() {
+        lock.writeLock().lock();
+        try {
+            if(closed) return true;
+            if(clearing) return false;
+            if(!flush() || !pending.isEmpty()) {
+                LOGGER.error("正常关闭时原始伤害事件仍有待写记录，保留日志以便重试：{}", pending.size());
                 return false;
             }
+            if(!activeSegment.isEmpty() && !sealActiveSegment()) {
+                if(!activeSegment.isEmpty() || !retryFailedIndex()) {
+                    LOGGER.error("正常关闭时原始伤害事件段封存失败，日志未标记为关闭：{}", directory);
+                    return false;
+                }
+            }
+            if(!retryFailedIndex()) {
+                LOGGER.error("正常关闭时原始伤害事件索引写入失败，日志未标记为关闭：{}", directory);
+                return false;
+            }
+            closed = true;
+            return true;
+        } finally {
+            lock.writeLock().unlock();
         }
-        if(!retryFailedIndex()) {
-            LOGGER.error("正常关闭时原始伤害事件索引写入失败，日志未标记为关闭：{}", directory);
-            return false;
-        }
-        closed = true;
-        return true;
     }
 
     /** 服务端查询只读取可能命中的段，最终仍逐条匹配，索引误命中不会影响准确性。 */
-    public synchronized void forEachMatching(StatsFilter filter, Consumer<DamageRecord> consumer) {
+    public void forEachMatching(StatsFilter filter, Consumer<DamageRecord> consumer) {
         matching(filter).forEach(consumer);
     }
 
-    public synchronized List<DamageRecord> matching(StatsFilter filter) {
+    public List<DamageRecord> matching(StatsFilter filter) {
         return query(filter).records();
     }
 
     /** 按筛选条件复用同一份事件、聚合和时间索引快照。 */
-    public synchronized QueryResult query(StatsFilter filter) {
-        QueryResult cached = queryCache.get(filter);
-        if(cached != null) return cached;
-        List<JournalEntry> matched = new ArrayList<>();
-        for (JournalEntry entry : candidateEntries(filter)) {
-            if(visibleToFilter(entry, filter) && filter.matches(entry.record())) matched.add(entry);
+    public QueryResult query(StatsFilter filter) {
+        lock.readLock().lock();
+        try {
+            QueryResult cached = queryCache.get(filter);
+            if(cached != null) return cached;
+            List<JournalEntry> matched = new ArrayList<>();
+            for (JournalEntry entry : candidateEntries(filter)) {
+                if(visibleToFilter(entry, filter) && filter.matches(entry.record())) matched.add(entry);
+            }
+            QueryResult result = new QueryResult(matched);
+            queryCache.put(filter, result);
+            return result;
+        } finally {
+            lock.readLock().unlock();
         }
-        QueryResult result = new QueryResult(matched);
-        queryCache.put(filter, result);
-        return result;
     }
 
-    public synchronized Map<UUID, DamageContribution> contributions(StatsFilter filter, ContributionDimension dimension) {
+    /** 聚合缓存不可用时，从权威事件日志重建可快速查询的运行时数据。 */
+    public DamageTracker rebuildTracker(long currentGameTime) {
+        lock.readLock().lock();
+        try {
+            List<DamageTracker.ReplayRecord> records = queryEntries.stream()
+                    .map(entry -> new DamageTracker.ReplayRecord(entry.sequence(), entry.record()))
+                    .toList();
+            return DamageTracker.rebuildFromSequencedRecords(records, resetSequences, currentGameTime);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public Map<UUID, DamageContribution> contributions(StatsFilter filter, ContributionDimension dimension) {
         return query(filter).contributions(dimension);
     }
 
-    public synchronized Set<ResourceLocation> recordedSourceTypes() {
-        return recordedTypes(SegmentMetadata::sourceTypes, record -> record.source().typeIdOrEnvironment());
+    public Set<ResourceLocation> recordedSourceTypes() {
+        lock.readLock().lock();
+        try {
+            return recordedTypes(SegmentMetadata::sourceTypes, record -> record.source().typeIdOrEnvironment());
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
-    public synchronized Set<ResourceLocation> recordedSourceTypesIncludingDirect() {
-        Set<ResourceLocation> types = new HashSet<>(recordedSourceTypes());
-        types.addAll(recordedDirectSourceTypes());
-        return Set.copyOf(types);
+    public Set<ResourceLocation> recordedSourceTypesIncludingDirect() {
+        lock.readLock().lock();
+        try {
+            Set<ResourceLocation> types = new HashSet<>(recordedSourceTypes());
+            types.addAll(recordedDirectSourceTypes());
+            return Set.copyOf(types);
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
-    public synchronized Set<ResourceLocation> recordedTargetTypes() {
-        return recordedTypes(SegmentMetadata::targetTypes, record -> record.target().typeIdOrEnvironment());
+    public Set<ResourceLocation> recordedTargetTypes() {
+        lock.readLock().lock();
+        try {
+            return recordedTypes(SegmentMetadata::targetTypes, record -> record.target().typeIdOrEnvironment());
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
-    public synchronized Set<ResourceLocation> recordedDirectSourceTypes() {
-        return recordedTypes(SegmentMetadata::directSourceTypes, record -> record.directSource().typeIdOrEnvironment());
+    public Set<ResourceLocation> recordedDirectSourceTypes() {
+        lock.readLock().lock();
+        try {
+            return recordedTypes(SegmentMetadata::directSourceTypes, record -> record.directSource().typeIdOrEnvironment());
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
-    public synchronized Set<ResourceLocation> recordedDamageTypes() {
-        return recordedTypes(SegmentMetadata::damageTypes, record -> record.damageTypeId());
+    public Set<ResourceLocation> recordedDamageTypes() {
+        lock.readLock().lock();
+        try {
+            return recordedTypes(SegmentMetadata::damageTypes, record -> record.damageTypeId());
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     private Set<ResourceLocation> recordedTypes(Function<SegmentMetadata, Set<ResourceLocation>> sealedTypes,
@@ -517,67 +575,107 @@ public final class DamageEventJournal {
      * 个人清空不删除共享的完整事件历史，只记录该实体的可见性边界。
      * 这样它仍不会从其他实体的查询结果中消失，和旧版单实例重置的语义一致。
      */
-    public synchronized boolean markReset(EntityRef owner) {
-        Long previous = resetSequences.put(owner.id(), nextSequence);
-        if(writeResetSequences()) {
-            invalidateQueryCaches();
-            return true;
+    public boolean markReset(EntityRef owner) {
+        lock.writeLock().lock();
+        try {
+            Long previous = resetSequences.put(owner.id(), nextSequence);
+            if(writeResetSequences()) {
+                invalidateQueryCaches();
+                return true;
+            }
+            if(previous == null) resetSequences.remove(owner.id());
+            else resetSequences.put(owner.id(), previous);
+            return false;
+        } finally {
+            lock.writeLock().unlock();
         }
-        if(previous == null) resetSequences.remove(owner.id());
-        else resetSequences.put(owner.id(), previous);
-        return false;
     }
 
     /** 组合筛选没有可复用的预聚合会话时，按完整事件历史切分当前一场战斗。 */
-    public synchronized long currentSessionStart(StatsFilter filter, long gameTime, int timeoutTicks) {
+    public long currentSessionStart(StatsFilter filter, long gameTime, int timeoutTicks) {
         return query(filter).currentSessionStart(gameTime, timeoutTicks);
     }
 
     /** 开始跨文件清理事务；事务完成前拒绝新的事件追加。 */
-    public synchronized boolean beginClear() {
-        if(closed || clearing) return false;
-        clearing = true;
-        return true;
+    public boolean beginClear() {
+        lock.writeLock().lock();
+        try {
+            if(closed || clearing) return false;
+            clearing = true;
+            return true;
+        } finally {
+            lock.writeLock().unlock();
+        }
     }
 
     /** 存储层提交清理事务后，丢弃内存中的事件、索引和查询缓存。 */
-    public synchronized void completeClear() {
-        pending.clear();
-        sealedSegments.clear();
-        resetSequences.clear();
-        clearQueryIndex();
-        queryIndexLoaded = true;
-        activeSegment = new SegmentBuilder(0);
-        nextSequence = 0;
-        eventCount = 0;
-        queryRevision++;
-        closed = false;
-        indexState = StorageIndexState.EMPTY;
-        clearing = false;
+    public void completeClear() {
+        lock.writeLock().lock();
+        try {
+            pending.clear();
+            sealedSegments.clear();
+            resetSequences.clear();
+            clearQueryIndex();
+            queryIndexLoaded = true;
+            activeSegment = new SegmentBuilder(0);
+            nextSequence = 0;
+            eventCount = 0;
+            queryRevision++;
+            closed = false;
+            indexState = StorageIndexState.EMPTY;
+            clearing = false;
+        } finally {
+            lock.writeLock().unlock();
+        }
     }
 
     /** 清理事务失败时恢复追加能力，并保留尚未提交的内存数据。 */
-    public synchronized void abortClear() {
-        clearing = false;
+    public void abortClear() {
+        lock.writeLock().lock();
+        try {
+            clearing = false;
+        } finally {
+            lock.writeLock().unlock();
+        }
     }
 
     /** 已提交磁盘清理但内存状态尚未清空时，调用方不得把旧聚合或事件再次写回磁盘。 */
-    public synchronized boolean isClearing() {
-        return clearing;
+    public boolean isClearing() {
+        lock.readLock().lock();
+        try {
+            return clearing;
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
-    public synchronized void invalidateQueryCaches() {
-        queryRevision++;
-        queryCache.clear();
+    public void invalidateQueryCaches() {
+        lock.writeLock().lock();
+        try {
+            queryRevision++;
+            queryCache.clear();
+        } finally {
+            lock.writeLock().unlock();
+        }
     }
 
-    public synchronized void invalidateDamageTypeCategoryCache() {
-        if(queryIndexLoaded) rebuildDamageCategoryIndex();
-        invalidateQueryCaches();
+    public void invalidateDamageTypeCategoryCache() {
+        lock.writeLock().lock();
+        try {
+            if(queryIndexLoaded) rebuildDamageCategoryIndex();
+            invalidateQueryCaches();
+        } finally {
+            lock.writeLock().unlock();
+        }
     }
 
-    public synchronized long queryRevision() {
-        return queryRevision;
+    public long queryRevision() {
+        lock.readLock().lock();
+        try {
+            return queryRevision;
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     private synchronized void rebuildQueryIndex() {
@@ -1228,9 +1326,13 @@ public final class DamageEventJournal {
             int blockY = input.readInt();
             int blockZ = input.readInt();
             long occurredAt = input.readLong();
+            String sourceName = input.available() > 0 ? input.readUTF() : "";
+            String directSourceName = input.available() > 0 ? input.readUTF() : "";
+            String targetName = input.available() > 0 ? input.readUTF() : "";
             return new JournalEntry(sequence, new DamageRecord(
                     source, directSource, target, damageType, original, actual, blocked, reduction,
-                    gameTime, lethal, dimension, blockX, blockY, blockZ, occurredAt));
+                    gameTime, lethal, dimension, blockX, blockY, blockZ, occurredAt,
+                    new DamageRecord.ParticipantNames(sourceName, directSourceName, targetName)));
         }
     }
 
@@ -1257,6 +1359,9 @@ public final class DamageEventJournal {
         output.writeInt(record.blockY());
         output.writeInt(record.blockZ());
         output.writeLong(record.occurredAtMillis());
+        output.writeUTF(record.sourceName());
+        output.writeUTF(record.directSourceName());
+        output.writeUTF(record.targetName());
     }
 
     private static void writeMetadata(DataOutput output, SegmentMetadata metadata) throws IOException {

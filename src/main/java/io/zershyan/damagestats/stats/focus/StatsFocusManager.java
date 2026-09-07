@@ -55,10 +55,24 @@ public final class StatsFocusManager {
         EntitySelector self = new EntitySelector.Instance(EntityRef.of(player));
         boolean targetChanged = !state.focus.target().equals(target);
         if(targetChanged) {
+            // 目标改变时，清空下钻授权并验证下钻来源是否仍合法
             state.delegatedSources.clear();
-            if(!player.hasPermissions(2) && !state.focus.source().filter(self::equals).isPresent()) {
-                source = Optional.of(self);
-                sourceIsDirectSource = false;
+            if(!player.hasPermissions(2)) {
+                // 若当前来源是下钻的直接来源，检查其是否在新目标下仍合法
+                if(state.focus.sourceIsDirectSource() && state.focus.source().isPresent()) {
+                    EntitySelector currentSource = state.focus.source().get();
+                    if(currentSource instanceof EntitySelector.Instance(EntityRef ref)) {
+                        // 验证该下钻来源在新目标下是否仍出现在玩家的伤害路径中
+                        if(!isDirectSourceOfPlayer(player, target, ref, tracker)) {
+                            // 不合法则强制恢复为玩家自身
+                            source = Optional.of(self);
+                            sourceIsDirectSource = false;
+                        }
+                    }
+                } else if(!state.focus.source().filter(self::equals).isPresent()) {
+                    source = Optional.of(self);
+                    sourceIsDirectSource = false;
+                }
             }
         }
 

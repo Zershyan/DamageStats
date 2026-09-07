@@ -28,6 +28,8 @@ public class DamageTracker {
         ).apply(instance, InstanceEntry::new));
     }
 
+    public record ReplayRecord(long sequence, DamageRecord record) {}
+
     /** Overlay 的目标类型是玩家的临时选择，不进存档 */
     public static final Codec<DamageTracker> CODEC = RecordCodecBuilder.create(instance -> instance.group(
             InstanceEntry.CODEC.listOf().optionalFieldOf("outgoing", List.of())
@@ -58,17 +60,57 @@ public class DamageTracker {
         global = new StatsEntry();
     }
 
+    /** 聚合缓存损坏时回放完整事件，恢复实例候选、名称缓存和快速聚合。 */
+    public static DamageTracker rebuildFromRecords(Collection<DamageRecord> records, long currentGameTime) {
+        List<ReplayRecord> replay = new ArrayList<>(records.size());
+        long sequence = 0;
+        for(DamageRecord record : records) replay.add(new ReplayRecord(sequence++, record));
+        return rebuildFromSequencedRecords(replay, Map.of(), currentGameTime);
+    }
+
+    public static DamageTracker rebuildFromSequencedRecords(Collection<ReplayRecord> records,
+                                                            Map<UUID, Long> resetSequences,
+                                                            long currentGameTime) {
+        DamageTracker tracker = new DamageTracker();
+        records.stream()
+                .sorted(Comparator.comparingLong((ReplayRecord entry) -> entry.record().gameTime())
+                        .thenComparingLong(ReplayRecord::sequence))
+                .forEach(entry -> {
+                    DamageRecord record = entry.record();
+                    if(record.actualDamage() <= 0) return;
+                    boolean includeOutgoing = !clearedBefore(record.source().id(), entry.sequence(), resetSequences);
+                    boolean includeIncoming = !clearedBefore(record.target().id(), entry.sequence(), resetSequences);
+                    tracker.record(record, includeOutgoing, includeIncoming);
+                    tracker.recoverName(record.target(), record.targetName());
+                    tracker.recoverName(record.source(), record.sourceName());
+                    tracker.recoverName(record.directSource(), record.directSourceName());
+                    tracker.instanceDirectory.touchFromRecord(record.target(), record, record.targetName());
+                    tracker.instanceDirectory.touchFromRecord(record.source(), record, record.sourceName());
+                    tracker.instanceDirectory.touchFromRecord(record.directSource(), record,
+                            record.directSourceName());
+                });
+        tracker.pruneInstanceDirectory(System.currentTimeMillis());
+        tracker.tick(currentGameTime);
+        return tracker;
+    }
+
     public void record(DamageRecord record) {
+        record(record, true, true);
+    }
+
+    private void record(DamageRecord record, boolean includeOutgoing, boolean includeIncoming) {
         // 完全免疫或完全格挡的事件不算命中
         if(record.actualDamage() <= 0) return;
-        entry(outgoing, record.source()).accept(record, record.target());
-        entry(incoming, record.target()).accept(record, record.source());
+        if(includeOutgoing) entry(outgoing, record.source()).accept(record, record.target());
+        if(includeIncoming) entry(incoming, record.target()).accept(record, record.source());
         entry(outgoingByType, record.source().typeIdOrEnvironment()).accept(record, record.target());
         entry(incomingByType, record.target().typeIdOrEnvironment()).accept(record, record.source());
         global.accept(record, record.target());
-        int limit = DSConfig.InstanceDirectoryLimit.get();
-        evict(outgoing, limit);
-        evict(incoming, limit);
+        if(includeOutgoing || includeIncoming) {
+            int limit = DSConfig.InstanceDirectoryLimit.get();
+            if(includeOutgoing) evict(outgoing, limit);
+            if(includeIncoming) evict(incoming, limit);
+        }
     }
 
     public boolean tick(long currentGameTime) {
@@ -103,6 +145,15 @@ public class DamageTracker {
 
     public @Nullable String cachedName(UUID id) {
         return nameCache.get(id);
+    }
+
+    private void recoverName(EntityRef ref, String name) {
+        if(!name.isBlank() && !ref.isEnvironment()) nameCache.put(ref.id(), name);
+    }
+
+    private static boolean clearedBefore(UUID ownerId, long sequence, Map<UUID, Long> resetSequences) {
+        Long resetSequence = resetSequences.get(ownerId);
+        return resetSequence != null && sequence < resetSequence;
     }
 
     public void touchInstance(Entity entity, long nowMillis) {
@@ -144,8 +195,12 @@ public class DamageTracker {
 
     /** 只清这一个对象的实例条目。按类型的汇总里混着所有实体的数据，没法按单个对象剥离 */
     public void resetFor(EntityRef owner) {
-        outgoing.remove(owner);
-        incoming.remove(owner);
+        resetFor(owner.id());
+    }
+
+    public void resetFor(UUID ownerId) {
+        outgoing.keySet().removeIf(ref -> ref.id().equals(ownerId));
+        incoming.keySet().removeIf(ref -> ref.id().equals(ownerId));
     }
 
     private static <K> StatsEntry entry(Map<K, StatsEntry> map, K key) {
