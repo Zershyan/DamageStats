@@ -246,7 +246,8 @@ public final class StatsExporter {
 
     private static void writeCsv(Path file, StatsSnapshot snapshot) throws IOException {
         List<String> lines = new ArrayList<>();
-        lines.add(CSV_HEADER);
+        // 添加 UTF-8 BOM，避免 Windows Excel 按本地旧编码解析中文。
+        lines.add("\uFEFF" + CSV_HEADER);
         appendScope(lines, "currentFight", snapshot.session());
         appendScope(lines, "lifetime", snapshot.lifetime());
         Files.write(file, lines, StandardCharsets.UTF_8,

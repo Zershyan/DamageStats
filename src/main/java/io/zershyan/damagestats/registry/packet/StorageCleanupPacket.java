@@ -3,6 +3,7 @@ package io.zershyan.damagestats.registry.packet;
 import io.zershyan.damagestats.DamageStats;
 import io.zershyan.damagestats.handler.common.StatsResetService;
 import io.zershyan.damagestats.stats.ServerStats;
+import io.zershyan.damagestats.stats.focus.StatsFocusManager;
 import io.zershyan.damagestats.stats.save.StatsStorage;
 import io.zershyan.damagestats.stats.save.StorageCleanupTarget;
 import io.zershyan.damagestats.stats.save.StorageMaintenance;
@@ -30,7 +31,7 @@ public record StorageCleanupPacket(StorageCleanupTarget target) implements Custo
     public static void handle(StorageCleanupPacket payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             if(!(context.player() instanceof ServerPlayer player)) return;
-            if(!player.hasPermissions(2)) {
+            if(!StatsFocusManager.hasFullAccess(player)) {
                 PacketDistributor.sendToPlayer(player, StorageOverviewPacket.denied());
                 return;
             }

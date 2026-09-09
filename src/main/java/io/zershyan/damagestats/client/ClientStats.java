@@ -15,19 +15,23 @@ public final class ClientStats {
     private static @Nullable FocusChartPage chartPage;
     private static @Nullable HistoryPage historyPage;
     private static boolean snapshotInvalidated;
+    private static boolean focusStateReceived;
     private static int entityChoiceRequestId;
     private static int chartRequestId;
     private static int historyRequestId;
 
     public static void acceptSummary(FocusSummaryDelta delta) {
+        resetIfWorldChanged(delta.summary().worldId());
         if(delta.summary().revision() <= summary.revision()) return;
         summary = delta.applyTo(summary);
     }
 
     public static void acceptFocusState(FocusChangeResult result, FocusSummary incoming, int requestId) {
+        resetIfWorldChanged(incoming.worldId());
         if(incoming.revision() < summary.revision()) return;
         if(summary.scope().version() != incoming.scope().version()) chartPage = null;
         summary = incoming;
+        focusStateReceived = true;
         lastFocusResult = result;
         ClientFocusPreferences.acceptFocusState(result, incoming, requestId);
     }
@@ -38,6 +42,15 @@ public final class ClientStats {
 
     public static FocusChangeResult lastFocusResult() {
         return lastFocusResult;
+    }
+
+    public static boolean hasFocusState() {
+        return focusStateReceived;
+    }
+
+    /** 打开统计页前清除旧回执标记，使页面只在本次权威刷新完成后开始请求图表。 */
+    public static void expectFocusState() {
+        focusStateReceived = false;
     }
 
     public static void acceptEntityChoices(EntityChoicePage page) {
@@ -81,6 +94,7 @@ public final class ClientStats {
 
     public static void invalidateSnapshot() {
         summary = FocusSummary.empty();
+        focusStateReceived = false;
         entityChoices = null;
         chartPage = null;
         historyPage = null;
@@ -98,7 +112,18 @@ public final class ClientStats {
         ClientExportManager.clear();
         ClientStorageOverview.clear();
         summary = FocusSummary.empty();
+        focusStateReceived = false;
         lastFocusResult = FocusChangeResult.ACCEPTED;
+        entityChoices = null;
+        chartPage = null;
+        historyPage = null;
+        snapshotInvalidated = false;
+    }
+
+    private static void resetIfWorldChanged(String worldId) {
+        if(worldId.isEmpty() || summary.worldId().isEmpty() || worldId.equals(summary.worldId())) return;
+        summary = FocusSummary.empty();
+        focusStateReceived = false;
         entityChoices = null;
         chartPage = null;
         historyPage = null;

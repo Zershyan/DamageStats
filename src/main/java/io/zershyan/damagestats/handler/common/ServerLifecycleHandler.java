@@ -91,6 +91,7 @@ public final class ServerLifecycleHandler {
         StatsFocusManager manager = ServerStats.focusManager();
         if(tracker == null || manager == null) return;
         tracker.cacheName(player);
+        tracker.touchInstance(player, System.currentTimeMillis());
         manager.focusFor(player);
         StatsSyncHandler.pushFocusState(tracker, player, FocusChangeResult.ACCEPTED);
     }

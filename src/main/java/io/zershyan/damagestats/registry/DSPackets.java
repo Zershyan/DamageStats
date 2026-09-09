@@ -39,6 +39,8 @@ public class DSPackets {
         registrar.playToClient(StatsInvalidatedPacket.TYPE, StatsInvalidatedPacket.STREAM_CODEC, StatsInvalidatedPacket::handle);
         //server
         registrar.playToServer(FocusSetPacket.TYPE, FocusSetPacket.STREAM_CODEC, FocusSetPacket::handle);
+        registrar.playToServer(FocusStateRequestPacket.TYPE, FocusStateRequestPacket.STREAM_CODEC,
+                FocusStateRequestPacket::handle);
         registrar.playToServer(EntityChoiceRequestPacket.TYPE, EntityChoiceRequestPacket.STREAM_CODEC,
                 EntityChoiceRequestPacket::handle);
         registrar.playToServer(FocusChartRequestPacket.TYPE, FocusChartRequestPacket.STREAM_CODEC,

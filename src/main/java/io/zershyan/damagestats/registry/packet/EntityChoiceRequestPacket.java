@@ -12,6 +12,7 @@ import io.zershyan.damagestats.stats.focus.StatsFocusManager;
 import io.zershyan.damagestats.stats.save.DamageEventJournal;
 import io.zershyan.damagestats.stats.view.EntityChoicePage;
 import io.zershyan.damagestats.stats.view.EntityChoiceView;
+import io.zershyan.damagestats.util.EntityTypeHelper;
 import io.zershyan.damagestats.util.StatsNames;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.RegistryFriendlyByteBuf;
@@ -22,7 +23,6 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.LivingEntity;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
@@ -42,6 +42,7 @@ public record EntityChoiceRequestPacket(
     private static final int MAX_SEARCH_LENGTH = 64;
     private static final int MAX_CURSOR_LENGTH = 128;
     private static final int MAX_CURSORS = 64;
+    private static final ResourceLocation PLAYER_TYPE = ResourceLocation.withDefaultNamespace("player");
     private static final Map<DamageEventJournal,
             LinkedHashMap<String, ChoiceCursor>> CHOICE_CURSORS =
             new WeakHashMap<>();
@@ -92,13 +93,13 @@ public record EntityChoiceRequestPacket(
             if(tracker == null || manager == null) return;
             boolean allowed = switch (payload.slot()) {
                 case TARGET -> manager.canBrowse(player, withoutSlot(payload.contextFilter(), FocusSelectionSlot.TARGET), tracker);
-                case SOURCE -> player.hasPermissions(2)
-                        && manager.canBrowse(player, withoutSlot(payload.contextFilter(), FocusSelectionSlot.SOURCE), tracker);
+                case SOURCE -> manager.canBrowse(player,
+                        withoutSlot(payload.contextFilter(), FocusSelectionSlot.SOURCE), tracker);
                 case DIRECT_SOURCE -> payload.typeFilter().isPresent()
                         && manager.canBrowse(player, payload.contextFilter(), tracker);
             };
             allowed &= payload.typeFilter().isEmpty()
-                    || validTypeFilter(payload.slot(), payload.typeFilter().get(), tracker);
+                    || validTypeFilter(player, payload.slot(), payload.typeFilter().get(), tracker);
             long focusVersion = manager.focusFor(player).version();
             if(!allowed) {
                 PacketDistributor.sendToPlayer(player, new EntityChoicePagePacket(new EntityChoicePage(
@@ -111,7 +112,7 @@ public record EntityChoiceRequestPacket(
                     : payload.search();
             DamageEventJournal journal = ServerStats.journal();
             if(journal == null) {
-                List<EntityChoiceView> entries = buildEntries(tracker, payload.slot(), payload.typeFilter(), search,
+                List<EntityChoiceView> entries = buildEntries(player, tracker, payload.slot(), payload.typeFilter(), search,
                         payload.contextFilter());
                 sendPage(player, payload, focusVersion, new ChoiceCursor(player.getUUID(), null, 0,
                         tracker.instanceDirectory().revision(), focusVersion, payload.slot(), payload.typeFilter(), search,
@@ -122,7 +123,7 @@ public record EntityChoiceRequestPacket(
                     ? new ChoiceCursor(player.getUUID(), journal, journal.queryRevision(),
                     tracker.instanceDirectory().revision(), focusVersion, payload.slot(), payload.typeFilter(), search,
                     payload.contextFilter(), ++nextSnapshotId,
-                    List.copyOf(buildEntries(tracker, payload.slot(), payload.typeFilter(), search, payload.contextFilter())), 0)
+                    List.copyOf(buildEntries(player, tracker, payload.slot(), payload.typeFilter(), search, payload.contextFilter())), 0)
                     : findCursor(journal, payload.cursor(), player, tracker, manager, payload, search);
             if(page == null) {
                 sendPage(player, payload, focusVersion, null, "");
@@ -189,33 +190,67 @@ public record EntityChoiceRequestPacket(
         }
     }
 
-    private static List<EntityChoiceView> buildEntries(DamageTracker tracker, FocusSelectionSlot slot,
+    private static List<EntityChoiceView> buildEntries(ServerPlayer player, DamageTracker tracker,
+                                                       FocusSelectionSlot slot,
                                                        Optional<ResourceLocation> typeFilter, String search,
                                                        StatsFilter contextFilter) {
         return slot == FocusSelectionSlot.DIRECT_SOURCE
                 ? directSourceChoices(tracker, typeFilter.orElseThrow(), search, contextFilter)
-                : typeFilter.map(typeId -> instanceChoices(tracker, typeId, search, slot, contextFilter))
-                        .orElseGet(() -> typeChoices(tracker, search, slot));
+                : typeFilter.map(typeId -> instanceChoices(player, tracker, typeId, search, slot, contextFilter))
+                        .orElseGet(() -> typeChoices(player, tracker, search, slot, contextFilter));
     }
 
-    private static List<EntityChoiceView> typeChoices(DamageTracker tracker, String search, FocusSelectionSlot slot) {
+    private static List<EntityChoiceView> typeChoices(ServerPlayer player, DamageTracker tracker, String search,
+                                                       FocusSelectionSlot slot,
+                                                      StatsFilter contextFilter) {
         String normalized = search.toLowerCase(Locale.ROOT);
-        Set<ResourceLocation> recordedTypes = recordedTypes(slot);
-        return (slot == FocusSelectionSlot.TARGET
-                ? BuiltInRegistries.ENTITY_TYPE.entrySet().stream()
-                        .filter(entry -> LivingEntity.class.isAssignableFrom(entry.getValue().getBaseClass()))
-                        .map(entry -> BuiltInRegistries.ENTITY_TYPE.getKey(entry.getValue()))
-                : recordedTypes.stream())
-                .sorted(Comparator.comparing(ResourceLocation::toString))
+        DamageEventJournal journal = ServerStats.journal();
+        Map<ResourceLocation, Long> recent = recentTypeTimes(journal, slot, contextFilter);
+        Set<ResourceLocation> recorded = recent.keySet();
+        Set<ResourceLocation> candidates = new HashSet<>(recorded);
+        if(slot == FocusSelectionSlot.SOURCE && StatsFocusManager.hasFullAccess(player)) {
+            candidates.add(PLAYER_TYPE);
+        }
+        // 空搜索只展示近期出现过的类型；输入关键词后再展开完整生物注册表。
+        if(!normalized.isEmpty()
+                && (slot == FocusSelectionSlot.TARGET
+                || slot == FocusSelectionSlot.SOURCE && StatsFocusManager.hasFullAccess(player))) {
+            BuiltInRegistries.ENTITY_TYPE.entrySet().stream()
+                    .map(entry -> BuiltInRegistries.ENTITY_TYPE.getKey(entry.getValue()))
+                    .filter(EntityTypeHelper::isLivingType)
+                    .forEach(candidates::add);
+        }
+        return candidates.stream()
                 .filter(typeId -> slot != FocusSelectionSlot.SOURCE || isLivingType(typeId))
                 .filter(typeId -> matches(StatsNames.entityType(typeId), typeId.toString(), normalized))
+                .sorted(Comparator.comparingLong((ResourceLocation typeId) -> recent.getOrDefault(typeId, Long.MIN_VALUE))
+                        .reversed().thenComparing(ResourceLocation::toString))
                 .map(typeId -> new EntityChoiceView(new EntitySelector.Type(typeId), StatsNames.entityType(typeId), Component.empty()))
                 .toList();
     }
 
-    private static List<EntityChoiceView> instanceChoices(DamageTracker tracker, ResourceLocation typeId, String search,
+    private static Map<ResourceLocation, Long> recentTypeTimes(@Nullable DamageEventJournal journal,
+                                                                FocusSelectionSlot slot,
+                                                                StatsFilter contextFilter) {
+        if(journal == null) return Map.of();
+        StatsFilter queryFilter = withoutSlot(contextFilter, slot);
+        Map<ResourceLocation, Long> result = new HashMap<>();
+        journal.query(queryFilter).records().forEach(record -> {
+            ResourceLocation typeId = switch (slot) {
+                case SOURCE -> contextFilter.sourceIsDirectSource()
+                        ? record.directSource().typeIdOrEnvironment() : record.source().typeIdOrEnvironment();
+                case TARGET -> record.target().typeIdOrEnvironment();
+                case DIRECT_SOURCE -> record.directSource().typeIdOrEnvironment();
+            };
+            result.merge(typeId, record.gameTime(), Math::max);
+        });
+        return result;
+    }
+
+    private static List<EntityChoiceView> instanceChoices(ServerPlayer player, DamageTracker tracker,
+                                                           ResourceLocation typeId, String search,
                                                            FocusSelectionSlot slot, StatsFilter contextFilter) {
-        if(!validTypeFilter(slot, typeId, tracker)) return List.of();
+        if(!validTypeFilter(player, slot, typeId, tracker)) return List.of();
         String normalized = search.toLowerCase(Locale.ROOT);
         DamageEventJournal journal = ServerStats.journal();
         if(journal == null) return List.of();
@@ -325,19 +360,20 @@ public record EntityChoiceRequestPacket(
         };
     }
 
-    private static boolean validTypeFilter(FocusSelectionSlot slot, ResourceLocation typeId, DamageTracker tracker) {
+    private static boolean validTypeFilter(ServerPlayer player, FocusSelectionSlot slot,
+                                                   ResourceLocation typeId, DamageTracker tracker) {
         if(slot == FocusSelectionSlot.TARGET) return isLivingType(typeId);
         if(slot == FocusSelectionSlot.SOURCE) {
             DamageEventJournal journal = ServerStats.journal();
-            return isLivingType(typeId) && journal != null
-                    && journal.recordedSourceTypesIncludingDirect().contains(typeId);
+            return isLivingType(typeId)
+                    && (StatsFocusManager.hasFullAccess(player)
+                    || journal != null && journal.recordedSourceTypesIncludingDirect().contains(typeId));
         }
         DamageEventJournal journal = ServerStats.journal();
         return journal != null && journal.recordedDirectSourceTypes().contains(typeId);
     }
 
     private static boolean isLivingType(ResourceLocation typeId) {
-        var type = BuiltInRegistries.ENTITY_TYPE.get(typeId);
-        return type != null && LivingEntity.class.isAssignableFrom(type.getBaseClass());
+        return EntityTypeHelper.isLivingType(typeId);
     }
 }

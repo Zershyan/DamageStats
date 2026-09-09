@@ -32,6 +32,7 @@ public class StatsScreen extends Screen {
     private static final int ROW_HEIGHT = 20;
     private static final int CONTENT_GAP = 8;
     private static final int MIN_CONTENT_HEIGHT = 30;
+    private static final int FOCUS_STATE_REQUEST_ID = 0;
     private static final int BACKGROUND = 0xE015181C;
     private static final int HEADER = 0xEE20262C;
     private static final int BORDER = 0xFF505A64;
@@ -59,6 +60,8 @@ public class StatsScreen extends Screen {
     private Component browsingDirectSourceName = Component.empty();
     private Component browsingDamageTypeName = Component.empty();
     private boolean browsingInitialized;
+    private boolean focusStateRequested;
+    private boolean dataRequestsStarted;
     private long chartFocusVersion = -1;
     private @Nullable FocusChartPage adopted;
     private @Nullable HistoryPage adoptedHistory;
@@ -85,61 +88,47 @@ public class StatsScreen extends Screen {
 
     @Override
     protected void init() {
-        FocusSummary summary = ClientStats.summary();
-        initializeBrowsing(summary);
-        chartFocusVersion = summary.scope().version();
+        if(!browsingInitialized) ClientStats.expectFocusState();
         PageLayout layout = layout();
         addHeaderButtons(layout);
         addFooterButtons(layout);
-        requestFirstChart();
-        requestHistory();
+        if(!focusStateRequested) {
+            focusStateRequested = true;
+            PacketDistributor.sendToServer(new FocusStateRequestPacket(FOCUS_STATE_REQUEST_ID));
+        }
         refreshButtons();
     }
 
     private void addHeaderButtons(PageLayout layout) {
-        if(layout.selectors().size() == 2) {
-            ScreenLayout.Bounds sourceBounds = layout.selectors().getFirst();
-            ScreenLayout.Bounds targetBounds = layout.selectors().getLast();
+        ScreenLayout.Bounds sourceBounds = layout.topRow().get(0);
+        ScreenLayout.Bounds targetBounds = layout.topRow().get(1);
+        ScreenLayout.Bounds focusBounds = layout.topRow().get(2);
+        ScreenLayout.Bounds actionsBounds = layout.topRow().get(3);
         sourceButton = addRenderableWidget(Button.builder(Component.empty(), button ->
                         minecraft.setScreen(new FocusEntitySelectorScreen(this, FocusSelectionSlot.SOURCE,
                                 browsingFilter(), (selector, name) -> setBrowsingSource(selector, name))))
-                    .bounds(sourceBounds.x(), sourceBounds.y(), sourceBounds.width(), sourceBounds.height()).build());
+                .bounds(sourceBounds.x(), sourceBounds.y(), sourceBounds.width(), sourceBounds.height()).build());
         targetButton = addRenderableWidget(Button.builder(Component.empty(), button ->
                         minecraft.setScreen(new FocusEntitySelectorScreen(this, FocusSelectionSlot.TARGET,
                                 browsingFilter(), (selector, name) -> setBrowsingTarget(selector, name))))
                     .bounds(targetBounds.x(), targetBounds.y(), targetBounds.width(), targetBounds.height()).build());
-        }
-
-        if(layout.compactControls()) {
-            if(layout.primary().size() == 2) {
-                ScreenLayout.Bounds focusBounds = layout.primary().getFirst();
-                ScreenLayout.Bounds actionsBounds = layout.primary().getLast();
         setFocusButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenSetFocus.copy(), button ->
                         ClientFocusPreferences.requestFocus(browsingSource, browsingTarget,
                                 browsingSourceIsDirectSource))
                         .bounds(focusBounds.x(), focusBounds.y(), focusBounds.width(), focusBounds.height()).build());
-                actionsButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenActions.copy(), button ->
-                                minecraft.setScreen(new StatsActionsScreen(this)))
-                        .bounds(actionsBounds.x(), actionsBounds.y(), actionsBounds.width(), actionsBounds.height()).build());
-            }
-        } else if(layout.primary().size() == 3) {
-            ScreenLayout.Bounds focusBounds = layout.primary().get(0);
-            ScreenLayout.Bounds clearSourceBounds = layout.primary().get(1);
-            ScreenLayout.Bounds clearTargetBounds = layout.primary().get(2);
-            setFocusButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenSetFocus.copy(), button ->
-                            ClientFocusPreferences.requestFocus(browsingSource, browsingTarget,
-                                    browsingSourceIsDirectSource))
-                    .bounds(focusBounds.x(), focusBounds.y(), focusBounds.width(), focusBounds.height()).build());
-            clearSourceButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenClearSource.copy(), button -> clearSource())
-                    .bounds(clearSourceBounds.x(), clearSourceBounds.y(), clearSourceBounds.width(), clearSourceBounds.height()).build());
-            clearTargetButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenClearTarget.copy(), button -> clearTarget())
-                    .bounds(clearTargetBounds.x(), clearTargetBounds.y(), clearTargetBounds.width(), clearTargetBounds.height()).build());
-        }
+        actionsButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenActions.copy(), button ->
+                        minecraft.setScreen(new StatsActionsScreen(this)))
+                .bounds(actionsBounds.x(), actionsBounds.y(), actionsBounds.width(), actionsBounds.height()).build());
 
-        if(layout.secondary().size() == 3) {
-            ScreenLayout.Bounds overlayBounds = layout.secondary().get(0);
-            ScreenLayout.Bounds exportBounds = layout.secondary().get(1);
-            ScreenLayout.Bounds clearFiltersBounds = layout.secondary().get(2);
+        ScreenLayout.Bounds clearSourceBounds = layout.middleRow().get(0);
+        ScreenLayout.Bounds clearTargetBounds = layout.middleRow().get(1);
+        ScreenLayout.Bounds overlayBounds = layout.middleRow().get(2);
+        ScreenLayout.Bounds exportBounds = layout.middleRow().get(3);
+        ScreenLayout.Bounds clearFiltersBounds = layout.middleRow().get(4);
+        clearSourceButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenClearSource.copy(), button -> clearSource())
+                .bounds(clearSourceBounds.x(), clearSourceBounds.y(), clearSourceBounds.width(), clearSourceBounds.height()).build());
+        clearTargetButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenClearTarget.copy(), button -> clearTarget())
+                .bounds(clearTargetBounds.x(), clearTargetBounds.y(), clearTargetBounds.width(), clearTargetBounds.height()).build());
         addRenderableWidget(Button.builder(DSKeyLang.ScreenEditOverlay.copy(), button -> openOverlay())
                     .bounds(overlayBounds.x(), overlayBounds.y(), overlayBounds.width(), overlayBounds.height()).build());
         exportButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenExport.copy(), button -> requestExport())
@@ -147,13 +136,13 @@ public class StatsScreen extends Screen {
         clearChartFiltersButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenClearChartFilters.copy(),
                         button -> clearChartFilters())
                     .bounds(clearFiltersBounds.x(), clearFiltersBounds.y(), clearFiltersBounds.width(), clearFiltersBounds.height()).build());
-        }
 
-        if(layout.toolbar().size() == 4) {
-            ScreenLayout.Bounds dimensionBounds = layout.toolbar().get(0);
-            ScreenLayout.Bounds scopeBounds = layout.toolbar().get(1);
-            ScreenLayout.Bounds groupingBounds = layout.toolbar().get(2);
-            ScreenLayout.Bounds refreshBounds = layout.toolbar().get(3);
+        ScreenLayout.Bounds dimensionBounds = layout.toolbar().get(0);
+        ScreenLayout.Bounds scopeBounds = layout.toolbar().get(1);
+        ScreenLayout.Bounds groupingBounds = layout.toolbar().get(2);
+        ScreenLayout.Bounds refreshBounds = layout.toolbar().get(3);
+        ScreenLayout.Bounds previousBounds = layout.toolbar().get(4);
+        ScreenLayout.Bounds nextBounds = layout.toolbar().get(5);
         dimensionButton = addRenderableWidget(Button.builder(Component.empty(), button -> {
                     cycleDimension();
                     requestFirstChart();
@@ -172,16 +161,10 @@ public class StatsScreen extends Screen {
                     .bounds(groupingBounds.x(), groupingBounds.y(), groupingBounds.width(), groupingBounds.height()).build());
         refreshButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenRefresh.copy(), button -> requestChart(chartCursor))
                     .bounds(refreshBounds.x(), refreshBounds.y(), refreshBounds.width(), refreshBounds.height()).build());
-        }
-
-        if(layout.pagination().size() == 2) {
-            ScreenLayout.Bounds previousBounds = layout.pagination().getFirst();
-            ScreenLayout.Bounds nextBounds = layout.pagination().getLast();
         previousButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenPrevious.copy(), button -> previousChartPage())
                     .bounds(previousBounds.x(), previousBounds.y(), previousBounds.width(), previousBounds.height()).build());
         nextButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenNext.copy(), button -> nextChartPage())
                     .bounds(nextBounds.x(), nextBounds.y(), nextBounds.width(), nextBounds.height()).build());
-        }
     }
 
     private void addFooterButtons(PageLayout layout) {
@@ -205,12 +188,13 @@ public class StatsScreen extends Screen {
     public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         renderBackground(graphics, mouseX, mouseY, partialTick);
         FocusSummary summary = ClientStats.summary();
-        if(summary.scope().version() != chartFocusVersion) {
+        boolean dataReady = prepareData(summary);
+        if(dataReady && summary.scope().version() != chartFocusVersion) {
             chartFocusVersion = summary.scope().version();
             requestFirstChart();
             requestHistory();
         }
-        adoptPages(summary);
+        if(dataReady) adoptPages(summary);
 
         PageLayout layout = layout();
         chartTooltip = List.of();
@@ -220,17 +204,34 @@ public class StatsScreen extends Screen {
         graphics.fill(0, layout.footerTop(), width, height, HEADER);
         if(layout.headerHeight() > 0) graphics.fill(0, layout.headerHeight() - 1, width, layout.headerHeight(), BORDER);
         if(layout.footerTop() < height) graphics.fill(0, layout.footerTop(), width, layout.footerTop() + 1, BORDER);
-        if(layout.headerHeight() >= 10) {
-            graphics.drawCenteredString(font, title, width / 2,
-                    Math.max(0, Math.min(7, layout.headerHeight() - 10)), TEXT);
-        }
 
-        initializeBrowsing(summary);
         renderHeader(graphics, summary, layout, mouseX, mouseY);
-        renderContent(graphics, summary, adopted, adoptedHistory, mouseX, mouseY, layout);
+        if(dataReady) renderContent(graphics, summary, adopted, adoptedHistory, mouseX, mouseY, layout);
+        else renderLoading(graphics, layout);
         renderables.forEach(renderable -> renderable.render(graphics, mouseX, mouseY, partialTick));
         if(!chartTooltip.isEmpty()) graphics.renderComponentTooltip(font, chartTooltip, mouseX, mouseY);
         if(!headerTooltip.isEmpty()) graphics.renderComponentTooltip(font, headerTooltip, mouseX, mouseY);
+    }
+
+    private boolean prepareData(FocusSummary summary) {
+        if(!browsingInitialized) {
+            if(!ClientStats.hasFocusState()) return false;
+            initializeBrowsing(summary);
+            chartFocusVersion = summary.scope().version();
+        }
+        if(dataRequestsStarted) return true;
+        dataRequestsStarted = true;
+        requestFirstChart();
+        requestHistory();
+        return true;
+    }
+
+    private void renderLoading(GuiGraphics graphics, PageLayout layout) {
+        int top = contentTop(layout);
+        int bottom = contentBottom(layout);
+        if(bottom <= top) return;
+        graphics.drawCenteredString(font, DSKeyLang.ScreenLoading.copy(), width / 2,
+                top + Math.max(0, (bottom - top - font.lineHeight) / 2), MUTED);
     }
 
     private void adoptPages(FocusSummary summary) {
@@ -256,49 +257,31 @@ public class StatsScreen extends Screen {
     }
 
     private void renderHeader(GuiGraphics graphics, FocusSummary summary, PageLayout layout, int mouseX, int mouseY) {
+        Component sourceName = browsingInitialized ? browsingSourceName : summary.scope().sourceName();
+        Component targetName = browsingInitialized ? browsingTargetName : summary.scope().targetName();
         if(sourceButton != null) {
-            sourceButton.setMessage(DSKeyLang.FilterSource.get(browsingSourceName));
+            sourceButton.setMessage(DSKeyLang.FilterSource.get(sourceName));
             appendButtonTooltip(sourceButton, mouseX, mouseY);
         }
         if(targetButton != null) {
-            targetButton.setMessage(DSKeyLang.FilterTarget.get(browsingTargetName));
+            targetButton.setMessage(DSKeyLang.FilterTarget.get(targetName));
             appendButtonTooltip(targetButton, mouseX, mouseY);
         }
         Component state = isCurrentFocus(summary) ? DSKeyLang.ScreenCurrentFocus.copy() : DSKeyLang.ScreenBrowsing.copy();
-        if(width >= 240 && layout.headerHeight() >= 18) {
-            graphics.drawString(font, truncate(state, Math.max(1, width / 3)),
-                    Math.max(ScreenLayout.left(width, SIDE), width - ScreenLayout.side(width, SIDE) - font.width(state)), 9, ACCENT);
-        }
-        if(layout.filterY() >= 0) renderChartFilters(graphics, layout.filterY());
-        if(layout.metricsY() >= 0) {
-            renderMetrics(graphics, DSKeyLang.SectionSession.copy(), summary.session(), ScreenLayout.left(width, SIDE),
-                    layout.metricsY(), summary.active(), false);
-            renderMetrics(graphics, DSKeyLang.SectionLifetime.copy(), summary.lifetime(), width / 2 + 4,
-                    layout.metricsY(), true, false);
+        int left = ScreenLayout.left(width, SIDE);
+        int right = ScreenLayout.right(width, SIDE);
+        int titleWidth = font.width(title);
+        int stateWidth = font.width(state);
+        if(layout.headerHeight() >= 14 && right - left >= titleWidth + stateWidth + 12) {
+            graphics.drawString(font, title, left, 4, TEXT);
+            graphics.drawString(font, state, right - stateWidth, 4, ACCENT);
+        } else if(layout.headerHeight() >= 14) {
+            graphics.drawCenteredString(font, truncate(title, Math.max(1, right - left)), width / 2, 4, TEXT);
         }
         refreshButtons();
-    }
-
-    private void renderMetrics(GuiGraphics graphics, Component label, FocusMetricsView view, int x, int y,
-                               boolean active, boolean compact) {
-        MetricsView metrics = view.metrics();
-        int color = active ? TEXT : MUTED;
-        int columnWidth = Math.max(1, width / 2 - SIDE - 8);
-        graphics.drawString(font, label, x, y, ACCENT);
-        renderMetricLine(graphics, DSKeyLang.TotalDamage.getNumber1f(metrics.totalActual()), x, y + 12,
-                columnWidth, color);
-        renderMetricLine(graphics, DSKeyLang.OverlayDps.getNumber1f(metrics.averageDps(), metrics.realtimeDps()),
-                x, y + 23, columnWidth, color);
-        renderMetricLine(graphics, DSKeyLang.HitCount.get(metrics.hitCount()), x, y + 34, columnWidth, color);
-        if(compact) return;
-        renderMetricLine(graphics, DSKeyLang.AverageDamage.getNumber1f(metrics.averageDamage()), x, y + 45,
-                columnWidth, color);
-        renderMetricLine(graphics, DSKeyLang.MaxSingle.getNumber1f(metrics.maxSingle(), metrics.maxSingleTypeName(),
-                metrics.maxSingleDirectSourceName(), metrics.maxSingleTime()), x, y + 56, columnWidth, color);
-    }
-
-    private void renderMetricLine(GuiGraphics graphics, Component text, int x, int y, int maxWidth, int color) {
-        graphics.drawString(font, truncate(text, maxWidth), x, y, color);
+        renderables.forEach(renderable -> {
+            if(renderable instanceof Button button) appendButtonTooltip(button, mouseX, mouseY);
+        });
     }
 
     private void renderContent(GuiGraphics graphics, FocusSummary summary, @Nullable FocusChartPage page,
@@ -503,11 +486,13 @@ public class StatsScreen extends Screen {
     }
 
     private void requestFirstChart() {
+        if(!browsingInitialized) return;
         chartCursorHistory.clear();
         requestChart("");
     }
 
     private void requestChart(String cursor) {
+        if(!browsingInitialized) return;
         chartCursor = cursor == null ? "" : cursor;
         adopted = null;
         contentScrollOffset = 0;
@@ -528,6 +513,7 @@ public class StatsScreen extends Screen {
     }
 
     private void requestHistory() {
+        if(!browsingInitialized) return;
         adoptedHistory = null;
         historyRequestId = ClientStats.nextHistoryRequestId();
         PacketDistributor.sendToServer(new HistoryRequestPacket(browsingFilter(), historyRequestId));
@@ -565,23 +551,28 @@ public class StatsScreen extends Screen {
         if(scopeButton != null) scopeButton.setMessage(chartScope == FocusChartScope.SESSION
                 ? DSKeyLang.ScopeSession.copy() : DSKeyLang.ScopeLifetime.copy());
         if(groupingButton != null) {
-            groupingButton.visible = dimension == FocusChartDimension.DAMAGE_TYPE;
+            groupingButton.visible = true;
+            groupingButton.active = browsingInitialized && dimension == FocusChartDimension.DAMAGE_TYPE;
             groupingButton.setMessage(typeGrouping == DamageTypeGrouping.CATEGORY
                     ? DSKeyLang.ScreenGroupingCategory.copy() : DSKeyLang.ScreenGroupingRegistry.copy());
         }
         if(refreshButton != null) refreshButton.setMessage(DSKeyLang.ScreenRefresh.copy());
         if(previousButton != null) previousButton.active = !chartCursorHistory.isEmpty();
         if(nextButton != null) nextButton.active = adopted != null && adopted.hasNext();
-        if(sourceButton != null) sourceButton.active = canChooseAnySource();
-        if(clearSourceButton != null) clearSourceButton.active = canChooseAnySource() && browsingSource.isPresent();
-        if(clearTargetButton != null) clearTargetButton.active = browsingTarget.isPresent();
+        if(sourceButton != null) sourceButton.active = browsingInitialized && canChooseAnySource();
+        if(targetButton != null) targetButton.active = browsingInitialized;
+        if(clearSourceButton != null) clearSourceButton.active = browsingInitialized && canChooseAnySource()
+                && browsingSource.isPresent();
+        if(clearTargetButton != null) clearTargetButton.active = browsingInitialized && browsingTarget.isPresent();
         if(clearChartFiltersButton != null) {
-            clearChartFiltersButton.active = browsingDirectSource.isPresent() || browsingDamageType.isPresent();
+            clearChartFiltersButton.active = browsingInitialized
+                    && (browsingDirectSource.isPresent() || browsingDamageType.isPresent());
         }
         if(setFocusButton != null) {
             var scope = ClientStats.summary().scope();
-            setFocusButton.active = !scope.source().equals(browsingSource) || !scope.target().equals(browsingTarget)
-                    || scope.sourceIsDirectSource() != browsingSourceIsDirectSource;
+            setFocusButton.active = browsingInitialized
+                    && (!scope.source().equals(browsingSource) || !scope.target().equals(browsingTarget)
+                    || scope.sourceIsDirectSource() != browsingSourceIsDirectSource);
         }
         if(exportButton != null) exportButton.active = !ClientExportManager.isBusy();
     }
@@ -711,7 +702,7 @@ public class StatsScreen extends Screen {
     }
 
     boolean canChooseAnySource() {
-        return minecraft.player != null && minecraft.player.hasPermissions(2);
+        return minecraft.player != null && (minecraft.hasSingleplayerServer() || minecraft.player.hasPermissions(2));
     }
 
     void confirmReset(boolean global) {
@@ -728,7 +719,7 @@ public class StatsScreen extends Screen {
     }
 
     boolean canResetAll() {
-        return minecraft.player != null && minecraft.player.hasPermissions(2);
+        return minecraft.player != null && (minecraft.hasSingleplayerServer() || minecraft.player.hasPermissions(2));
     }
 
     void openOverlay() {
@@ -831,70 +822,33 @@ public class StatsScreen extends Screen {
     }
 
     private PageLayout layout() {
-        int contentWidth = ScreenLayout.width(width, SIDE);
-        boolean compactControls = width < 620 || height < 420;
         FooterLayout footer = footerLayout();
         int footerTop = footer.top();
         int maximumHeader = Math.max(0, footerTop - MIN_CONTENT_HEIGHT - 6);
-
-        int y = 24;
-        List<ScreenLayout.Bounds> selectors = fittedFlow(maximumHeader, y, 20, 4,
-                Math.max(1, (contentWidth - 4) / 2), Math.max(1, (contentWidth - 4) / 2));
-        if(!selectors.isEmpty()) y = ScreenLayout.bottom(selectors, y) + 4;
-
-        List<ScreenLayout.Bounds> primary = fittedFlow(maximumHeader, y, 18, 4,
-                compactControls ? new int[]{96, 96} : new int[]{86, 86, 86});
-        if(!primary.isEmpty()) y = ScreenLayout.bottom(primary, y) + 4;
-
-        List<ScreenLayout.Bounds> secondary = compactControls ? List.of()
-                : fittedFlow(maximumHeader, y, 18, 4, 100, 76, 104);
-        if(!secondary.isEmpty()) y = ScreenLayout.bottom(secondary, y) + 4;
-
-        int filterY = -1;
-        if(!compactControls && y + LINE_HEIGHT + 3 <= maximumHeader) {
-            filterY = y;
-            y += LINE_HEIGHT + 3;
-        }
-
-        int metricsY = -1;
-        if(!compactControls && height >= 520 && y + 68 <= maximumHeader) {
-            metricsY = y;
-            y += 68;
-        }
-
-        List<ScreenLayout.Bounds> toolbar = fittedFlow(maximumHeader, y, 18, 4, 96, 68, 88, 58);
-        if(!toolbar.isEmpty()) y = ScreenLayout.bottom(toolbar, y) + 4;
-        List<ScreenLayout.Bounds> pagination = fittedFlow(maximumHeader, y, 18, 4, 76, 76);
-        if(!pagination.isEmpty()) y = ScreenLayout.bottom(pagination, y) + 4;
-
-        int headerHeight = Math.min(maximumHeader, Math.max(0, y + 2));
-        return new PageLayout(headerHeight, footerTop, compactControls, selectors, primary, secondary,
-                toolbar, pagination, filterY, metricsY, footer);
+        int titleHeight = Math.min(14, maximumHeader);
+        int rowGap = 3;
+        int availableRows = Math.max(3, maximumHeader - titleHeight - rowGap * 2 - 4);
+        int rowHeight = Math.max(1, Math.min(20, availableRows / 3));
+        int top = titleHeight;
+        List<ScreenLayout.Bounds> topRow = ScreenLayout.singleRow(width, SIDE, top, rowHeight, 4,
+                140, 140, 92, 92);
+        int middleTop = top + rowHeight + rowGap;
+        List<ScreenLayout.Bounds> middleRow = ScreenLayout.singleRow(width, SIDE, middleTop, rowHeight, 4,
+                100, 100, 120, 72, 120);
+        int toolbarTop = middleTop + rowHeight + rowGap;
+        List<ScreenLayout.Bounds> toolbar = ScreenLayout.singleRow(width, SIDE, toolbarTop, rowHeight, 4,
+                92, 68, 84, 58, 68, 68);
+        int headerHeight = Math.min(maximumHeader, toolbarTop + rowHeight + 4);
+        return new PageLayout(headerHeight, footerTop, topRow, middleRow, toolbar, footer);
     }
 
     private FooterLayout footerLayout() {
         int[] widths = canResetAll() ? new int[]{86, 86, 84} : new int[]{86, 84};
-        List<ScreenLayout.Bounds> relative = ScreenLayout.flow(width, SIDE, 0, 20, 4, widths);
-        int neededHeight = ScreenLayout.bottom(relative, 20) + 8;
-        int maximumHeight = Math.max(28, height - MIN_CONTENT_HEIGHT - 20);
-        boolean showDestructiveActions = neededHeight <= maximumHeight;
-        if(!showDestructiveActions) {
-            widths = new int[]{84};
-        }
         ScreenLayout.Flow flow = ScreenLayout.bottomFlow(width, height, SIDE, 20, 4, 4, widths);
         List<ScreenLayout.Bounds> bounds = flow.bounds();
         int footerTop = flow.top();
-        if(showDestructiveActions) {
-            if(canResetAll()) return new FooterLayout(footerTop, bounds.get(0), bounds.get(1), bounds.get(2));
-            return new FooterLayout(footerTop, bounds.getFirst(), null, bounds.getLast());
-        }
-        return new FooterLayout(footerTop, null, null, bounds.getFirst());
-    }
-
-    private List<ScreenLayout.Bounds> fittedFlow(int maximumBottom, int top, int height, int gap,
-                                                  int... preferredWidths) {
-        List<ScreenLayout.Bounds> bounds = ScreenLayout.flow(width, SIDE, top, height, gap, preferredWidths);
-        return ScreenLayout.bottom(bounds, top) <= maximumBottom ? bounds : List.of();
+        if(canResetAll()) return new FooterLayout(footerTop, bounds.get(0), bounds.get(1), bounds.get(2));
+        return new FooterLayout(footerTop, bounds.getFirst(), null, bounds.getLast());
     }
 
     private void appendButtonTooltip(Button button, int mouseX, int mouseY) {
@@ -933,9 +887,7 @@ public class StatsScreen extends Screen {
     private record FooterLayout(int top, @Nullable ScreenLayout.Bounds reset, @Nullable ScreenLayout.Bounds resetAll,
                                 ScreenLayout.Bounds done) {}
 
-    private record PageLayout(int headerHeight, int footerTop, boolean compactControls,
-                              List<ScreenLayout.Bounds> selectors, List<ScreenLayout.Bounds> primary,
-                              List<ScreenLayout.Bounds> secondary, List<ScreenLayout.Bounds> toolbar,
-                              List<ScreenLayout.Bounds> pagination, int filterY, int metricsY,
-                              FooterLayout footer) {}
+    private record PageLayout(int headerHeight, int footerTop,
+                              List<ScreenLayout.Bounds> topRow, List<ScreenLayout.Bounds> middleRow,
+                              List<ScreenLayout.Bounds> toolbar, FooterLayout footer) {}
 }

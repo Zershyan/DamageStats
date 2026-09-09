@@ -13,7 +13,8 @@ public record FocusSummaryDelta(
     private static final int SESSION = 1 << 1;
     private static final int LIFETIME = 1 << 2;
     private static final int ACTIVE = 1 << 3;
-    private static final int ALL_FIELDS = SCOPE | SESSION | LIFETIME | ACTIVE;
+    private static final int WORLD = 1 << 4;
+    private static final int ALL_FIELDS = SCOPE | SESSION | LIFETIME | ACTIVE | WORLD;
 
     public static final StreamCodec<RegistryFriendlyByteBuf, FocusSummaryDelta> STREAM_CODEC =
             StreamCodec.of(FocusSummaryDelta::encode, FocusSummaryDelta::decode);
@@ -25,6 +26,7 @@ public record FocusSummaryDelta(
         if(!previous.session().equals(current.session())) fields |= SESSION;
         if(!previous.lifetime().equals(current.lifetime())) fields |= LIFETIME;
         if(previous.active() != current.active()) fields |= ACTIVE;
+        if(!previous.worldId().equals(current.worldId())) fields |= WORLD;
         return new FocusSummaryDelta(fields, current);
     }
 
@@ -39,7 +41,7 @@ public record FocusSummaryDelta(
                 changed(SESSION) ? summary.session() : previous.session(),
                 changed(LIFETIME) ? summary.lifetime() : previous.lifetime(),
                 changed(ACTIVE) ? summary.active() : previous.active(),
-                previous.worldId());
+                changed(WORLD) ? summary.worldId() : previous.worldId());
     }
 
     private boolean changed(int field) {
@@ -53,6 +55,7 @@ public record FocusSummaryDelta(
         if(delta.changed(SESSION)) FocusMetricsView.STREAM_CODEC.encode(buf, delta.summary.session());
         if(delta.changed(LIFETIME)) FocusMetricsView.STREAM_CODEC.encode(buf, delta.summary.lifetime());
         if(delta.changed(ACTIVE)) buf.writeBoolean(delta.summary.active());
+        if(delta.changed(WORLD)) buf.writeUtf(delta.summary.worldId(), 128);
     }
 
     private static FocusSummaryDelta decode(RegistryFriendlyByteBuf buf) {
@@ -65,6 +68,7 @@ public record FocusSummaryDelta(
         FocusMetricsView lifetime = (fields & LIFETIME) == 0 ? FocusMetricsView.EMPTY
                 : FocusMetricsView.STREAM_CODEC.decode(buf);
         boolean active = (fields & ACTIVE) != 0 && buf.readBoolean();
-        return new FocusSummaryDelta(fields, new FocusSummary(revision, scope, session, lifetime, active, ""));
+        String worldId = (fields & WORLD) == 0 ? "" : buf.readUtf(128);
+        return new FocusSummaryDelta(fields, new FocusSummary(revision, scope, session, lifetime, active, worldId));
     }
 }

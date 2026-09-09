@@ -42,7 +42,7 @@ public record ResetStatsPacket(boolean global) implements CustomPacketPayload {
             DamageTracker tracker = ServerStats.tracker();
             if(tracker == null) return;
             if(payload.global()) {
-                if(!player.hasPermissions(2)) return;
+                if(!StatsFocusManager.hasFullAccess(player)) return;
                 StatsResetService.resetAll(player.getServer());
                 return;
             }

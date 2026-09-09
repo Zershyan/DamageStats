@@ -255,6 +255,10 @@ public class DSKeyLang extends DSLang {
             "Refresh", "刷新");
     public static final MutableComponent ScreenSearch = entry(ScreenPrefix + "search",
             "Search", "搜索");
+    public static final MutableComponent ScreenLoading = entry(ScreenPrefix + "loading",
+            "Loading...", "正在加载……");
+    public static final MutableComponent ScreenRecent = entry(ScreenPrefix + "recent",
+            "Recent types", "最近类型");
     public static final MutableComponent ScreenPrevious = entry(ScreenPrefix + "previous",
             "Previous", "上一页");
     public static final MutableComponent ScreenNext = entry(ScreenPrefix + "next",

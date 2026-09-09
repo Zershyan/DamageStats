@@ -3,7 +3,7 @@ package io.zershyan.damagestats.client.screen;
 import java.util.ArrayList;
 import java.util.List;
 
-/** 小窗口下统一收缩边距并让按钮按行换行，避免各页面各自计算后发生重叠。 */
+/** 小窗口下统一收缩边距并计算控件位置，避免各页面各自计算后发生重叠。 */
 final class ScreenLayout {
     static int side(int screenWidth, int preferred) {
         return Math.min(preferred, Math.max(0, (screenWidth - 1) / 2));
@@ -41,26 +41,59 @@ final class ScreenLayout {
         return bounds;
     }
 
+    /** 将一组控件压缩到同一行，窗口变窄时也不自动换行。 */
+    static List<Bounds> singleRow(int screenWidth, int preferredSide, int top, int height, int gap,
+                                  int... preferredWidths) {
+        int left = left(screenWidth, preferredSide);
+        int right = right(screenWidth, preferredSide);
+        int available = Math.max(1, right - left);
+        if(preferredWidths.length == 0) return List.of();
+        int itemCount = preferredWidths.length;
+        int requestedGap = Math.max(0, gap);
+        int effectiveGap = itemCount <= 1 ? 0
+                : Math.min(requestedGap, Math.max(0, (available - itemCount) / (itemCount - 1)));
+        int gaps = (itemCount - 1) * effectiveGap;
+        int content = Math.max(itemCount, available - gaps);
+        int preferredTotal = 0;
+        for(int width : preferredWidths) preferredTotal += Math.max(1, width);
+        List<Bounds> bounds = new ArrayList<>(preferredWidths.length);
+        int x = left;
+        int used = 0;
+        for(int index = 0; index < preferredWidths.length; index++) {
+            int buttonWidth;
+            if(index == preferredWidths.length - 1) {
+                buttonWidth = Math.max(1, content - used);
+            } else {
+                buttonWidth = Math.max(1, Math.round((float) Math.max(1, preferredWidths[index])
+                        * content / Math.max(1, preferredTotal)));
+                buttonWidth = Math.min(buttonWidth, Math.max(1, content - used -
+                        (preferredWidths.length - index - 1)));
+            }
+            bounds.add(new Bounds(x, Math.max(0, top), buttonWidth, Math.max(1, height)));
+            x += buttonWidth + effectiveGap;
+            used += buttonWidth;
+        }
+        return bounds;
+    }
+
+    static Flow bottomSingleRow(int screenWidth, int screenHeight, int preferredSide,
+                                int preferredButtonHeight, int preferredGap, int padding,
+                                int... preferredWidths) {
+        int safePadding = Math.min(Math.max(0, padding), Math.max(0, (screenHeight - 1) / 2));
+        int buttonHeight = Math.min(Math.max(1, preferredButtonHeight),
+                Math.max(1, screenHeight - safePadding * 2));
+        int totalHeight = safePadding * 2 + buttonHeight;
+        int top = Math.max(0, screenHeight - totalHeight);
+        return new Flow(top, buttonHeight, 0, totalHeight,
+                singleRow(screenWidth, preferredSide, top + safePadding, buttonHeight, preferredGap,
+                        preferredWidths));
+    }
+
     static Flow bottomFlow(int screenWidth, int screenHeight, int preferredSide,
                            int preferredButtonHeight, int preferredGap, int padding,
                            int... preferredWidths) {
-        List<Bounds> preferred = flow(screenWidth, preferredSide, 0, preferredButtonHeight,
-                preferredGap, preferredWidths);
-        int rows = preferred.stream().map(Bounds::y).distinct().mapToInt(ignored -> 1).sum();
-        int safePadding = Math.min(Math.max(0, padding), Math.max(0, (screenHeight - 1) / 2));
-        int available = Math.max(1, screenHeight - safePadding * 2);
-        int gap = rows <= 1 ? 0 : Math.min(Math.max(0, preferredGap),
-                Math.max(0, (available - rows) / (rows - 1)));
-        int buttonHeight = Math.min(Math.max(1, preferredButtonHeight),
-                Math.max(1, (available - gap * (rows - 1)) / Math.max(1, rows)));
-        int totalHeight = safePadding * 2 + rows * buttonHeight + gap * (rows - 1);
-        if(totalHeight > screenHeight) {
-            safePadding = 0;
-            totalHeight = Math.min(screenHeight, rows * buttonHeight + gap * (rows - 1));
-        }
-        int top = Math.max(0, screenHeight - totalHeight);
-        return new Flow(top, buttonHeight, gap, totalHeight,
-                flow(screenWidth, preferredSide, top + safePadding, buttonHeight, gap, preferredWidths));
+        return bottomSingleRow(screenWidth, screenHeight, preferredSide, preferredButtonHeight,
+                preferredGap, padding, preferredWidths);
     }
 
     static int bottom(List<Bounds> bounds, int fallback) {
