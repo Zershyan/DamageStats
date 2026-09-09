@@ -1,10 +1,10 @@
 package io.zershyan.damagestats.handler.client;
 
 import io.zershyan.damagestats.DamageStats;
-import io.zershyan.damagestats.client.DSKeyMappings;
 import io.zershyan.damagestats.client.screen.StatsScreen;
 import io.zershyan.damagestats.config.DSClientConfig;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
+import io.zershyan.damagestats.registry.DSKeyMappings;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.neoforged.api.distmarker.Dist;

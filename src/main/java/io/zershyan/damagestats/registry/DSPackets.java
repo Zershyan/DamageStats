@@ -2,17 +2,15 @@ package io.zershyan.damagestats.registry;
 
 import io.zershyan.damagestats.DamageStats;
 import io.zershyan.damagestats.registry.packet.*;
-import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.ModList;
-import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import net.neoforged.neoforgespi.language.IModInfo;
 import org.jetbrains.annotations.NotNull;
 
-@EventBusSubscriber(modid = DamageStats.MODID)
-public class DSPackets {
+public final class DSPackets {
     /** 协议版本跟着 mod 版本走，改版本自动让旧协议失效 */
     @NotNull
     private static final String PROTOCOL_VERSION = ModList.get()
@@ -22,10 +20,13 @@ public class DSPackets {
             .map(Object::toString)
             .orElse("unknown");
 
-    @SubscribeEvent
-    public static void register(RegisterPayloadHandlersEvent event) {
+    public static void doRegister(IEventBus modEventBus) {
+        modEventBus.addListener(DSPackets::register);
+    }
+
+    private static void register(RegisterPayloadHandlersEvent event) {
         PayloadRegistrar registrar = event.registrar(PROTOCOL_VERSION);
-        //client
+        // 客户端
         registrar.playToClient(StatsSummaryPacket.TYPE, StatsSummaryPacket.STREAM_CODEC, StatsSummaryPacket::handle);
         registrar.playToClient(FocusStatePacket.TYPE, FocusStatePacket.STREAM_CODEC, FocusStatePacket::handle);
         registrar.playToClient(EntityChoicePagePacket.TYPE, EntityChoicePagePacket.STREAM_CODEC,
@@ -37,7 +38,7 @@ public class DSPackets {
         registrar.playToClient(ExportChunkPacket.TYPE, ExportChunkPacket.STREAM_CODEC, ExportChunkPacket::handle);
         registrar.playToClient(StorageOverviewPacket.TYPE, StorageOverviewPacket.STREAM_CODEC, StorageOverviewPacket::handle);
         registrar.playToClient(StatsInvalidatedPacket.TYPE, StatsInvalidatedPacket.STREAM_CODEC, StatsInvalidatedPacket::handle);
-        //server
+        // 服务端
         registrar.playToServer(FocusSetPacket.TYPE, FocusSetPacket.STREAM_CODEC, FocusSetPacket::handle);
         registrar.playToServer(FocusStateRequestPacket.TYPE, FocusStateRequestPacket.STREAM_CODEC,
                 FocusStateRequestPacket::handle);

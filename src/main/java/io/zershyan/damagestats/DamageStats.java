@@ -1,13 +1,13 @@
 package io.zershyan.damagestats;
 
-import io.zershyan.damagestats.config.DSClientConfig;
-import io.zershyan.damagestats.config.DSConfig;
 import io.zershyan.damagestats.config.DamageTypeCategories;
+import io.zershyan.damagestats.registry.*;
 import net.minecraft.resources.ResourceLocation;
+import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
-import net.neoforged.fml.config.ModConfig;
+import net.neoforged.neoforge.common.NeoForge;
 
 @Mod(DamageStats.MODID)
 public class DamageStats {
@@ -17,9 +17,17 @@ public class DamageStats {
         return ResourceLocation.fromNamespaceAndPath(MODID, path);
     }
 
-    public DamageStats(IEventBus modEventBus, ModContainer modContainer) {
-        modContainer.registerConfig(ModConfig.Type.COMMON, DSConfig.SPEC);
-        modContainer.registerConfig(ModConfig.Type.CLIENT, DSClientConfig.SPEC);
+    public DamageStats(IEventBus modEventBus, Dist dist, ModContainer modContainer) {
+        IEventBus neoEventBus = NeoForge.EVENT_BUS;
+
         DamageTypeCategories.load();
+        DSConfigs.doRegister(modContainer);
+        DSPackets.doRegister(modEventBus);
+        DSCommands.doRegister(neoEventBus);
+
+        if(dist.isClient()) {
+            DSKeyMappings.doRegister(modEventBus);
+            DSOverlays.doRegister(modEventBus);
+        }
     }
 }
