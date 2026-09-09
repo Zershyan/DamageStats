@@ -30,6 +30,10 @@ public final class FocusSummaryCache {
         this.scope = scope;
     }
 
+    public static FocusSummaryCache empty(DamageTracker tracker, StatsFocus focus) {
+        return new FocusSummaryCache(focus, scope(tracker, focus));
+    }
+
     public static FocusSummaryCache load(DamageTracker tracker, ServerPlayer player, StatsFocus focus) {
         FocusSummaryCache cache = new FocusSummaryCache(focus, scope(tracker, focus));
         DamageEventJournal journal = ServerStats.journal();

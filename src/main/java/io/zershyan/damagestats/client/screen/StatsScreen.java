@@ -9,7 +9,9 @@ import io.zershyan.damagestats.stats.filter.*;
 import io.zershyan.damagestats.stats.focus.FocusChartDimension;
 import io.zershyan.damagestats.stats.focus.FocusChartScope;
 import io.zershyan.damagestats.stats.focus.FocusSelectionSlot;
-import io.zershyan.damagestats.stats.view.*;
+import io.zershyan.damagestats.stats.view.FocusChartPage;
+import io.zershyan.damagestats.stats.view.FocusSummary;
+import io.zershyan.damagestats.stats.view.GroupView;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
@@ -33,8 +35,8 @@ public class StatsScreen extends Screen {
     private static final int CONTENT_GAP = 8;
     private static final int MIN_CONTENT_HEIGHT = 30;
     private static final int FOCUS_STATE_REQUEST_ID = 0;
-    private static final int BACKGROUND = 0xE015181C;
-    private static final int HEADER = 0xEE20262C;
+    private static final int BACKGROUND = 0xFF15181C;
+    private static final int HEADER = 0xFF20262C;
     private static final int BORDER = 0xFF505A64;
     private static final int BAR = 0xFF2F8FA3;
     private static final int BAR_HOVER = 0xFF49B4C5;
@@ -48,7 +50,6 @@ public class StatsScreen extends Screen {
     private String chartCursor = "";
     private final List<String> chartCursorHistory = new ArrayList<>();
     private int chartRequestId;
-    private int historyRequestId;
     private int contentScrollOffset;
     private Optional<EntitySelector> browsingSource = Optional.empty();
     private Optional<EntitySelector> browsingTarget = Optional.empty();
@@ -64,7 +65,7 @@ public class StatsScreen extends Screen {
     private boolean dataRequestsStarted;
     private long chartFocusVersion = -1;
     private @Nullable FocusChartPage adopted;
-    private @Nullable HistoryPage adoptedHistory;
+    private List<Component> chartValues = List.of();
     private List<Component> chartTooltip = List.of();
     private List<Component> headerTooltip = List.of();
     private @Nullable Button sourceButton;
@@ -192,7 +193,6 @@ public class StatsScreen extends Screen {
         if(dataReady && summary.scope().version() != chartFocusVersion) {
             chartFocusVersion = summary.scope().version();
             requestFirstChart();
-            requestHistory();
         }
         if(dataReady) adoptPages(summary);
 
@@ -206,7 +206,7 @@ public class StatsScreen extends Screen {
         if(layout.footerTop() < height) graphics.fill(0, layout.footerTop(), width, layout.footerTop() + 1, BORDER);
 
         renderHeader(graphics, summary, layout, mouseX, mouseY);
-        if(dataReady) renderContent(graphics, summary, adopted, adoptedHistory, mouseX, mouseY, layout);
+        if(dataReady) renderContent(graphics, adopted, mouseX, mouseY, layout);
         else renderLoading(graphics, layout);
         renderables.forEach(renderable -> renderable.render(graphics, mouseX, mouseY, partialTick));
         if(!chartTooltip.isEmpty()) graphics.renderComponentTooltip(font, chartTooltip, mouseX, mouseY);
@@ -222,7 +222,6 @@ public class StatsScreen extends Screen {
         if(dataRequestsStarted) return true;
         dataRequestsStarted = true;
         requestFirstChart();
-        requestHistory();
         return true;
     }
 
@@ -244,15 +243,11 @@ public class StatsScreen extends Screen {
                 requestChart("");
             } else {
                 adopted = page;
+                chartValues = chartValues(page.rows());
                 chartCursor = page.cursor();
                 contentScrollOffset = 0;
                 refreshButtons();
             }
-        }
-        HistoryPage history = ClientStats.historyPage();
-        if(history != null && history != adoptedHistory && history.requestId() == historyRequestId) {
-            adoptedHistory = history;
-            contentScrollOffset = 0;
         }
     }
 
@@ -284,86 +279,21 @@ public class StatsScreen extends Screen {
         });
     }
 
-    private void renderContent(GuiGraphics graphics, FocusSummary summary, @Nullable FocusChartPage page,
-                               @Nullable HistoryPage history, int mouseX, int mouseY, PageLayout layout) {
+    private void renderContent(GuiGraphics graphics, @Nullable FocusChartPage page,
+                               int mouseX, int mouseY, PageLayout layout) {
         int top = contentTop(layout);
         int bottom = contentBottom(layout);
         if(bottom <= top) return;
-        List<ContentLine> lines = contentLines(summary);
-        int chartOffset = lines.size() * LINE_HEIGHT + CONTENT_GAP;
-        int historyOffset = chartOffset + chartBlockHeight(page) + CONTENT_GAP;
-        int totalHeight = historyOffset + historyBlockHeight(history) + CONTENT_GAP;
+        int chartOffset = 0;
+        int totalHeight = chartBlockHeight(page) + CONTENT_GAP;
         int viewportHeight = bottom - top;
         contentScrollOffset = Mth.clamp(contentScrollOffset, 0, Math.max(0, totalHeight - viewportHeight));
 
         int left = ScreenLayout.left(width, SIDE);
         int right = ScreenLayout.right(width, SIDE);
         graphics.enableScissor(Math.max(0, left - 2), top, Math.min(width, right + 2), bottom);
-        for (int index = 0; index < lines.size(); index++) {
-            ContentLine line = lines.get(index);
-            int y = top + index * LINE_HEIGHT - contentScrollOffset;
-            int textWidth = Math.max(1, right - left);
-            graphics.drawString(font, truncate(line.text(), textWidth), left, y, line.color());
-            if(isHovered(mouseX, mouseY, left, y, right, y + LINE_HEIGHT) && font.width(line.text()) > textWidth) {
-                headerTooltip = List.of(line.text());
-            }
-        }
         renderChartAt(graphics, page, chartOffset, mouseX, mouseY, layout);
-        renderHistory(graphics, history, historyOffset, mouseX, mouseY, layout);
         graphics.disableScissor();
-    }
-
-    private List<ContentLine> contentLines(FocusSummary summary) {
-        List<ContentLine> lines = new ArrayList<>();
-        lines.add(new ContentLine(DSKeyLang.FilterSource.get(summary.scope().sourceName()), ACCENT));
-        lines.add(new ContentLine(DSKeyLang.FilterTarget.get(summary.scope().targetName()), ACCENT));
-        appendMetrics(lines, DSKeyLang.SectionSession.copy(), summary.session(), summary.active());
-        appendMetrics(lines, DSKeyLang.SectionLifetime.copy(), summary.lifetime(), true);
-        return lines;
-    }
-
-    private static void appendMetrics(List<ContentLine> lines, Component heading, FocusMetricsView focusMetrics,
-                                      boolean active) {
-        MetricsView metrics = focusMetrics.metrics();
-        int color = active ? TEXT : MUTED;
-        lines.add(new ContentLine(Component.empty(), color));
-        lines.add(new ContentLine(heading, ACCENT));
-        if(metrics.isEmpty()) {
-            lines.add(new ContentLine(DSKeyLang.NoData.copy(), MUTED));
-            return;
-        }
-        lines.add(new ContentLine(DSKeyLang.TotalDamage.getNumber1f(metrics.totalActual()), color));
-        lines.add(new ContentLine(DSKeyLang.OriginalDamage.getNumber1f(metrics.totalOriginal()), color));
-        lines.add(new ContentLine(DSKeyLang.ReductionRate.getNumber1f(metrics.reducedDamage(),
-                metrics.reductionRate() * 100), color));
-        lines.add(new ContentLine(DSKeyLang.HitCount.get(metrics.hitCount()), color));
-        lines.add(new ContentLine(DSKeyLang.AverageDamage.getNumber1f(metrics.averageDamage()), color));
-        lines.add(new ContentLine(DSKeyLang.AverageDps.getNumber1f(metrics.averageDps()), color));
-        lines.add(new ContentLine(DSKeyLang.RealtimeDps.getNumber1f(metrics.realtimeDps()), color));
-        lines.add(new ContentLine(DSKeyLang.HitsPerSecond.getNumber1f(metrics.hitsPerSecond()), color));
-        lines.add(new ContentLine(DSKeyLang.KillCount.get(metrics.killCount()), color));
-        lines.add(new ContentLine(DSKeyLang.Duration.getNumber1f(metrics.durationSeconds()), color));
-        lines.add(new ContentLine(DSKeyLang.MinSingle.getNumber1f(metrics.minSingle()), color));
-        lines.add(new ContentLine(DSKeyLang.MaxSingle.getNumber1f(metrics.maxSingle(), metrics.maxSingleTypeName(),
-                metrics.maxSingleDirectSourceName(), metrics.maxSingleTime()), color));
-        lines.add(new ContentLine(DSKeyLang.OverlayOriginalAverageDps.getNumber1f(metrics.averageOriginalDps()), color));
-        lines.add(new ContentLine(DSKeyLang.OverlayOriginalRealtimeDps.getNumber1f(metrics.realtimeOriginalDps()), color));
-        lines.add(new ContentLine(DSKeyLang.OverlayTopDamageType.getNumber1f(focusMetrics.topDamageType().name(),
-                focusMetrics.topDamageType().damage(), focusMetrics.topDamageType().share() * 100), color));
-        lines.add(new ContentLine(DSKeyLang.OverlayTopDirectSource.getNumber1f(focusMetrics.topDirectSource().name(),
-                focusMetrics.topDirectSource().damage(), focusMetrics.topDirectSource().share() * 100), color));
-        appendReduction(lines, metrics, color);
-    }
-
-    private static void appendReduction(List<ContentLine> lines, MetricsView metrics, int color) {
-        lines.add(new ContentLine(DSKeyLang.ReductionArmor.getNumber1f(metrics.reduction().armor()), color));
-        lines.add(new ContentLine(DSKeyLang.ReductionEnchantments.getNumber1f(metrics.reduction().enchantments()), color));
-        lines.add(new ContentLine(DSKeyLang.ReductionMobEffects.getNumber1f(metrics.reduction().mobEffects()), color));
-        lines.add(new ContentLine(DSKeyLang.ReductionAbsorption.getNumber1f(metrics.reduction().absorption()), color));
-        lines.add(new ContentLine(DSKeyLang.ReductionInnateResistance.getNumber1f(
-                metrics.reduction().innateResistance()), color));
-        lines.add(new ContentLine(DSKeyLang.ReductionInvulnerability.getNumber1f(
-                metrics.reduction().invulnerability()), color));
     }
 
     private void renderChartAt(GuiGraphics graphics, @Nullable FocusChartPage page, int contentOffset,
@@ -398,8 +328,7 @@ public class StatsScreen extends Screen {
             graphics.fill(barLeft, y + 2, barLeft + widthForDamage, y + ROW_HEIGHT - 3,
                     hovered ? BAR_HOVER : BAR);
             graphics.drawString(font, truncate(group.name(), labelWidth), left, y + 5, TEXT);
-            Component value = DSKeyLang.DetailLine.getNumber1f(Component.empty(), group.damage(),
-                    group.share() * 100, group.hitCount());
+            Component value = chartValues.get(row);
             graphics.drawString(font, truncate(value, Math.max(1, barWidth - 4)), barLeft + 2, y + 5, TEXT);
             if(hovered) chartTooltip = chartTooltip(group);
         }
@@ -409,45 +338,6 @@ public class StatsScreen extends Screen {
         }
     }
 
-    private void renderHistory(GuiGraphics graphics, @Nullable HistoryPage page, int contentOffset,
-                               int mouseX, int mouseY, PageLayout layout) {
-        int left = ScreenLayout.left(width, SIDE);
-        int right = ScreenLayout.right(width, SIDE);
-        int textWidth = Math.max(1, right - left);
-        int screenTop = contentTop(layout) + contentOffset - contentScrollOffset;
-        graphics.drawString(font, DSKeyLang.SectionHistory.copy(), left, screenTop, ACCENT);
-        List<ContentLine> lines = historyLines(page);
-        for (int index = 0; index < lines.size(); index++) {
-            ContentLine line = lines.get(index);
-            int y = screenTop + 16 + index * LINE_HEIGHT;
-            graphics.drawString(font, truncate(line.text(), textWidth), left, y, line.color());
-            if(isHovered(mouseX, mouseY, left, y, right, y + LINE_HEIGHT) && font.width(line.text()) > textWidth) {
-                headerTooltip = List.of(line.text());
-            }
-        }
-    }
-
-    private static List<ContentLine> historyLines(@Nullable HistoryPage page) {
-        if(page == null) return List.of(new ContentLine(DSKeyLang.NoData.copy(), MUTED));
-        if(!page.allowed()) return List.of(new ContentLine(DSKeyLang.StatsPrivate.copy(), MUTED));
-        if(page.outgoing().isEmpty() && page.incoming().isEmpty()) {
-            return List.of(new ContentLine(DSKeyLang.NoData.copy(), MUTED));
-        }
-        List<ContentLine> lines = new ArrayList<>();
-        appendHistory(lines, DSKeyLang.TitleOutgoing.copy(), page.outgoing());
-        appendHistory(lines, DSKeyLang.TitleIncoming.copy(), page.incoming());
-        return lines;
-    }
-
-    private static void appendHistory(List<ContentLine> lines, Component heading, List<SessionView> sessions) {
-        if(sessions.isEmpty()) return;
-        lines.add(new ContentLine(heading, ACCENT));
-        for (int index = 0; index < sessions.size(); index++) {
-            SessionView session = sessions.get(index);
-            lines.add(new ContentLine(DSKeyLang.SessionLine.getNumber1f(index + 1, session.totalDamage(),
-                    session.averageDps(), session.durationSeconds(), session.hitCount()), TEXT));
-        }
-    }
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
@@ -455,7 +345,7 @@ public class StatsScreen extends Screen {
         if(mouseY < contentTop(layout) || mouseY >= contentBottom(layout)) {
             return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
         }
-        int totalHeight = contentHeight(adopted, adoptedHistory);
+        int totalHeight = contentHeight(adopted);
         int viewportHeight = Math.max(1, contentBottom(layout) - contentTop(layout));
         int step = Math.max(1, Math.round((float) Math.abs(scrollY) * LINE_HEIGHT));
         if(scrollY > 0) step = -step;
@@ -469,7 +359,7 @@ public class StatsScreen extends Screen {
         if(super.mouseClicked(mouseX, mouseY, button)) return true;
         PageLayout layout = layout();
         if(button != 0 || !insideContent(mouseX, mouseY, layout) || !validChartPage(adopted)) return false;
-        int chartOffset = contentLines(ClientStats.summary()).size() * LINE_HEIGHT + CONTENT_GAP;
+        int chartOffset = 0;
         int rowTop = contentTop(layout) + chartOffset + 16 - contentScrollOffset;
         int chartBottom = rowTop + adopted.rows().size() * ROW_HEIGHT;
         if(mouseY < rowTop || mouseY >= chartBottom) return false;
@@ -495,6 +385,7 @@ public class StatsScreen extends Screen {
         if(!browsingInitialized) return;
         chartCursor = cursor == null ? "" : cursor;
         adopted = null;
+        chartValues = List.of();
         contentScrollOffset = 0;
         chartRequestId = ClientStats.nextChartRequestId();
         PacketDistributor.sendToServer(new FocusChartRequestPacket(browsingFilter(), dimension, chartScope,
@@ -512,13 +403,6 @@ public class StatsScreen extends Screen {
         requestChart(chartCursorHistory.removeLast());
     }
 
-    private void requestHistory() {
-        if(!browsingInitialized) return;
-        adoptedHistory = null;
-        historyRequestId = ClientStats.nextHistoryRequestId();
-        PacketDistributor.sendToServer(new HistoryRequestPacket(browsingFilter(), historyRequestId));
-    }
-
     private void clearSource() {
         if(!canChooseAnySource()) return;
         browsingSource = Optional.empty();
@@ -526,7 +410,6 @@ public class StatsScreen extends Screen {
         browsingSourceIsDirectSource = false;
         normalizeDimension();
         requestFirstChart();
-        requestHistory();
     }
 
     private void clearTarget() {
@@ -534,7 +417,6 @@ public class StatsScreen extends Screen {
         browsingTargetName = DSKeyLang.OverlayAllTargets.copy();
         normalizeDimension();
         requestFirstChart();
-        requestHistory();
     }
 
     private void clearChartFilters() {
@@ -543,7 +425,6 @@ public class StatsScreen extends Screen {
         browsingDirectSourceName = Component.empty();
         browsingDamageTypeName = Component.empty();
         requestFirstChart();
-        requestHistory();
     }
 
     private void refreshButtons() {
@@ -608,7 +489,6 @@ public class StatsScreen extends Screen {
         browsingSourceIsDirectSource = false;
         normalizeDimension();
         requestFirstChart();
-        requestHistory();
     }
 
     private void setBrowsingTarget(EntitySelector selector, Component name) {
@@ -616,7 +496,6 @@ public class StatsScreen extends Screen {
         browsingTargetName = name;
         normalizeDimension();
         requestFirstChart();
-        requestHistory();
     }
 
     private void setBrowsingDirectSource(EntitySelector selector, Component name) {
@@ -627,7 +506,6 @@ public class StatsScreen extends Screen {
         browsingDirectSourceName = Component.empty();
         normalizeDimension();
         requestFirstChart();
-        requestHistory();
     }
 
     private void applyChartFilter(GroupView group) {
@@ -648,7 +526,10 @@ public class StatsScreen extends Screen {
                 toggleDirectFilter(selector, group.name());
             }
             case FilterKey.Direct(EntitySelector.Instance selector) -> showEntityActions(group.key(), group.name());
-            case FilterKey.Type(DamageTypeSelector selector) -> toggleDamageTypeFilter(selector, group.name());
+            case FilterKey.Type(DamageTypeSelector.Category selector) ->
+                    drillDamageTypeCategory(selector, group.name());
+            case FilterKey.Type(DamageTypeSelector.Exact selector) ->
+                    toggleDamageTypeFilter(selector, group.name());
         }
     }
 
@@ -677,7 +558,6 @@ public class StatsScreen extends Screen {
         browsingDirectSource = toggle(browsingDirectSource, selector);
         browsingDirectSourceName = clearing ? Component.empty() : name;
         requestFirstChart();
-        requestHistory();
     }
 
     private void toggleDamageTypeFilter(DamageTypeSelector selector, Component name) {
@@ -685,20 +565,24 @@ public class StatsScreen extends Screen {
         browsingDamageType = toggle(browsingDamageType, selector);
         browsingDamageTypeName = clearing ? Component.empty() : name;
         requestFirstChart();
-        requestHistory();
     }
 
-    void openInstances(EntitySelector.Type type, FilterKey key) {
+    private void drillDamageTypeCategory(DamageTypeSelector.Category selector, Component name) {
+        browsingDamageType = Optional.of(selector);
+        browsingDamageTypeName = name;
+        typeGrouping = DamageTypeGrouping.REGISTRY;
+        requestFirstChart();
+    }
+
+    void openInstances(EntitySelector.Type type, FilterKey key, Screen backScreen) {
         if(key instanceof FilterKey.Direct) {
-            minecraft.setScreen(FocusEntitySelectorScreen.directSourceInstances(this, type.typeId(), browsingFilter(),
-                    (selector, name) -> showEntityActions(new FilterKey.Direct(selector), name)));
+            minecraft.setScreen(FocusEntitySelectorScreen.directSourceInstances(backScreen, this, type.typeId(),
+                    browsingFilter(), this::selectAsDirectSource));
             return;
         }
         FocusSelectionSlot slot = key instanceof FilterKey.Source ? FocusSelectionSlot.SOURCE : FocusSelectionSlot.TARGET;
-        minecraft.setScreen(FocusEntitySelectorScreen.instances(this, slot, type.typeId(), browsingFilter(),
-                (selector, name) -> showEntityActions(
-                        slot == FocusSelectionSlot.SOURCE ? new FilterKey.Source(selector) : new FilterKey.Target(selector),
-                        name)));
+        minecraft.setScreen(FocusEntitySelectorScreen.instances(backScreen, this, slot, type.typeId(), browsingFilter(),
+                slot == FocusSelectionSlot.SOURCE ? this::selectAsSource : this::selectAsTarget));
     }
 
     boolean canChooseAnySource() {
@@ -792,10 +676,8 @@ public class StatsScreen extends Screen {
                 && page.focusVersion() == ClientStats.summary().scope().version() && page.allowed();
     }
 
-    private int contentHeight(@Nullable FocusChartPage page, @Nullable HistoryPage history) {
-        List<ContentLine> lines = contentLines(ClientStats.summary());
-        return lines.size() * LINE_HEIGHT + CONTENT_GAP + chartBlockHeight(page) + CONTENT_GAP
-                + historyBlockHeight(history) + CONTENT_GAP;
+    private int contentHeight(@Nullable FocusChartPage page) {
+        return chartBlockHeight(page) + CONTENT_GAP;
     }
 
     private int chartBlockHeight(@Nullable FocusChartPage page) {
@@ -804,8 +686,11 @@ public class StatsScreen extends Screen {
         return 16 + rows * ROW_HEIGHT + truncated + 4;
     }
 
-    private static int historyBlockHeight(@Nullable HistoryPage page) {
-        return 16 + historyLines(page).size() * LINE_HEIGHT + 4;
+    private static List<Component> chartValues(List<GroupView> rows) {
+        return rows.stream()
+                .<Component>map(group -> DSKeyLang.DetailLine.getNumber1f(Component.empty(), group.damage(),
+                        group.share() * 100, group.hitCount()))
+                .toList();
     }
 
     private boolean insideContent(double mouseX, double mouseY, PageLayout layout) {
@@ -881,8 +766,6 @@ public class StatsScreen extends Screen {
                 DSKeyLang.DetailLine.getNumber1f(Component.empty(), group.damage(), group.share() * 100,
                         group.hitCount()));
     }
-
-    private record ContentLine(Component text, int color) {}
 
     private record FooterLayout(int top, @Nullable ScreenLayout.Bounds reset, @Nullable ScreenLayout.Bounds resetAll,
                                 ScreenLayout.Bounds done) {}

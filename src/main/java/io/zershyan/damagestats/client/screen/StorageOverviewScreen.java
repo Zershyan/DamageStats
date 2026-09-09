@@ -24,14 +24,16 @@ public final class StorageOverviewScreen extends Screen {
     private static final int SIDE = 18;
     private static final int PREFERRED_HEADER_HEIGHT = 32;
     private static final int LINE_HEIGHT = 13;
-    private static final int BACKGROUND = 0xE015181C;
-    private static final int HEADER = 0xEE20262C;
+    private static final int BACKGROUND = 0xFF15181C;
+    private static final int HEADER = 0xFF20262C;
     private static final int BORDER = 0xFF505A64;
     private static final int TEXT = 0xFFFFFFFF;
     private static final int MUTED = 0xFFACB8C2;
     private static final int ACCENT = 0xFF55D6E8;
 
     private int scrollOffset;
+    private StorageOverview displayedOverview;
+    private List<Component> displayedLines = List.of();
     private List<Component> tooltip = List.of();
 
     public StorageOverviewScreen() {
@@ -81,7 +83,12 @@ public final class StorageOverviewScreen extends Screen {
                     Math.clamp(11, 0, Math.max(0, headerHeight - 1)), TEXT);
         }
 
-        List<Component> lines = lines(ClientStorageOverview.overview());
+        StorageOverview overview = ClientStorageOverview.overview();
+        if(displayedOverview != overview) {
+            displayedOverview = overview;
+            displayedLines = lines(overview);
+        }
+        List<Component> lines = displayedLines;
         int top = headerHeight + 8;
         int bottom = actions.top() - 8;
         int visible = Math.max(0, (bottom - top) / LINE_HEIGHT);
@@ -112,7 +119,7 @@ public final class StorageOverviewScreen extends Screen {
         int actionTop = actionLayout().top();
         if(mouseY < headerHeight || mouseY >= actionTop) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
         int visible = Math.max(0, (actionTop - 8 - (headerHeight + 8)) / LINE_HEIGHT);
-        int maxOffset = Math.max(0, lines(ClientStorageOverview.overview()).size() - visible);
+        int maxOffset = Math.max(0, displayedLines.size() - visible);
         scrollOffset = Mth.clamp(scrollOffset - (int) Math.signum(scrollY), 0, maxOffset);
         return true;
     }

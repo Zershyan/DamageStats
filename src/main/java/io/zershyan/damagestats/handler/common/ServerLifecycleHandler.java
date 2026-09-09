@@ -162,8 +162,14 @@ public final class ServerLifecycleHandler {
             return StatsStorage.resetAllAtomically(worldDirectory, journal, tracker);
         } else {
             DamageEventJournal journal = ServerStats.journal();
-            if(journal != null && !journal.markReset(owner)) return false;
-            if(tracker != null) tracker.resetFor(owner);
+            if(tracker == null) return false;
+            if(journal != null) {
+                if(!StatsStorage.invalidateCache(worldDirectory)) return false;
+                if(!journal.markReset(owner)) return false;
+                tracker.resetFor(owner);
+                return true;
+            }
+            tracker.resetFor(owner);
         }
         return flush();
     }

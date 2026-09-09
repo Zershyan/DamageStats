@@ -26,14 +26,19 @@ import java.util.function.BiConsumer;
 
 /** 服务端实体候选的搜索与分页选择页，不枚举客户端本地或已加载实体。 */
 public class FocusEntitySelectorScreen extends Screen {
-    private static final int ROW_HEIGHT = 22;
+    private static final int ROW_HEIGHT = 24;
     private static final int TOP = 58;
     private static final int SIDE = 24;
+    private static final int BACKGROUND = 0xFF15181C;
     private static final int ROW_HOVER = 0x40FFFFFF;
     private static final int RECENT_MENU_ROWS = 8;
     private static final int RECENT_MENU_WIDTH = 220;
+    private static final int ACTION_GAP = 4;
+    private static final int ACTION_HEIGHT = 18;
+    private static final int INSTANCES_MIN_WIDTH = 56;
 
     private final Screen parent;
+    private final Screen selectionReturnScreen;
     private final FocusSelectionSlot slot;
     private final @Nullable ResourceLocation typeFilter;
     private final BiConsumer<EntitySelector, Component> selectionConsumer;
@@ -42,33 +47,41 @@ public class FocusEntitySelectorScreen extends Screen {
     private final List<String> cursorHistory = new ArrayList<>();
     private int requestId;
     private int rowOffset;
-    private @Nullable EntityChoiceView selected;
     private @Nullable EntityChoicePage adopted;
     private @Nullable EditBox searchBox;
     private @Nullable Button recentButton;
     private boolean recentMenuOpen;
     private List<EntityChoiceView> recentChoices = List.of();
     private int recentRequestId = -1;
-    private Button setButton;
-    private Button instancesButton;
     private Button previousButton;
     private Button nextButton;
+    private final List<Button> rowSelectButtons = new ArrayList<>();
+    private final List<Button> rowInstancesButtons = new ArrayList<>();
     private List<Component> rowTooltip = List.of();
+
+    private record RowActionLayout(int selectLeft, int selectWidth, int instancesLeft, int instancesWidth,
+                                   int textRight) {
+        private boolean supportsInstances() {
+            return instancesWidth >= INSTANCES_MIN_WIDTH;
+        }
+    }
 
     public FocusEntitySelectorScreen(Screen parent, FocusSelectionSlot slot,
                                      BiConsumer<EntitySelector, Component> selectionConsumer) {
-        this(parent, slot, null, StatsFilter.NONE, selectionConsumer);
+        this(parent, parent, slot, null, StatsFilter.NONE, selectionConsumer);
     }
 
     public FocusEntitySelectorScreen(Screen parent, FocusSelectionSlot slot, StatsFilter contextFilter,
                                      BiConsumer<EntitySelector, Component> selectionConsumer) {
-        this(parent, slot, null, contextFilter, selectionConsumer);
+        this(parent, parent, slot, null, contextFilter, selectionConsumer);
     }
 
-    private FocusEntitySelectorScreen(Screen parent, FocusSelectionSlot slot, @Nullable ResourceLocation typeFilter,
+    private FocusEntitySelectorScreen(Screen parent, Screen selectionReturnScreen, FocusSelectionSlot slot,
+                                      @Nullable ResourceLocation typeFilter,
                                       StatsFilter contextFilter, BiConsumer<EntitySelector, Component> selectionConsumer) {
         super(titleFor(slot));
         this.parent = parent;
+        this.selectionReturnScreen = selectionReturnScreen;
         this.slot = slot;
         this.typeFilter = typeFilter;
         this.contextFilter = contextFilter;
@@ -78,18 +91,37 @@ public class FocusEntitySelectorScreen extends Screen {
     public static FocusEntitySelectorScreen directSourceInstances(Screen parent, ResourceLocation typeFilter,
                                                                     StatsFilter contextFilter,
                                                                     BiConsumer<EntitySelector, Component> selectionConsumer) {
-        return new FocusEntitySelectorScreen(parent, FocusSelectionSlot.DIRECT_SOURCE, typeFilter,
-                contextFilter, selectionConsumer);
+        return directSourceInstances(parent, parent, typeFilter, contextFilter, selectionConsumer);
+    }
+
+    public static FocusEntitySelectorScreen directSourceInstances(Screen parent, Screen selectionReturnScreen,
+                                                                    ResourceLocation typeFilter,
+                                                                    StatsFilter contextFilter,
+                                                                    BiConsumer<EntitySelector, Component> selectionConsumer) {
+        return new FocusEntitySelectorScreen(parent, selectionReturnScreen, FocusSelectionSlot.DIRECT_SOURCE,
+                typeFilter, contextFilter, selectionConsumer);
     }
 
     public static FocusEntitySelectorScreen instances(Screen parent, FocusSelectionSlot slot, ResourceLocation typeFilter,
                                                        StatsFilter contextFilter,
                                                        BiConsumer<EntitySelector, Component> selectionConsumer) {
-        return new FocusEntitySelectorScreen(parent, slot, typeFilter, contextFilter, selectionConsumer);
+        return instances(parent, parent, slot, typeFilter, contextFilter, selectionConsumer);
+    }
+
+    public static FocusEntitySelectorScreen instances(Screen parent, Screen selectionReturnScreen,
+                                                       FocusSelectionSlot slot, ResourceLocation typeFilter,
+                                                       StatsFilter contextFilter,
+                                                       BiConsumer<EntitySelector, Component> selectionConsumer) {
+        return new FocusEntitySelectorScreen(parent, selectionReturnScreen, slot, typeFilter,
+                contextFilter, selectionConsumer);
     }
 
     @Override
     protected void init() {
+        recentButton = null;
+        searchBox = null;
+        rowSelectButtons.clear();
+        rowInstancesButtons.clear();
         ScreenLayout.Flow footer = footerFlow();
         int left = contentLeft();
         int available = contentWidth();
@@ -120,16 +152,12 @@ public class FocusEntitySelectorScreen extends Screen {
                                 searchButtonWidth, 18).build());
             }
         }
+        addRowActionButtons();
+
         List<ScreenLayout.Bounds> footerBounds = footer.bounds();
         ScreenLayout.Bounds backBounds = footerBounds.get(0);
         ScreenLayout.Bounds previousBounds = footerBounds.get(1);
         ScreenLayout.Bounds nextBounds = footerBounds.get(2);
-        ScreenLayout.Bounds instancesBounds = footerBounds.get(3);
-        ScreenLayout.Bounds selectBounds = footerBounds.get(4);
-        setButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenSelect.copy(), button -> select())
-                .bounds(selectBounds.x(), selectBounds.y(), selectBounds.width(), selectBounds.height()).build());
-        instancesButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenInstances.copy(), button -> openInstances())
-                .bounds(instancesBounds.x(), instancesBounds.y(), instancesBounds.width(), instancesBounds.height()).build());
         addRenderableWidget(Button.builder(CommonComponents.GUI_BACK, button -> minecraft.setScreen(parent))
                 .bounds(backBounds.x(), backBounds.y(), backBounds.width(), backBounds.height()).build());
         previousButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenPrevious.copy(), button -> previousPage())
@@ -166,12 +194,12 @@ public class FocusEntitySelectorScreen extends Screen {
             }
             adopted = page;
             cursor = page.cursor();
-            selected = null;
             rowOffset = 0;
             refreshActions();
         }
         if(page != null && (page.requestId() != requestId || page.slot() != slot
                 || !page.typeFilter().equals(Optional.ofNullable(typeFilter)))) page = null;
+        updateRowActions(page);
         int titleY = Math.min(10, Math.max(0, footerFlow().top() - 1));
         if(footerFlow().top() >= 12) {
             graphics.drawCenteredString(font, title, width / 2,
@@ -196,18 +224,18 @@ public class FocusEntitySelectorScreen extends Screen {
         if(bottom <= listTop()) return;
         int left = contentLeft();
         int right = contentRight();
+        RowActionLayout actions = rowActionLayout();
         graphics.enableScissor(left, listTop(), right, bottom);
         for (int row = 0; row < rows; row++) {
             EntityChoiceView entry = page.entries().get(rowOffset + row);
             int y = listTop() + row * ROW_HEIGHT;
             if(isInsideRow(mouseX, mouseY, y)) graphics.fill(left, y, right, y + ROW_HEIGHT - 1, ROW_HOVER);
-            if(entry == selected) graphics.fill(left, y, right, y + ROW_HEIGHT - 1, 0x4066CCFF);
-            int textWidth = Math.max(1, right - left - 4);
+            int textWidth = Math.max(1, actions.textRight() - left - 4);
             graphics.drawString(font, font.plainSubstrByWidth(entry.name().getString(), textWidth),
                     left + 2, y + 2, 0xFFFFFFFF);
             if(!entry.detail().getString().isEmpty()) {
                 graphics.drawString(font, font.plainSubstrByWidth(entry.detail().getString(), textWidth),
-                        left + 2, y + 12, 0xFFAAAAAA);
+                        left + 2, y + 13, 0xFFAAAAAA);
             }
             if(isInsideRow(mouseX, mouseY, y)
                     && (font.width(entry.name()) > textWidth || font.width(entry.detail()) > textWidth)) {
@@ -223,9 +251,9 @@ public class FocusEntitySelectorScreen extends Screen {
         if(button == 0 && recentMenuOpen) {
             EntityChoiceView recent = recentEntryAt(mouseX, mouseY);
             if(recent != null) {
-                selected = recent;
                 recentMenuOpen = false;
-                select();
+                selectionConsumer.accept(recent.selector(), recent.name());
+                minecraft.setScreen(selectionReturnScreen);
                 return true;
             }
             if(isInsideRecentMenu(mouseX, mouseY)) {
@@ -236,15 +264,6 @@ public class FocusEntitySelectorScreen extends Screen {
                 return super.mouseClicked(mouseX, mouseY, button);
             }
             recentMenuOpen = false;
-        }
-        if(button == 0 && adopted != null) {
-            for (int row = 0; row < Math.min(visibleRows(), adopted.entries().size() - rowOffset); row++) {
-                int y = listTop() + row * ROW_HEIGHT;
-                if(!isInsideRow(mouseX, mouseY, y)) continue;
-                selected = adopted.entries().get(rowOffset + row);
-                refreshActions();
-                return true;
-            }
         }
         return super.mouseClicked(mouseX, mouseY, button);
     }
@@ -298,7 +317,6 @@ public class FocusEntitySelectorScreen extends Screen {
     private int request(String newCursor) {
         cursor = newCursor == null ? "" : newCursor;
         adopted = null;
-        selected = null;
         rowOffset = 0;
         recentRequestId = -1;
         requestId = ClientStats.nextEntityChoiceRequestId();
@@ -312,20 +330,61 @@ public class FocusEntitySelectorScreen extends Screen {
         return searchBox == null ? "" : searchBox.getValue();
     }
 
-    private void select() {
-        if(selected == null) return;
-        selectionConsumer.accept(selected.selector(), selected.name());
-        minecraft.setScreen(parent);
+    private void selectRow(int row) {
+        EntityChoiceView entry = entryAtRow(row);
+        if(entry == null) return;
+        selectionConsumer.accept(entry.selector(), entry.name());
+        minecraft.setScreen(selectionReturnScreen);
     }
 
-    private void openInstances() {
-        if(!(selected != null && selected.selector() instanceof EntitySelector.Type type)) return;
-        minecraft.setScreen(new FocusEntitySelectorScreen(parent, slot, type.typeId(), contextFilter, selectionConsumer));
+    private void openInstancesRow(int row) {
+        EntityChoiceView entry = entryAtRow(row);
+        if(!(entry != null && entry.selector() instanceof EntitySelector.Type type)) return;
+        minecraft.setScreen(new FocusEntitySelectorScreen(this, selectionReturnScreen, slot, type.typeId(),
+                contextFilter, selectionConsumer));
+    }
+
+    private @Nullable EntityChoiceView entryAtRow(int row) {
+        if(adopted == null || row < 0 || row >= Math.min(visibleRows(), adopted.entries().size() - rowOffset)) {
+            return null;
+        }
+        return adopted.entries().get(rowOffset + row);
+    }
+
+    private void addRowActionButtons() {
+        RowActionLayout actions = rowActionLayout();
+        int rows = visibleRows();
+        for(int row = 0; row < rows; row++) {
+            int buttonY = listTop() + row * ROW_HEIGHT + (ROW_HEIGHT - ACTION_HEIGHT) / 2;
+            int visibleRow = row;
+            rowSelectButtons.add(addRenderableWidget(Button.builder(DSKeyLang.ScreenSelect.copy(),
+                            button -> selectRow(visibleRow))
+                    .bounds(actions.selectLeft(), buttonY, actions.selectWidth(), ACTION_HEIGHT).build()));
+            rowInstancesButtons.add(addRenderableWidget(Button.builder(DSKeyLang.ScreenInstances.copy(),
+                            button -> openInstancesRow(visibleRow))
+                    .bounds(actions.instancesLeft(), buttonY, actions.instancesWidth(), ACTION_HEIGHT).build()));
+        }
+    }
+
+    private void updateRowActions(@Nullable EntityChoicePage page) {
+        RowActionLayout actions = rowActionLayout();
+        int rows = Math.min(rowSelectButtons.size(), Math.max(0,
+                page == null || !page.allowed() ? 0 : page.entries().size() - rowOffset));
+        for(int row = 0; row < rowSelectButtons.size(); row++) {
+            Button select = rowSelectButtons.get(row);
+            Button instances = rowInstancesButtons.get(row);
+            boolean rowVisible = row < rows;
+            EntityChoiceView entry = rowVisible ? page.entries().get(rowOffset + row) : null;
+            boolean showInstances = rowVisible && actions.supportsInstances()
+                    && entry.selector() instanceof EntitySelector.Type;
+            select.visible = rowVisible;
+            select.active = rowVisible;
+            instances.visible = showInstances;
+            instances.active = showInstances;
+        }
     }
 
     private void refreshActions() {
-        if(setButton != null) setButton.active = selected != null;
-        if(instancesButton != null) instancesButton.active = selected != null && selected.selector() instanceof EntitySelector.Type;
         if(previousButton != null) previousButton.active = !cursorHistory.isEmpty();
         if(nextButton != null) nextButton.active = adopted != null && adopted.hasNext();
         if(recentButton != null) {
@@ -343,7 +402,7 @@ public class FocusEntitySelectorScreen extends Screen {
         int top = layout.top();
         int right = left + layout.width();
         int bottom = top + layout.height();
-        graphics.fill(left, top, right, bottom, 0xF020262C);
+        graphics.fill(left, top, right, bottom, 0xFF20262C);
         for(int index = 0; index < entries.size(); index++) {
             EntityChoiceView entry = entries.get(index);
             int y = top + index * ROW_HEIGHT;
@@ -383,6 +442,11 @@ public class FocusEntitySelectorScreen extends Screen {
     private boolean isInsideRecentMenu(double mouseX, double mouseY, RecentMenuLayout layout) {
         return mouseX >= layout.left() && mouseX < layout.left() + layout.width()
                 && mouseY >= layout.top() && mouseY < layout.top() + layout.height();
+    }
+
+    @Override
+    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        graphics.fill(0, 0, width, height, BACKGROUND);
     }
 
     private RecentMenuLayout recentMenuLayout() {
@@ -441,8 +505,24 @@ public class FocusEntitySelectorScreen extends Screen {
         return Math.max(1, width - contentLeft() * 2);
     }
 
+    private RowActionLayout rowActionLayout() {
+        int left = contentLeft();
+        int right = contentRight();
+        int available = Math.max(1, right - left);
+        int selectWidth = Math.min(56, Math.max(1, available / 4));
+        int preferredInstancesWidth = Math.min(76, Math.max(1, available / 3));
+        int instancesWidth = typeFilter == null && preferredInstancesWidth >= INSTANCES_MIN_WIDTH
+                ? preferredInstancesWidth : 1;
+        int gap = Math.min(ACTION_GAP, Math.max(0, available - selectWidth - instancesWidth));
+        int selectLeft = Math.max(left, right - selectWidth);
+        int instancesLeft = Math.max(left, selectLeft - gap - instancesWidth);
+        int textRight = Math.max(left + 1,
+                instancesWidth >= INSTANCES_MIN_WIDTH ? instancesLeft - gap : selectLeft - gap);
+        return new RowActionLayout(selectLeft, selectWidth, instancesLeft, instancesWidth, textRight);
+    }
+
     private ScreenLayout.Flow footerFlow() {
-        return ScreenLayout.bottomFlow(width, height, SIDE, 20, 4, 6, 80, 72, 72, 106, 108);
+        return ScreenLayout.bottomFlow(width, height, SIDE, 20, 4, 6, 80, 72, 72);
     }
 
     private record RecentMenuLayout(int left, int top, int width, int rows) {

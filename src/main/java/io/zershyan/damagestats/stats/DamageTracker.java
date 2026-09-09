@@ -147,6 +147,10 @@ public class DamageTracker {
         return nameCache.get(id);
     }
 
+    public Map<UUID, String> cachedNames() {
+        return Map.copyOf(nameCache);
+    }
+
     private void recoverName(EntityRef ref, String name) {
         if(!name.isBlank() && !ref.isEnvironment()) nameCache.put(ref.id(), name);
     }

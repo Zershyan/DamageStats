@@ -1,8 +1,6 @@
 package io.zershyan.damagestats.client.overlay;
 
 import io.zershyan.damagestats.client.ClientStats;
-import io.zershyan.damagestats.client.screen.OverlayPositionScreen;
-import io.zershyan.damagestats.client.screen.StatsScreen;
 import io.zershyan.damagestats.config.DSClientConfig;
 import io.zershyan.damagestats.config.OverlayMetricScope;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
@@ -50,7 +48,7 @@ public final class StatsOverlay {
         if(!DSClientConfig.OverlayVisible.get()) return;
         Minecraft minecraft = Minecraft.getInstance();
         if(minecraft.options.hideGui) return;
-        if(minecraft.screen instanceof OverlayPositionScreen || minecraft.screen instanceof StatsScreen) return;
+        if(minecraft.screen != null) return;
         FocusSummary summary = ClientStats.summary();
         if(summary.lifetime().metrics().hitCount() == 0) return;
         renderBox(graphics, minecraft.font, summary,

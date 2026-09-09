@@ -208,6 +208,27 @@ public final class StatsFocusManager {
         reindex(playerId, state.focus);
     }
 
+    public void resetSummaryCache(ServerPlayer player, DamageTracker tracker, EntityRef clearedOwner) {
+        UUID playerId = player.getUUID();
+        PlayerFocus state = focuses.get(playerId);
+        if(state == null) return;
+        state.summaryCache = focusContains(state.focus, clearedOwner)
+                ? FocusSummaryCache.empty(tracker, state.focus) : state.summaryCache;
+        state.delegatedSources.clear();
+        if(!hasFullAccess(player)) restoreOrdinarySource(state, playerId);
+        reindex(playerId, state.focus);
+    }
+
+    private static boolean focusContains(StatsFocus focus, EntityRef owner) {
+        return focus.source().filter(selector -> isOwner(selector, owner)).isPresent()
+                || focus.target().filter(selector -> isOwner(selector, owner)).isPresent();
+    }
+
+    private static boolean isOwner(EntitySelector selector, EntityRef owner) {
+        return selector instanceof EntitySelector.Instance instance
+                && instance.ref().id().equals(owner.id());
+    }
+
     public void remove(UUID playerId) {
         focuses.remove(playerId);
         removeFromIndexes(playerId);

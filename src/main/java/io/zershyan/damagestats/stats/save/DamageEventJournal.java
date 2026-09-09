@@ -484,14 +484,19 @@ public final class DamageEventJournal {
     public QueryResult query(StatsFilter filter) {
         lock.readLock().lock();
         try {
-            QueryResult cached = queryCache.get(filter);
+            QueryResult cached;
+            synchronized (queryCache) {
+                cached = queryCache.get(filter);
+            }
             if(cached != null) return cached;
             List<JournalEntry> matched = new ArrayList<>();
             for (JournalEntry entry : candidateEntries(filter)) {
                 if(visibleToFilter(entry, filter) && filter.matches(entry.record())) matched.add(entry);
             }
             QueryResult result = new QueryResult(matched);
-            queryCache.put(filter, result);
+            synchronized (queryCache) {
+                queryCache.put(filter, result);
+            }
             return result;
         } finally {
             lock.readLock().unlock();
@@ -653,7 +658,9 @@ public final class DamageEventJournal {
         lock.writeLock().lock();
         try {
             queryRevision++;
-            queryCache.clear();
+            synchronized (queryCache) {
+                queryCache.clear();
+            }
         } finally {
             lock.writeLock().unlock();
         }
@@ -701,7 +708,9 @@ public final class DamageEventJournal {
         directSourceTypeIndex.clear();
         damageTypeIndex.clear();
         damageCategoryIndex.clear();
-        queryCache.clear();
+        synchronized (queryCache) {
+            queryCache.clear();
+        }
         queryIndexLoaded = false;
     }
 

@@ -75,6 +75,17 @@ public final class StatsStorage {
                 .orElse(false);
     }
 
+    public static boolean invalidateCache(Path directory) {
+        Path file = directory.resolve(FILE_NAME);
+        try {
+            Files.deleteIfExists(file);
+            return true;
+        } catch (IOException e) {
+            LOGGER.error("清除伤害统计聚合缓存失败：{}", file, e);
+            return false;
+        }
+    }
+
     /**
      * 以可恢复事务清空完整统计。事件日志和聚合缓存是两个独立文件系统对象，
      * 因而除了提交标记，还必须在启动时处理进程中断留下的事务目录。

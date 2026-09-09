@@ -15,6 +15,7 @@ import java.util.List;
 /** 存储清理必须在独立确认页再次确认，全部记录清理不会被普通按钮误触。 */
 public final class ConfirmStorageCleanupScreen extends Screen {
     private static final int BUTTON_WIDTH = 96;
+    private static final int BACKGROUND = 0xFF15181C;
     private final StorageOverviewScreen parent;
     private final StorageCleanupTarget target;
 
@@ -45,13 +46,18 @@ public final class ConfirmStorageCleanupScreen extends Screen {
         renderBackground(graphics, mouseX, mouseY, partialTick);
         Layout layout = layout();
         graphics.fill(layout.x(), layout.top(), Math.min(width, layout.x() + layout.width()),
-                Math.min(height, layout.top() + layout.height()), 0xE020262C);
+                Math.min(height, layout.top() + layout.height()), 0xFF20262C);
         graphics.drawCenteredString(font, truncate(title, layout.width() - 16), width / 2,
                 Math.clamp(layout.top() + 16, 0, Math.max(0, height - 1)), 0xFFFFFFFF);
         Component description = description(target);
         graphics.drawCenteredString(font, font.plainSubstrByWidth(description.getString(), Math.max(1, layout.width() - 16)),
                 width / 2, Math.clamp(layout.top() + 34, 0, Math.max(0, height - 1)), 0xFFACB8C2);
         renderables.forEach(renderable -> renderable.render(graphics, mouseX, mouseY, partialTick));
+    }
+
+    @Override
+    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        graphics.fill(0, 0, width, height, BACKGROUND);
     }
 
     private Layout layout() {

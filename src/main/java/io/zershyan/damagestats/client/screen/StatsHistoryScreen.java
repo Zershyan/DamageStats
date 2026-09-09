@@ -23,8 +23,8 @@ public final class StatsHistoryScreen extends Screen {
     private static final int SIDE = 18;
     private static final int PREFERRED_HEADER_HEIGHT = 32;
     private static final int ROW_HEIGHT = 14;
-    private static final int BACKGROUND = 0xE015181C;
-    private static final int HEADER = 0xEE20262C;
+    private static final int BACKGROUND = 0xFF15181C;
+    private static final int HEADER = 0xFF20262C;
     private static final int BORDER = 0xFF505A64;
     private static final int TEXT = 0xFFFFFFFF;
     private static final int MUTED = 0xFFACB8C2;
@@ -34,6 +34,7 @@ public final class StatsHistoryScreen extends Screen {
     private int requestId;
     private int scrollOffset;
     private @Nullable HistoryPage adopted;
+    private List<HistoryLine> displayedLines = List.of();
     private List<Component> tooltip = List.of();
 
     public StatsHistoryScreen(StatsScreen parent) {
@@ -62,6 +63,7 @@ public final class StatsHistoryScreen extends Screen {
         HistoryPage page = ClientStats.historyPage();
         if(page != null && page.requestId() == requestId && page != adopted) {
             adopted = page;
+            displayedLines = lines(page);
             scrollOffset = 0;
         }
         graphics.fill(0, 0, width, height, BACKGROUND);
@@ -74,7 +76,7 @@ public final class StatsHistoryScreen extends Screen {
                     Math.clamp(11, 0, Math.max(0, headerHeight - 1)), TEXT);
         }
 
-        List<HistoryLine> lines = lines(page != null && page.requestId() == requestId ? page : null);
+        List<HistoryLine> lines = displayedLines;
         int top = headerHeight + 6;
         int bottom = footerTop - 6;
         int visible = Math.max(0, (bottom - top) / ROW_HEIGHT);
@@ -104,7 +106,7 @@ public final class StatsHistoryScreen extends Screen {
         int footerTop = footerFlow().top();
         if(mouseY < headerHeight || mouseY >= footerTop) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
         int visible = Math.max(0, (footerTop - 6 - (headerHeight + 6)) / ROW_HEIGHT);
-        int maxOffset = Math.max(0, lines(adopted).size() - visible);
+        int maxOffset = Math.max(0, displayedLines.size() - visible);
         scrollOffset = Mth.clamp(scrollOffset - (int) Math.signum(scrollY), 0, maxOffset);
         return true;
     }
@@ -120,6 +122,7 @@ public final class StatsHistoryScreen extends Screen {
     private void request() {
         requestId = ClientStats.nextHistoryRequestId();
         adopted = null;
+        displayedLines = lines(null);
         scrollOffset = 0;
         PacketDistributor.sendToServer(new HistoryRequestPacket(parent.browsingFilter(), requestId));
     }

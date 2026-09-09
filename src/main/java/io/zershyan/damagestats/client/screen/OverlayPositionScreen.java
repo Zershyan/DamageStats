@@ -30,7 +30,7 @@ public class OverlayPositionScreen extends Screen {
     private static final int BUTTON_WIDTH = 100;
     private static final int BUTTON_HEIGHT = 20;
     private static final int TITLE_Y = 20;
-    private static final int DIM_BACKGROUND = 0x40000000;
+    private static final int DIM_BACKGROUND = 0xFF15181C;
 
     private final @Nullable Screen returnScreen;
     private static final int PREVIEW_BORDER = 0xFFFFD700;
@@ -106,12 +106,11 @@ public class OverlayPositionScreen extends Screen {
         Layout layout = layout();
         targetButton = null;
         addRenderableWidget(new AbstractSliderButton(layout.controlLeft(), layout.scaleY(), layout.sliderWidth(),
-                BUTTON_HEIGHT, Component.empty(),
+                BUTTON_HEIGHT, scaleMessage(DSClientConfig.OverlayScale.get()),
                 (DSClientConfig.OverlayScale.get() - 0.5) / 1.5) {
             @Override
             protected void updateMessage() {
-                setMessage(DSKeyLang.EditPositionScale.copy().append(Component.literal(": "
-                        + Math.round((0.5 + value * 1.5) * 100) + "%")));
+                setMessage(scaleMessage(0.5 + value * 1.5));
             }
 
             @Override
@@ -120,12 +119,11 @@ public class OverlayPositionScreen extends Screen {
             }
         });
         addRenderableWidget(new AbstractSliderButton(layout.controlLeft(), layout.opacityY(), layout.sliderWidth(),
-                BUTTON_HEIGHT, Component.empty(),
+                BUTTON_HEIGHT, opacityMessage(DSClientConfig.OverlayBackgroundOpacity.get()),
                 DSClientConfig.OverlayBackgroundOpacity.get()) {
             @Override
             protected void updateMessage() {
-                setMessage(DSKeyLang.EditPositionOpacity.copy().append(Component.literal(": "
-                        + Math.round(value * 100) + "%")));
+                setMessage(opacityMessage(value));
             }
 
             @Override
@@ -306,6 +304,16 @@ public class OverlayPositionScreen extends Screen {
         return scope == OverlayMetricScope.SESSION
                 ? DSKeyLang.OverlayScopeSession.copy()
                 : DSKeyLang.OverlayScopeLifetime.copy();
+    }
+
+    private static Component scaleMessage(double scale) {
+        return DSKeyLang.EditPositionScale.copy().append(Component.literal(": "
+                + Math.round(scale * 100) + "%"));
+    }
+
+    private static Component opacityMessage(double opacity) {
+        return DSKeyLang.EditPositionOpacity.copy().append(Component.literal(": "
+                + Math.round(opacity * 100) + "%"));
     }
 
     private static double clampRatio(double ratio, int elementSize, int screenSize) {

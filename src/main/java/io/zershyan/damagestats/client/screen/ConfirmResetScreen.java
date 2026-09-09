@@ -13,6 +13,7 @@ import java.util.List;
 /** 个人统计清空必须经过单独确认，防止在固定页尾误触。 */
 public final class ConfirmResetScreen extends Screen {
     private static final int BUTTON_WIDTH = 96;
+    private static final int BACKGROUND = 0xFF15181C;
     private final StatsScreen parent;
     private final boolean global;
 
@@ -47,13 +48,18 @@ public final class ConfirmResetScreen extends Screen {
         renderBackground(graphics, mouseX, mouseY, partialTick);
         Layout layout = layout();
         graphics.fill(layout.x(), layout.top(), Math.min(width, layout.x() + layout.width()),
-                Math.min(height, layout.top() + layout.height()), 0xE020262C);
+                Math.min(height, layout.top() + layout.height()), 0xFF20262C);
         graphics.drawCenteredString(font, truncate(title, layout.width() - 16), width / 2,
                 Math.clamp(layout.top() + 16, 0, Math.max(0, height - 1)), 0xFFFFFFFF);
         Component description = global ? DSKeyLang.ScreenResetAllDescription.copy() : DSKeyLang.ScreenResetMineDescription.copy();
         graphics.drawCenteredString(font, font.plainSubstrByWidth(description.getString(), Math.max(1, layout.width() - 16)),
                 width / 2, Math.clamp(layout.top() + 34, 0, Math.max(0, height - 1)), 0xFFACB8C2);
         renderables.forEach(renderable -> renderable.render(graphics, mouseX, mouseY, partialTick));
+    }
+
+    @Override
+    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        graphics.fill(0, 0, width, height, BACKGROUND);
     }
 
     private Layout layout() {

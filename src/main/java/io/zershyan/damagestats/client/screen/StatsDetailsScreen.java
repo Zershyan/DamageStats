@@ -22,8 +22,8 @@ public final class StatsDetailsScreen extends Screen {
     private static final int SIDE = 18;
     private static final int PREFERRED_HEADER_HEIGHT = 32;
     private static final int LINE_HEIGHT = 12;
-    private static final int BACKGROUND = 0xE015181C;
-    private static final int HEADER = 0xEE20262C;
+    private static final int BACKGROUND = 0xFF15181C;
+    private static final int HEADER = 0xFF20262C;
     private static final int BORDER = 0xFF505A64;
     private static final int TEXT = 0xFFFFFFFF;
     private static final int MUTED = 0xFFACB8C2;
@@ -32,6 +32,9 @@ public final class StatsDetailsScreen extends Screen {
     private final StatsScreen parent;
     private int scrollOffset;
     private List<Component> tooltip = List.of();
+    private long cachedSummaryRevision = -1;
+    private long cachedScopeVersion = -1;
+    private List<DetailLine> cachedLines = List.of();
 
     public StatsDetailsScreen(StatsScreen parent) {
         super(DSKeyLang.ScreenDetails.copy());
@@ -106,7 +109,16 @@ public final class StatsDetailsScreen extends Screen {
         return ScreenLayout.bottomFlow(width, height, SIDE, 20, 4, 6, 84);
     }
 
-    private static List<DetailLine> detailLines(FocusSummary summary) {
+    private List<DetailLine> detailLines(FocusSummary summary) {
+        if(summary.revision() == cachedSummaryRevision
+                && summary.scope().version() == cachedScopeVersion) return cachedLines;
+        cachedSummaryRevision = summary.revision();
+        cachedScopeVersion = summary.scope().version();
+        cachedLines = buildDetailLines(summary);
+        return cachedLines;
+    }
+
+    private static List<DetailLine> buildDetailLines(FocusSummary summary) {
         List<DetailLine> lines = new ArrayList<>();
         lines.add(new DetailLine(DSKeyLang.FilterSource.get(summary.scope().sourceName()), ACCENT));
         lines.add(new DetailLine(DSKeyLang.FilterTarget.get(summary.scope().targetName()), ACCENT));

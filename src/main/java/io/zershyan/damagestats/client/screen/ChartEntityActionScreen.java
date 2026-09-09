@@ -16,6 +16,7 @@ import java.util.List;
 public final class ChartEntityActionScreen extends Screen {
     private static final int PANEL_WIDTH = 180;
     private static final int BUTTON_HEIGHT = 20;
+    private static final int BACKGROUND = 0xFF15181C;
     private final StatsScreen parent;
     private final FilterKey key;
     private final EntitySelector selector;
@@ -71,7 +72,7 @@ public final class ChartEntityActionScreen extends Screen {
             }
             ScreenLayout.Bounds bounds = layout.buttons().get(buttonIndex++);
             addRenderableWidget(Button.builder(DSKeyLang.ScreenInstances.copy(), button ->
-                            parent.openInstances(type, key))
+                            parent.openInstances(type, key, this))
                     .bounds(bounds.x(), bounds.y(), bounds.width(), bounds.height()).build());
         }
         ScreenLayout.Bounds cancel = layout.buttons().get(buttonIndex);
@@ -86,7 +87,7 @@ public final class ChartEntityActionScreen extends Screen {
         int x = Math.max(0, layout.x() - 8);
         int y = layout.top();
         graphics.fill(x, y, Math.min(width, x + layout.width() + 16),
-                Math.min(height, y + layout.height()), 0xE020262C);
+                Math.min(height, y + layout.height()), 0xFF20262C);
         Component displayTitle = truncate(title, Math.max(1, layout.width() - 12));
         graphics.drawCenteredString(font, displayTitle, width / 2,
                 Math.clamp(y + 10, 0, Math.max(0, height - 1)), 0xFFFFFFFF);
@@ -96,6 +97,11 @@ public final class ChartEntityActionScreen extends Screen {
                 ? List.of(title) : List.of();
         renderables.forEach(renderable -> renderable.render(graphics, mouseX, mouseY, partialTick));
         if(!tooltip.isEmpty()) graphics.renderComponentTooltip(font, tooltip, mouseX, mouseY);
+    }
+
+    @Override
+    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        graphics.fill(0, 0, width, height, BACKGROUND);
     }
 
     private void addSetAsSourceButton(ScreenLayout.Bounds bounds, boolean directSource) {

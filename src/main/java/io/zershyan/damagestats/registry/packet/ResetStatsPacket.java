@@ -49,7 +49,10 @@ public record ResetStatsPacket(boolean global) implements CustomPacketPayload {
             EntityRef self = EntityRef.of(player);
             boolean persisted = ServerLifecycleHandler.persistReset(self);
             StatsFocusManager manager = ServerStats.focusManager();
-            if(manager != null) manager.invalidateSummaryCache(player);
+            if(manager != null) {
+                if(persisted) manager.resetSummaryCache(player, tracker, self);
+                else manager.invalidateSummaryCache(player);
+            }
             PacketDistributor.sendToPlayer(player, StatsInvalidatedPacket.INSTANCE);
             StatsSyncHandler.pushFocusState(tracker, player, FocusChangeResult.ACCEPTED);
             if(!persisted) player.displayClientMessage(DSKeyLang.ResetFailed.copy(), false);
