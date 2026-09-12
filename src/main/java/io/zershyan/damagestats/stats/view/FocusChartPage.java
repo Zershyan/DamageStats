@@ -1,6 +1,7 @@
 package io.zershyan.damagestats.stats.view;
 
 import io.zershyan.damagestats.stats.filter.DamageTypeGrouping;
+import io.zershyan.damagestats.stats.focus.EntityGrouping;
 import io.zershyan.damagestats.stats.focus.FocusChartDimension;
 import io.zershyan.damagestats.stats.focus.FocusChartScope;
 import net.minecraft.network.RegistryFriendlyByteBuf;
@@ -20,6 +21,7 @@ public record FocusChartPage(
         FocusChartDimension dimension,
         FocusChartScope scope,
         DamageTypeGrouping typeGrouping,
+        EntityGrouping entityGrouping,
         List<GroupView> rows,
         boolean hasNext
 ) {
@@ -40,6 +42,7 @@ public record FocusChartPage(
         FocusChartDimension.STREAM_CODEC.encode(buf, page.dimension);
         FocusChartScope.STREAM_CODEC.encode(buf, page.scope);
         DamageTypeGrouping.STREAM_CODEC.encode(buf, page.typeGrouping);
+        EntityGrouping.STREAM_CODEC.encode(buf, page.entityGrouping);
         ROWS_CODEC.encode(buf, page.rows);
         buf.writeBoolean(page.hasNext);
     }
@@ -48,11 +51,12 @@ public record FocusChartPage(
         return new FocusChartPage(buf.readVarLong(), buf.readVarInt(), buf.readVarLong(), buf.readUtf(128),
                 buf.readUtf(128), buf.readBoolean(),
                 FocusChartDimension.STREAM_CODEC.decode(buf), FocusChartScope.STREAM_CODEC.decode(buf),
-                DamageTypeGrouping.STREAM_CODEC.decode(buf), ROWS_CODEC.decode(buf), buf.readBoolean());
+                DamageTypeGrouping.STREAM_CODEC.decode(buf), EntityGrouping.STREAM_CODEC.decode(buf),
+                ROWS_CODEC.decode(buf), buf.readBoolean());
     }
 
     public FocusChartPage withRequestId(int newRequestId) {
         return new FocusChartPage(focusVersion, newRequestId, snapshotId, cursor, nextCursor, allowed, dimension, scope,
-                typeGrouping, rows, hasNext);
+                typeGrouping, entityGrouping, rows, hasNext);
     }
 }

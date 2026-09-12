@@ -4,6 +4,7 @@ import com.mojang.serialization.Codec;
 import io.zershyan.damagestats.config.DSConfig;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
@@ -13,12 +14,13 @@ public class InstanceDirectory {
             .xmap(InstanceDirectory::from, InstanceDirectory::entries);
 
     private final Map<UUID, InstanceMetadata> entries = new HashMap<>();
+    private long nextInstanceId = 1L;
     private long revision;
     private long orderedRevision = -1;
     private List<InstanceMetadata> orderedEntries = List.of();
 
     public void touch(Entity entity, long nowMillis) {
-        InstanceMetadata metadata = InstanceMetadata.from(entity, nowMillis);
+        InstanceMetadata metadata = withId(InstanceMetadata.from(entity, nowMillis), entries.get(entity.getUUID()));
         entries.put(metadata.ref().id(), metadata);
         invalidate();
         prune(nowMillis);
@@ -32,8 +34,8 @@ public class InstanceDirectory {
                 ? previous.displayName() : recoveredName;
         long occurredAt = record.occurredAtMillis() > 0
                 ? record.occurredAtMillis() : System.currentTimeMillis();
-        entries.put(ref.id(), new InstanceMetadata(ref, displayName, record.dimensionId(),
-                record.blockX(), record.blockY(), record.blockZ(), occurredAt, record.gameTime()));
+        entries.put(ref.id(), withId(new InstanceMetadata(0L, ref, displayName, record.dimensionId(),
+                record.blockX(), record.blockY(), record.blockZ(), occurredAt, record.gameTime()), previous));
         invalidate();
     }
 
@@ -89,24 +91,60 @@ public class InstanceDirectory {
         return metadata != null && metadata.ref().equals(ref);
     }
 
+    public InstanceMetadata metadata(EntityRef ref) {
+        InstanceMetadata metadata = entries.get(ref.id());
+        return metadata != null && metadata.ref().equals(ref) ? metadata : null;
+    }
+
     public boolean containsType(ResourceLocation typeId) {
         return entries.values().stream().anyMatch(metadata -> typeId.equals(metadata.ref().typeId()));
     }
 
     public void restore(Collection<InstanceMetadata> restored) {
         entries.clear();
-        restored.forEach(metadata -> entries.put(metadata.ref().id(), metadata));
+        nextInstanceId = 1L;
+        Set<Long> usedIds = new HashSet<>();
+        for(InstanceMetadata metadata : restored) {
+            long instanceId = metadata.instanceId();
+            if(instanceId <= 0 || !usedIds.add(instanceId)) instanceId = allocateId(usedIds);
+            nextInstanceId = Math.max(nextInstanceId, instanceId + 1);
+            entries.put(metadata.ref().id(), withId(metadata, instanceId));
+        }
         invalidate();
     }
 
     public void clear() {
         entries.clear();
+        nextInstanceId = 1L;
         invalidate();
     }
 
     private void invalidate() {
         revision++;
         orderedRevision = -1;
+    }
+
+    private InstanceMetadata withId(InstanceMetadata metadata, @Nullable InstanceMetadata previous) {
+        long instanceId = previous != null && previous.instanceId() > 0
+                ? previous.instanceId() : allocateId(null);
+        return withId(metadata, instanceId);
+    }
+
+    private InstanceMetadata withId(InstanceMetadata metadata, long instanceId) {
+        nextInstanceId = Math.max(nextInstanceId, instanceId + 1);
+        return new InstanceMetadata(instanceId, metadata.ref(), metadata.displayName(), metadata.dimensionId(),
+                metadata.blockX(), metadata.blockY(), metadata.blockZ(), metadata.lastInteractionMillis(),
+                metadata.lastInteractionGameTime());
+    }
+
+    private long allocateId(@Nullable Set<Long> usedIds) {
+        long candidate = Math.max(1L, nextInstanceId);
+        if(usedIds != null) {
+            while(usedIds.contains(candidate)) candidate++;
+            usedIds.add(candidate);
+        }
+        nextInstanceId = candidate + 1;
+        return candidate;
     }
 
     private static InstanceDirectory from(List<InstanceMetadata> restored) {

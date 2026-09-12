@@ -374,9 +374,14 @@ public record EntityChoiceRequestPacket(
 
     private static Component displayName(ChoiceSnapshot snapshot, InstanceMetadata metadata,
                                          Component fallbackName) {
-        if(!metadata.displayName().isEmpty()) return Component.literal(metadata.displayName());
-        String cached = snapshot.names().get(metadata.ref().id());
-        return cached == null || cached.isBlank() ? fallbackName : Component.literal(cached);
+        Component name;
+        if(!metadata.displayName().isEmpty()) name = Component.literal(metadata.displayName());
+        else {
+            String cached = snapshot.names().get(metadata.ref().id());
+            name = cached == null || cached.isBlank() ? fallbackName : Component.literal(cached);
+        }
+        if(metadata.instanceId() <= 0) return name;
+        return Component.literal("#" + metadata.instanceId() + " ").append(name);
     }
 
     private static Set<ResourceLocation> recordedTypes(FocusSelectionSlot slot) {

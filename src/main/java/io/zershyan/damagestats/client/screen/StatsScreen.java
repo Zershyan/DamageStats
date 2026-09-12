@@ -6,6 +6,7 @@ import io.zershyan.damagestats.client.ClientStats;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
 import io.zershyan.damagestats.registry.packet.*;
 import io.zershyan.damagestats.stats.filter.*;
+import io.zershyan.damagestats.stats.focus.EntityGrouping;
 import io.zershyan.damagestats.stats.focus.FocusChartDimension;
 import io.zershyan.damagestats.stats.focus.FocusChartScope;
 import io.zershyan.damagestats.stats.focus.FocusSelectionSlot;
@@ -47,6 +48,7 @@ public class StatsScreen extends Screen {
     private FocusChartDimension dimension = FocusChartDimension.DAMAGE_TYPE;
     private FocusChartScope chartScope = FocusChartScope.LIFETIME;
     private DamageTypeGrouping typeGrouping = DamageTypeGrouping.CATEGORY;
+    private EntityGrouping entityGrouping = EntityGrouping.TYPE;
     private String chartCursor = "";
     private final List<String> chartCursorHistory = new ArrayList<>();
     private int chartRequestId;
@@ -389,7 +391,7 @@ public class StatsScreen extends Screen {
         contentScrollOffset = 0;
         chartRequestId = ClientStats.nextChartRequestId();
         PacketDistributor.sendToServer(new FocusChartRequestPacket(browsingFilter(), dimension, chartScope,
-                typeGrouping, chartCursor, chartRequestId));
+                typeGrouping, entityGrouping, chartCursor, chartRequestId));
     }
 
     private void nextChartPage() {
@@ -408,6 +410,7 @@ public class StatsScreen extends Screen {
         browsingSource = Optional.empty();
         browsingSourceName = DSKeyLang.ScreenAllDamage.copy();
         browsingSourceIsDirectSource = false;
+        entityGrouping = EntityGrouping.TYPE;
         normalizeDimension();
         requestFirstChart();
     }
@@ -415,6 +418,7 @@ public class StatsScreen extends Screen {
     private void clearTarget() {
         browsingTarget = Optional.empty();
         browsingTargetName = DSKeyLang.OverlayAllTargets.copy();
+        entityGrouping = EntityGrouping.TYPE;
         normalizeDimension();
         requestFirstChart();
     }
@@ -487,6 +491,7 @@ public class StatsScreen extends Screen {
         browsingSource = Optional.of(selector);
         browsingSourceName = name;
         browsingSourceIsDirectSource = false;
+        entityGrouping = EntityGrouping.TYPE;
         normalizeDimension();
         requestFirstChart();
     }
@@ -494,6 +499,7 @@ public class StatsScreen extends Screen {
     private void setBrowsingTarget(EntitySelector selector, Component name) {
         browsingTarget = Optional.of(selector);
         browsingTargetName = name;
+        entityGrouping = EntityGrouping.TYPE;
         normalizeDimension();
         requestFirstChart();
     }
@@ -502,6 +508,7 @@ public class StatsScreen extends Screen {
         browsingSource = Optional.of(selector);
         browsingSourceName = name;
         browsingSourceIsDirectSource = true;
+        entityGrouping = EntityGrouping.TYPE;
         browsingDirectSource = Optional.empty();
         browsingDirectSourceName = Component.empty();
         normalizeDimension();
@@ -511,26 +518,39 @@ public class StatsScreen extends Screen {
     private void applyChartFilter(GroupView group) {
         switch (group.key()) {
             case FilterKey.Source(EntitySelector selector) -> {
-                if(group.canOpenInstances()) showEntityActions(group.key(), group.name());
-                else setBrowsingSource(selector, group.name());
+                if(selector instanceof EntitySelector.Type && entityGrouping == EntityGrouping.TYPE
+                        && group.canOpenInstances()) {
+                    drillEntityInstances();
+                } else {
+                    setBrowsingSource(selector, group.name());
+                }
             }
             case FilterKey.Target(EntitySelector selector) -> {
-                if(group.canOpenInstances()) showEntityActions(group.key(), group.name());
-                else setBrowsingTarget(selector, group.name());
+                if(selector instanceof EntitySelector.Type && entityGrouping == EntityGrouping.TYPE
+                        && group.canOpenInstances()) {
+                    drillEntityInstances();
+                } else {
+                    setBrowsingTarget(selector, group.name());
+                }
             }
             case FilterKey.Direct(EntitySelector.Type selector) -> {
-                if(group.canOpenInstances()) {
-                    showEntityActions(group.key(), group.name());
-                    return;
+                if(entityGrouping == EntityGrouping.TYPE && group.canOpenInstances()) {
+                    drillEntityInstances();
+                } else {
+                    toggleDirectFilter(selector, group.name());
                 }
-                toggleDirectFilter(selector, group.name());
             }
-            case FilterKey.Direct(EntitySelector.Instance selector) -> showEntityActions(group.key(), group.name());
+            case FilterKey.Direct(EntitySelector.Instance selector) -> toggleDirectFilter(selector, group.name());
             case FilterKey.Type(DamageTypeSelector.Category selector) ->
                     drillDamageTypeCategory(selector, group.name());
             case FilterKey.Type(DamageTypeSelector.Exact selector) ->
                     toggleDamageTypeFilter(selector, group.name());
         }
+    }
+
+    private void drillEntityInstances() {
+        entityGrouping = EntityGrouping.INSTANCE;
+        requestFirstChart();
     }
 
     private static <T> Optional<T> toggle(Optional<T> current, T selected) {
@@ -648,6 +668,7 @@ public class StatsScreen extends Screen {
             FocusChartDimension candidate = values[(dimension.ordinal() + offset) % values.length];
             if(supportsDimension(candidate)) {
                 dimension = candidate;
+                entityGrouping = EntityGrouping.TYPE;
                 return;
             }
         }

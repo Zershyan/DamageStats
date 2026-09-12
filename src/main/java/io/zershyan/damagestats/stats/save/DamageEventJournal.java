@@ -119,9 +119,36 @@ public final class DamageEventJournal {
             return opponentIsSource ? incomingLifetime : outgoingLifetime;
         }
 
+        public DamageAccumulator lifetime(boolean opponentIsSource, DamageAccumulator.OpponentGrouping grouping) {
+            if(grouping == DamageAccumulator.OpponentGrouping.TYPE) return lifetime(opponentIsSource);
+            return aggregate(grouping, opponentIsSource, 0, records.size());
+        }
+
         public synchronized DamageAccumulator session(boolean opponentIsSource, int timeoutTicks) {
             TemporalResult temporal = temporal(timeoutTicks);
             return opponentIsSource ? temporal.incomingSession : temporal.outgoingSession;
+        }
+
+        public synchronized DamageAccumulator session(boolean opponentIsSource, int timeoutTicks,
+                                                       DamageAccumulator.OpponentGrouping grouping) {
+            if(grouping == DamageAccumulator.OpponentGrouping.INSTANCE) {
+                return session(opponentIsSource, timeoutTicks);
+            }
+            TemporalResult temporal = temporal(timeoutTicks);
+            if(temporal.currentStartIndex < 0) return new DamageAccumulator(grouping);
+            return aggregate(grouping, opponentIsSource, temporal.currentStartIndex, records.size());
+        }
+
+        private DamageAccumulator aggregate(DamageAccumulator.OpponentGrouping grouping,
+                                             boolean opponentIsSource, int start, int end) {
+            DamageAccumulator result = new DamageAccumulator(grouping);
+            int from = Math.clamp(start, 0, records.size());
+            int to = Math.clamp(end, from, records.size());
+            for(int index = from; index < to; index++) {
+                DamageRecord record = records.get(index);
+                result.accept(record, opponentIsSource ? record.source() : record.target());
+            }
+            return result;
         }
 
         public boolean isSessionActive(long gameTime, int timeoutTicks) {

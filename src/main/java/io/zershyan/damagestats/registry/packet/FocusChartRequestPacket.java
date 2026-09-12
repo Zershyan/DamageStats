@@ -5,13 +5,13 @@ import io.zershyan.damagestats.stats.DamageTracker;
 import io.zershyan.damagestats.stats.ServerStats;
 import io.zershyan.damagestats.stats.filter.DamageTypeGrouping;
 import io.zershyan.damagestats.stats.filter.StatsFilter;
+import io.zershyan.damagestats.stats.focus.EntityGrouping;
 import io.zershyan.damagestats.stats.focus.FocusChartDimension;
 import io.zershyan.damagestats.stats.focus.FocusChartScope;
 import io.zershyan.damagestats.stats.focus.StatsFocusManager;
 import io.zershyan.damagestats.stats.view.FocusChartPage;
 import io.zershyan.damagestats.stats.view.StatsViewBuilder;
 import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.level.ServerPlayer;
@@ -25,19 +25,34 @@ public record FocusChartRequestPacket(
         FocusChartDimension dimension,
         FocusChartScope scope,
         DamageTypeGrouping typeGrouping,
+        EntityGrouping entityGrouping,
         String cursor,
         int requestId
 ) implements CustomPacketPayload {
     public static final Type<FocusChartRequestPacket> TYPE = new Type<>(DamageStats.id("focus_chart"));
-    public static final StreamCodec<RegistryFriendlyByteBuf, FocusChartRequestPacket> STREAM_CODEC = StreamCodec.composite(
-            StatsFilter.STREAM_CODEC, FocusChartRequestPacket::filter,
-            FocusChartDimension.STREAM_CODEC, FocusChartRequestPacket::dimension,
-            FocusChartScope.STREAM_CODEC, FocusChartRequestPacket::scope,
-            DamageTypeGrouping.STREAM_CODEC, FocusChartRequestPacket::typeGrouping,
-            ByteBufCodecs.STRING_UTF8, FocusChartRequestPacket::cursor,
-            ByteBufCodecs.VAR_INT, FocusChartRequestPacket::requestId,
-            FocusChartRequestPacket::new
-    );
+    public static final StreamCodec<RegistryFriendlyByteBuf, FocusChartRequestPacket> STREAM_CODEC =
+            StreamCodec.of(FocusChartRequestPacket::encode, FocusChartRequestPacket::decode);
+
+    private static void encode(RegistryFriendlyByteBuf buf, FocusChartRequestPacket packet) {
+        StatsFilter.STREAM_CODEC.encode(buf, packet.filter);
+        FocusChartDimension.STREAM_CODEC.encode(buf, packet.dimension);
+        FocusChartScope.STREAM_CODEC.encode(buf, packet.scope);
+        DamageTypeGrouping.STREAM_CODEC.encode(buf, packet.typeGrouping);
+        EntityGrouping.STREAM_CODEC.encode(buf, packet.entityGrouping);
+        buf.writeUtf(packet.cursor, 128);
+        buf.writeVarInt(packet.requestId);
+    }
+
+    private static FocusChartRequestPacket decode(RegistryFriendlyByteBuf buf) {
+        return new FocusChartRequestPacket(
+                StatsFilter.STREAM_CODEC.decode(buf),
+                FocusChartDimension.STREAM_CODEC.decode(buf),
+                FocusChartScope.STREAM_CODEC.decode(buf),
+                DamageTypeGrouping.STREAM_CODEC.decode(buf),
+                EntityGrouping.STREAM_CODEC.decode(buf),
+                buf.readUtf(128),
+                buf.readVarInt());
+    }
 
     @Override
     public @NotNull Type<? extends CustomPacketPayload> type() {
@@ -52,12 +67,13 @@ public record FocusChartRequestPacket(
             if(tracker == null || manager == null) return;
             if(!manager.canBrowse(player, payload.filter(), tracker)) {
                 FocusChartPage denied = StatsViewBuilder.deniedFocusChartPage(manager.focusFor(player),
-                        payload.dimension(), payload.scope(), payload.typeGrouping());
+                        payload.dimension(), payload.scope(), payload.typeGrouping(), payload.entityGrouping());
                 PacketDistributor.sendToPlayer(player, new FocusChartPagePacket(denied.withRequestId(payload.requestId())));
                 return;
             }
             FocusChartPage page = StatsViewBuilder.focusChartPage(tracker, player, manager.focusFor(player),
-                    payload.filter(), payload.dimension(), payload.scope(), payload.typeGrouping(), payload.cursor());
+                    payload.filter(), payload.dimension(), payload.scope(), payload.typeGrouping(),
+                    payload.entityGrouping(), payload.cursor());
             PacketDistributor.sendToPlayer(player, new FocusChartPagePacket(page.withRequestId(payload.requestId())));
         });
     }

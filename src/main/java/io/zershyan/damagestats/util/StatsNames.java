@@ -26,8 +26,10 @@ public final class StatsNames {
     public static Component opponent(DamageTracker tracker, EntityRef ref) {
         if(ref.isEnvironment()) return DSKeyLang.SourceEnvironment.copy();
         String cached = tracker.cachedName(ref.id());
-        if(cached != null) return Component.literal(cached);
-        return entityType(ref.typeIdOrEnvironment());
+        Component name = cached != null ? Component.literal(cached) : entityType(ref.typeIdOrEnvironment());
+        var metadata = tracker.instanceDirectory().metadata(ref);
+        if(metadata == null || metadata.instanceId() <= 0) return name;
+        return Component.literal("#" + metadata.instanceId() + " ").append(name);
     }
 
     public static Component entityType(ResourceLocation entityTypeId) {

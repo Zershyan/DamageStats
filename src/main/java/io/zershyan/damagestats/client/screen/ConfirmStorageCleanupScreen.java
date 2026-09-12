@@ -45,14 +45,20 @@ public final class ConfirmStorageCleanupScreen extends Screen {
     public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         renderBackground(graphics, mouseX, mouseY, partialTick);
         Layout layout = layout();
+        graphics.flush();
+        graphics.pose().pushPose();
+        graphics.pose().translate(0, 0, 1000);
         graphics.fill(layout.x(), layout.top(), Math.min(width, layout.x() + layout.width()),
                 Math.min(height, layout.top() + layout.height()), 0xFF20262C);
+        graphics.flush();
         graphics.drawCenteredString(font, truncate(title, layout.width() - 16), width / 2,
                 Math.clamp(layout.top() + 16, 0, Math.max(0, height - 1)), 0xFFFFFFFF);
         Component description = description(target);
         graphics.drawCenteredString(font, font.plainSubstrByWidth(description.getString(), Math.max(1, layout.width() - 16)),
                 width / 2, Math.clamp(layout.top() + 34, 0, Math.max(0, height - 1)), 0xFFACB8C2);
         renderables.forEach(renderable -> renderable.render(graphics, mouseX, mouseY, partialTick));
+        graphics.flush();
+        graphics.pose().popPose();
     }
 
     @Override

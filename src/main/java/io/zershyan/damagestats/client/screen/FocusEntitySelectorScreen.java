@@ -402,7 +402,13 @@ public class FocusEntitySelectorScreen extends Screen {
         int top = layout.top();
         int right = left + layout.width();
         int bottom = top + layout.height();
+        // 先提交底层列表，避免弹窗背景与列表文字在不同缓冲区中重新排序后发生穿透。
+        graphics.flush();
+        graphics.pose().pushPose();
+        graphics.pose().translate(0, 0, 1000);
+        graphics.fill(left - 1, top - 1, right + 1, bottom + 1, 0xFF111418);
         graphics.fill(left, top, right, bottom, 0xFF20262C);
+        graphics.flush();
         for(int index = 0; index < entries.size(); index++) {
             EntityChoiceView entry = entries.get(index);
             int y = top + index * ROW_HEIGHT;
@@ -420,6 +426,8 @@ public class FocusEntitySelectorScreen extends Screen {
         graphics.fill(left, Math.max(top, bottom - 1), right, bottom, 0xFF505A64);
         graphics.fill(left, top, Math.min(right, left + 1), bottom, 0xFF505A64);
         graphics.fill(Math.max(left, right - 1), top, right, bottom, 0xFF505A64);
+        graphics.flush();
+        graphics.pose().popPose();
     }
 
     private List<EntityChoiceView> recentEntries(RecentMenuLayout layout) {

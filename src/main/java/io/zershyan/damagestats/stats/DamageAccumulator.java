@@ -40,6 +40,7 @@ public class DamageAccumulator {
 
     private final Map<ResourceLocation, DamageAccumulator> byDamageType;
     private final Map<ResourceLocation, DamageAccumulator> byDirectSourceType;
+    private final Map<EntityRef, DamageAccumulator> byDirectSource;
     private final Map<EntityRef, DamageAccumulator> byOpponent;
 
     public DamageAccumulator(OpponentGrouping opponentGrouping) {
@@ -48,6 +49,7 @@ public class DamageAccumulator {
         boolean grouped = opponentGrouping != OpponentGrouping.NONE;
         this.byDamageType = grouped ? new HashMap<>() : Map.of();
         this.byDirectSourceType = grouped ? new HashMap<>() : Map.of();
+        this.byDirectSource = grouped ? new HashMap<>() : Map.of();
         this.byOpponent = grouped ? new HashMap<>() : Map.of();
     }
 
@@ -96,6 +98,8 @@ public class DamageAccumulator {
                     .optionalFieldOf("byType", Map.of()).forGetter(acc -> acc.byDamageType),
             Codec.unboundedMap(ResourceLocation.CODEC, LEAF_CODEC)
                     .optionalFieldOf("bySource", Map.of()).forGetter(acc -> acc.byDirectSourceType),
+            OpponentGroup.CODEC.listOf().optionalFieldOf("bySourceInstance", List.of())
+                    .forGetter(DamageAccumulator::directSourceGroups),
             OpponentGroup.CODEC.listOf().optionalFieldOf("byOpponent", List.of())
                     .forGetter(DamageAccumulator::opponentGroups)
     ).apply(instance, DamageAccumulator::restoreGrouped));
@@ -123,6 +127,7 @@ public class DamageAccumulator {
         if(opponentGrouping == OpponentGrouping.NONE) return;
         group(byDamageType, record.damageTypeId()).accept(record, opponent);
         group(byDirectSourceType, record.directSource().typeIdOrEnvironment()).accept(record, opponent);
+        group(byDirectSource, record.directSource()).accept(record, opponent);
         group(byOpponent, opponentKey(opponent)).accept(record, opponent);
     }
 
@@ -182,6 +187,8 @@ public class DamageAccumulator {
                 byDamageType.computeIfAbsent(key, ignored -> new DamageAccumulator(OpponentGrouping.NONE)).absorb(value));
         other.byDirectSourceType.forEach((key, value) ->
                 byDirectSourceType.computeIfAbsent(key, ignored -> new DamageAccumulator(OpponentGrouping.NONE)).absorb(value));
+        other.byDirectSource.forEach((key, value) ->
+                byDirectSource.computeIfAbsent(key, ignored -> new DamageAccumulator(OpponentGrouping.NONE)).absorb(value));
         other.byOpponent.forEach((key, value) ->
                 byOpponent.computeIfAbsent(opponentKey(key), ignored -> new DamageAccumulator(OpponentGrouping.NONE))
                         .absorb(value));
@@ -229,6 +236,10 @@ public class DamageAccumulator {
         return Collections.unmodifiableMap(byDirectSourceType);
     }
 
+    public Map<EntityRef, DamageAccumulator> getByDirectSource() {
+        return Collections.unmodifiableMap(byDirectSource);
+    }
+
     public Map<EntityRef, DamageAccumulator> getByOpponent() {
         return Collections.unmodifiableMap(byOpponent);
     }
@@ -241,6 +252,12 @@ public class DamageAccumulator {
 
     private List<OpponentGroup> opponentGroups() {
         return byOpponent.entrySet().stream()
+                .map(group -> new OpponentGroup(group.getKey(), group.getValue()))
+                .toList();
+    }
+
+    private List<OpponentGroup> directSourceGroups() {
+        return byDirectSource.entrySet().stream()
                 .map(group -> new OpponentGroup(group.getKey(), group.getValue()))
                 .toList();
     }
@@ -265,12 +282,14 @@ public class DamageAccumulator {
 
     /** 只有永久累计会被持久化，所以恢复出来的一律是类型级粒度 */
     private static DamageAccumulator restoreGrouped(Totals totals,
-                                                    Map<ResourceLocation, DamageAccumulator> byType,
-                                                    Map<ResourceLocation, DamageAccumulator> bySource,
-                                                    List<OpponentGroup> byOpponent) {
+                                                     Map<ResourceLocation, DamageAccumulator> byType,
+                                                     Map<ResourceLocation, DamageAccumulator> bySource,
+                                                     List<OpponentGroup> bySourceInstance,
+                                                     List<OpponentGroup> byOpponent) {
         DamageAccumulator accumulator = restore(new DamageAccumulator(OpponentGrouping.TYPE), totals);
         accumulator.byDamageType.putAll(byType);
         accumulator.byDirectSourceType.putAll(bySource);
+        bySourceInstance.forEach(group -> accumulator.byDirectSource.put(group.opponent(), group.stats()));
         byOpponent.forEach(group -> accumulator.byOpponent
                 .computeIfAbsent(accumulator.opponentKey(group.opponent()), ignored ->
                         new DamageAccumulator(OpponentGrouping.NONE))

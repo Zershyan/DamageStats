@@ -209,8 +209,13 @@ public class OverlayPositionScreen extends Screen {
         renderBackground(graphics, mouseX, mouseY, partialTick);
         int previewX = originX();
         int previewY = originY();
+        graphics.flush();
+        graphics.pose().pushPose();
+        graphics.pose().translate(0, 0, -1000);
         StatsOverlay.renderBox(graphics, font, StatsOverlay.previewSummary(), previewX, previewY);
         graphics.renderOutline(previewX, previewY, StatsOverlay.width(), StatsOverlay.height(), PREVIEW_BORDER);
+        graphics.pose().popPose();
+        graphics.flush();
         graphics.drawCenteredString(font, title, width / 2,
                 Math.clamp(TITLE_Y, 0, Math.max(0, height - 1)), 0xFFFFFFFF);
         if(targetButton != null) targetButton.setMessage(DSKeyLang.FilterTarget.get(ClientStats.summary().scope().targetName()));

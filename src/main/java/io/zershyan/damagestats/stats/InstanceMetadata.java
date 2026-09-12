@@ -9,6 +9,7 @@ import net.minecraft.world.entity.player.Player;
 
 /** 实例目录只保存识别和定位所需的最后交互信息，不承担伤害明细的存储职责。 */
 public record InstanceMetadata(
+        long instanceId,
         EntityRef ref,
         String displayName,
         ResourceLocation dimensionId,
@@ -19,6 +20,7 @@ public record InstanceMetadata(
         long lastInteractionGameTime
 ) {
     public static final Codec<InstanceMetadata> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+            Codec.LONG.optionalFieldOf("instanceId", 0L).forGetter(InstanceMetadata::instanceId),
             EntityRef.CODEC.fieldOf("ref").forGetter(InstanceMetadata::ref),
             Codec.STRING.optionalFieldOf("name", "").forGetter(InstanceMetadata::displayName),
             ResourceLocation.CODEC.fieldOf("dimension").forGetter(InstanceMetadata::dimensionId),
@@ -35,6 +37,7 @@ public record InstanceMetadata(
                 ? player.getGameProfile().getName()
                 : entity.getCustomName() == null ? "" : entity.getCustomName().getString();
         return new InstanceMetadata(
+                0L,
                 EntityRef.of(entity),
                 displayName,
                 entity.level().dimension().location(),

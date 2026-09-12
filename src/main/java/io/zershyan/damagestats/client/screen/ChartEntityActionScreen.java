@@ -86,8 +86,12 @@ public final class ChartEntityActionScreen extends Screen {
         Layout layout = layout();
         int x = Math.max(0, layout.x() - 8);
         int y = layout.top();
+        graphics.flush();
+        graphics.pose().pushPose();
+        graphics.pose().translate(0, 0, 1000);
         graphics.fill(x, y, Math.min(width, x + layout.width() + 16),
                 Math.min(height, y + layout.height()), 0xFF20262C);
+        graphics.flush();
         Component displayTitle = truncate(title, Math.max(1, layout.width() - 12));
         graphics.drawCenteredString(font, displayTitle, width / 2,
                 Math.clamp(y + 10, 0, Math.max(0, height - 1)), 0xFFFFFFFF);
@@ -97,6 +101,8 @@ public final class ChartEntityActionScreen extends Screen {
                 ? List.of(title) : List.of();
         renderables.forEach(renderable -> renderable.render(graphics, mouseX, mouseY, partialTick));
         if(!tooltip.isEmpty()) graphics.renderComponentTooltip(font, tooltip, mouseX, mouseY);
+        graphics.flush();
+        graphics.pose().popPose();
     }
 
     @Override
