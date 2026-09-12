@@ -33,6 +33,8 @@ public final class DSPackets {
                 EntityChoicePagePacket::handle);
         registrar.playToClient(FocusChartPagePacket.TYPE, FocusChartPagePacket.STREAM_CODEC,
                 FocusChartPagePacket::handle);
+        registrar.playToClient(FocusChartInstancesPagePacket.TYPE, FocusChartInstancesPagePacket.STREAM_CODEC,
+                FocusChartInstancesPagePacket::handle);
         registrar.playToClient(HistoryPagePacket.TYPE, HistoryPagePacket.STREAM_CODEC, HistoryPagePacket::handle);
         registrar.playToClient(ExportStartPacket.TYPE, ExportStartPacket.STREAM_CODEC, ExportStartPacket::handle);
         registrar.playToClient(ExportChunkPacket.TYPE, ExportChunkPacket.STREAM_CODEC, ExportChunkPacket::handle);
@@ -46,6 +48,8 @@ public final class DSPackets {
                 EntityChoiceRequestPacket::handle);
         registrar.playToServer(FocusChartRequestPacket.TYPE, FocusChartRequestPacket.STREAM_CODEC,
                 FocusChartRequestPacket::handle);
+        registrar.playToServer(FocusChartInstancesRequestPacket.TYPE, FocusChartInstancesRequestPacket.STREAM_CODEC,
+                FocusChartInstancesRequestPacket::handle);
         registrar.playToServer(HistoryRequestPacket.TYPE, HistoryRequestPacket.STREAM_CODEC, HistoryRequestPacket::handle);
         registrar.playToServer(ExportRequestPacket.TYPE, ExportRequestPacket.STREAM_CODEC, ExportRequestPacket::handle);
         registrar.playToServer(StorageOverviewRequestPacket.TYPE, StorageOverviewRequestPacket.STREAM_CODEC,

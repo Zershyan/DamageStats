@@ -38,7 +38,7 @@ public final class DamageResolver {
      */
     public static EntityRef resolveDirectSource(DamageSource source) {
         Entity direct = source.getDirectEntity();
-        if(direct == null) return EntityRef.ENVIRONMENT;
+        if(direct == null) return EntityRef.of(source.getEntity());
         if(direct instanceof LivingEntity) return EntityRef.of(direct);
         return EntityRef.ofType(BuiltInRegistries.ENTITY_TYPE.getKey(direct.getType()));
     }

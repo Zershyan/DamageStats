@@ -7,6 +7,7 @@ import io.zershyan.damagestats.stats.filter.EntitySelector;
 import io.zershyan.damagestats.stats.filter.StatsFilter;
 import io.zershyan.damagestats.stats.focus.FocusSelectionSlot;
 import io.zershyan.damagestats.stats.view.EntityChoicePage;
+import io.zershyan.damagestats.stats.view.EntityChoiceSort;
 import io.zershyan.damagestats.stats.view.EntityChoiceView;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -50,6 +51,8 @@ public class FocusEntitySelectorScreen extends Screen {
     private @Nullable EntityChoicePage adopted;
     private @Nullable EditBox searchBox;
     private @Nullable Button recentButton;
+    private @Nullable Button sortButton;
+    private EntityChoiceSort sort = EntityChoiceSort.DAMAGE;
     private boolean recentMenuOpen;
     private List<EntityChoiceView> recentChoices = List.of();
     private int recentRequestId = -1;
@@ -120,6 +123,7 @@ public class FocusEntitySelectorScreen extends Screen {
     protected void init() {
         if(minecraft == null) return;
         recentButton = null;
+        sortButton = null;
         searchBox = null;
         rowSelectButtons.clear();
         rowInstancesButtons.clear();
@@ -139,6 +143,15 @@ public class FocusEntitySelectorScreen extends Screen {
                                 toggleRecentMenu())
                         .bounds(controlsLeft, searchTop, recentWidth, 18).build());
                 controlsLeft += recentWidth + controlGap;
+            } else if(typeFilter != null && available >= 2) {
+                int controlGap = Math.clamp(available - 2, 0, 4);
+                int reservedSearchWidth = Math.clamp((available - controlGap) / 2, 1, 64);
+                int preferredSortWidth = Math.clamp(available / 3, 72, 132);
+                int sortWidth = Math.clamp(preferredSortWidth, 1,
+                        Math.max(1, available - controlGap - reservedSearchWidth));
+                sortButton = addRenderableWidget(Button.builder(sortLabel(), button -> cycleSort())
+                        .bounds(controlsLeft, searchTop, sortWidth, 18).build());
+                controlsLeft += sortWidth + controlGap;
             }
             int remaining = Math.max(1, contentRight() - controlsLeft);
             boolean showSearchButton = remaining >= 92;
@@ -174,7 +187,8 @@ public class FocusEntitySelectorScreen extends Screen {
         renderBackground(graphics, mouseX, mouseY, partialTick);
         EntityChoicePage page = ClientStats.entityChoices();
         if(page != null && page != adopted && page.requestId() == requestId
-                && page.slot() == slot && page.typeFilter().equals(Optional.ofNullable(typeFilter))) {
+                && page.slot() == slot && page.typeFilter().equals(Optional.ofNullable(typeFilter))
+                && page.sort() == sort) {
             boolean invalidated = page.snapshotId() == 0 && !cursor.isEmpty();
             if(invalidated) {
                 cursorHistory.clear();
@@ -199,7 +213,7 @@ public class FocusEntitySelectorScreen extends Screen {
             refreshActions();
         }
         if(page != null && (page.requestId() != requestId || page.slot() != slot
-                || !page.typeFilter().equals(Optional.ofNullable(typeFilter)))) page = null;
+                || !page.typeFilter().equals(Optional.ofNullable(typeFilter)) || page.sort() != sort)) page = null;
         updateRowActions(page);
         int titleY = Math.clamp(footerFlow().top() - 1, 0, 10);
         if(footerFlow().top() >= 12) {
@@ -301,6 +315,21 @@ public class FocusEntitySelectorScreen extends Screen {
         recentRequestId = requestsRecentTypes ? sentRequestId : -1;
     }
 
+    private void cycleSort() {
+        if(typeFilter == null) return;
+        sort = sort.next();
+        if(sortButton != null) sortButton.setMessage(sortLabel());
+        requestFirstPage();
+    }
+
+    private Component sortLabel() {
+        return DSKeyLang.ScreenSort.get(switch(sort) {
+            case RECENT -> DSKeyLang.SortRecent.copy();
+            case DAMAGE -> DSKeyLang.SortDamage.copy();
+            case HITS -> DSKeyLang.SortHits.copy();
+        });
+    }
+
     private void toggleRecentMenu() {
         if(recentChoices.isEmpty()) return;
         recentMenuOpen = !recentMenuOpen;
@@ -325,7 +354,7 @@ public class FocusEntitySelectorScreen extends Screen {
         recentRequestId = -1;
         requestId = ClientStats.nextEntityChoiceRequestId();
         PacketDistributor.sendToServer(new EntityChoiceRequestPacket(slot, Optional.ofNullable(typeFilter), searchValue(),
-                cursor, requestId, contextFilter));
+                cursor, requestId, sort, contextFilter));
         refreshActions();
         return requestId;
     }

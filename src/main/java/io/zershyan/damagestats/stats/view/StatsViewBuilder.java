@@ -135,8 +135,10 @@ public final class StatsViewBuilder {
                                                 DamageTypeGrouping typeGrouping, EntityGrouping entityGrouping,
                                                 String cursor) {
         boolean allowed = switch (dimension) {
-            case RESPONSIBLE_SOURCE -> filter.source().isEmpty() && filter.target().isPresent();
-            case TARGET -> filter.source().isPresent() && filter.target().isEmpty();
+            case RESPONSIBLE_SOURCE -> filter.target().isPresent()
+                    && (filter.source().isEmpty() || entityGrouping == EntityGrouping.INSTANCE);
+            case TARGET -> filter.source().isPresent()
+                    && (filter.target().isEmpty() || entityGrouping == EntityGrouping.INSTANCE);
             case DAMAGE_TYPE, DIRECT_SOURCE -> true;
         };
         if(!allowed) return new FocusChartPage(focus.version(), 0, 0, "", "", false, dimension, scope, typeGrouping,
@@ -195,6 +197,67 @@ public final class StatsViewBuilder {
                                                        EntityGrouping entityGrouping) {
         return new FocusChartPage(focus.version(), 0, 0, "", "", false, dimension, scope, typeGrouping,
                 entityGrouping, List.of(), false);
+    }
+
+    public static FocusChartInstancesPage focusChartInstancesPage(
+            DamageTracker tracker, ServerPlayer player, StatsFocus focus, StatsFilter filter,
+            FocusChartDimension dimension, FocusChartScope scope, DamageTypeGrouping typeGrouping,
+            FilterKey parentKey, String cursor) {
+        StatsFilter instanceFilter = instanceFilter(filter, dimension, parentKey);
+        if(instanceFilter == null) {
+            return deniedFocusChartInstancesPage(focus, dimension, scope, typeGrouping, filter, parentKey);
+        }
+        FocusChartPage page = focusChartPage(tracker, player, focus, instanceFilter, dimension, scope,
+                typeGrouping, EntityGrouping.INSTANCE, cursor);
+        return new FocusChartInstancesPage(page.focusVersion(), page.requestId(), page.snapshotId(), page.cursor(),
+                page.nextCursor(), page.allowed(), page.dimension(), page.scope(), page.typeGrouping(), filter,
+                parentKey, page.rows(), page.hasNext());
+    }
+
+    public static FocusChartInstancesPage deniedFocusChartInstancesPage(
+            StatsFocus focus, FocusChartDimension dimension, FocusChartScope scope,
+            DamageTypeGrouping typeGrouping, StatsFilter filter, FilterKey parentKey) {
+        return new FocusChartInstancesPage(focus.version(), 0, 0, "", "", false, dimension, scope, typeGrouping,
+                filter, parentKey, List.of(), false);
+    }
+
+    public static @Nullable StatsFilter instanceFilter(StatsFilter filter, FocusChartDimension dimension,
+                                                        FilterKey parentKey) {
+        if(!(parentKey instanceof FilterKey.Source(EntitySelector.Type type))) {
+            if(!(parentKey instanceof FilterKey.Target(EntitySelector.Type targetType))) {
+                if(!(parentKey instanceof FilterKey.Direct(EntitySelector.Type directType))) return null;
+                if(dimension != FocusChartDimension.DIRECT_SOURCE || !EntityTypeHelper.isLivingType(directType.typeId())) {
+                    return null;
+                }
+                EntitySelector selected = compatibleSelector(filter.directSource(), directType.typeId());
+                if(selected == null) return null;
+                return new StatsFilter(filter.source(), filter.target(), Optional.of(selected), filter.damageType(),
+                        filter.sourceIsDirectSource());
+            }
+            if(dimension != FocusChartDimension.TARGET || !EntityTypeHelper.isLivingType(targetType.typeId())) {
+                return null;
+            }
+            EntitySelector selected = compatibleSelector(filter.target(), targetType.typeId());
+            if(selected == null) return null;
+            return new StatsFilter(filter.source(), Optional.of(selected), filter.directSource(), filter.damageType(),
+                    filter.sourceIsDirectSource());
+        }
+        if(dimension != FocusChartDimension.RESPONSIBLE_SOURCE || !EntityTypeHelper.isLivingType(type.typeId())) {
+            return null;
+        }
+        EntitySelector selected = compatibleSelector(filter.source(), type.typeId());
+        if(selected == null) return null;
+        return new StatsFilter(Optional.of(selected), filter.target(), filter.directSource(), filter.damageType(), false);
+    }
+
+    private static @Nullable EntitySelector compatibleSelector(Optional<EntitySelector> existing,
+                                                               ResourceLocation typeId) {
+        EntitySelector selector = existing.orElse(null);
+        if(selector == null) return new EntitySelector.Type(typeId);
+        return switch (selector) {
+            case EntitySelector.Instance(EntityRef ref) -> typeId.equals(ref.typeIdOrEnvironment()) ? selector : null;
+            case EntitySelector.Type(ResourceLocation existingType) -> typeId.equals(existingType) ? selector : null;
+        };
     }
 
     private static ChartCursor findChartCursor(DamageEventJournal journal, String cursor, ServerPlayer player,

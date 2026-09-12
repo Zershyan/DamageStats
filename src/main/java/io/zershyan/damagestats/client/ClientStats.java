@@ -1,8 +1,14 @@
 package io.zershyan.damagestats.client;
 
+import io.zershyan.damagestats.stats.filter.FilterKey;
 import io.zershyan.damagestats.stats.focus.FocusChangeResult;
 import io.zershyan.damagestats.stats.view.*;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * 客户端侧的数据镜像。只存服务端推过来的视图，不自行计算任何权威数据，
@@ -13,6 +19,8 @@ public final class ClientStats {
     private static FocusChangeResult lastFocusResult = FocusChangeResult.ACCEPTED;
     private static @Nullable EntityChoicePage entityChoices;
     private static @Nullable FocusChartPage chartPage;
+    private static final Map<FilterKey, FocusChartInstancesPage> chartInstancesPages = new HashMap<>();
+    private static final Map<FilterKey, Integer> chartInstancesRequestIds = new HashMap<>();
     private static @Nullable HistoryPage historyPage;
     private static boolean snapshotInvalidated;
     private static boolean focusStateReceived;
@@ -29,7 +37,10 @@ public final class ClientStats {
     public static void acceptFocusState(FocusChangeResult result, FocusSummary incoming, int requestId) {
         resetIfWorldChanged(incoming.worldId());
         if(incoming.revision() < summary.revision()) return;
-        if(summary.scope().version() != incoming.scope().version()) chartPage = null;
+        if(summary.scope().version() != incoming.scope().version()) {
+            chartPage = null;
+            clearChartInstances();
+        }
         summary = incoming;
         focusStateReceived = true;
         lastFocusResult = result;
@@ -67,6 +78,47 @@ public final class ClientStats {
         chartPage = page;
     }
 
+    public static void acceptChartInstancesPage(FocusChartInstancesPage page) {
+        int requestId = chartInstancesRequestIds.getOrDefault(page.parentKey(), 0);
+        if(page.requestId() < requestId) return;
+        FocusChartInstancesPage previous = chartInstancesPages.get(page.parentKey());
+        if(previous != null && previous.allowed() && page.allowed()
+                && previous.focusVersion() == page.focusVersion()
+                && previous.snapshotId() == page.snapshotId()
+                && previous.dimension() == page.dimension()
+                && previous.scope() == page.scope()
+                && previous.typeGrouping() == page.typeGrouping()
+                && previous.filter().equals(page.filter())
+                && previous.nextCursor().equals(page.cursor())) {
+            List<io.zershyan.damagestats.stats.view.GroupView> rows = new ArrayList<>(previous.rows());
+            rows.addAll(page.rows());
+            page = new FocusChartInstancesPage(page.focusVersion(), page.requestId(), page.snapshotId(),
+                    previous.cursor(), page.nextCursor(), page.allowed(), page.dimension(), page.scope(),
+                    page.typeGrouping(), page.filter(), page.parentKey(), List.copyOf(rows), page.hasNext());
+        }
+        chartInstancesPages.put(page.parentKey(), page);
+    }
+
+    public static int nextChartInstancesRequestId(FilterKey parentKey) {
+        int requestId = chartInstancesRequestIds.getOrDefault(parentKey, 0) + 1;
+        chartInstancesRequestIds.put(parentKey, requestId);
+        return requestId;
+    }
+
+    public static @Nullable FocusChartInstancesPage chartInstancesPage(FilterKey parentKey) {
+        return chartInstancesPages.get(parentKey);
+    }
+
+    public static void clearChartInstances() {
+        chartInstancesPages.clear();
+        chartInstancesRequestIds.replaceAll((key, requestId) -> requestId + 1);
+    }
+
+    private static void resetChartInstances() {
+        clearChartInstances();
+        chartInstancesRequestIds.clear();
+    }
+
     public static int nextEntityChoiceRequestId() {
         return ++entityChoiceRequestId;
     }
@@ -97,6 +149,7 @@ public final class ClientStats {
         focusStateReceived = false;
         entityChoices = null;
         chartPage = null;
+        resetChartInstances();
         historyPage = null;
         snapshotInvalidated = true;
     }
@@ -116,6 +169,7 @@ public final class ClientStats {
         lastFocusResult = FocusChangeResult.ACCEPTED;
         entityChoices = null;
         chartPage = null;
+        resetChartInstances();
         historyPage = null;
         snapshotInvalidated = false;
     }
@@ -126,6 +180,7 @@ public final class ClientStats {
         focusStateReceived = false;
         entityChoices = null;
         chartPage = null;
+        resetChartInstances();
         historyPage = null;
         snapshotInvalidated = false;
     }

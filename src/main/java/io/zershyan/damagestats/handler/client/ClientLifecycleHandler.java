@@ -16,6 +16,7 @@ public final class ClientLifecycleHandler {
     public static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
         ClientStats.clear();
         ClientFocusPreferences.clearSession();
+        ClientInputHandler.clearCachedScreen();
     }
 
     @SubscribeEvent

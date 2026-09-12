@@ -10,6 +10,7 @@ import io.zershyan.damagestats.stats.focus.EntityGrouping;
 import io.zershyan.damagestats.stats.focus.FocusChartDimension;
 import io.zershyan.damagestats.stats.focus.FocusChartScope;
 import io.zershyan.damagestats.stats.focus.FocusSelectionSlot;
+import io.zershyan.damagestats.stats.view.FocusChartInstancesPage;
 import io.zershyan.damagestats.stats.view.FocusChartPage;
 import io.zershyan.damagestats.stats.view.FocusSummary;
 import io.zershyan.damagestats.stats.view.GroupView;
@@ -24,9 +25,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 
 /** 全屏焦点仪表盘：页头即时更新，页间统一滚动，图表和历史数据按需请求。 */
 @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
@@ -54,6 +53,7 @@ public class StatsScreen extends Screen {
     private final List<String> chartCursorHistory = new ArrayList<>();
     private int chartRequestId;
     private int contentScrollOffset;
+    private final Set<FilterKey> expandedChartParents = new HashSet<>();
     private Optional<EntitySelector> browsingSource = Optional.empty();
     private Optional<EntitySelector> browsingTarget = Optional.empty();
     private Optional<EntitySelector> browsingDirectSource = Optional.empty();
@@ -68,7 +68,6 @@ public class StatsScreen extends Screen {
     private boolean dataRequestsStarted;
     private long chartFocusVersion = -1;
     private @Nullable FocusChartPage adopted;
-    private List<Component> chartValues = List.of();
     private List<Component> chartTooltip = List.of();
     private List<Component> headerTooltip = List.of();
     private @Nullable Button sourceButton;
@@ -246,7 +245,6 @@ public class StatsScreen extends Screen {
                 requestChart("");
             } else {
                 adopted = page;
-                chartValues = chartValues(page.rows());
                 chartCursor = page.cursor();
                 contentScrollOffset = 0;
                 refreshButtons();
@@ -312,7 +310,7 @@ public class StatsScreen extends Screen {
                     : DSKeyLang.NoData.copy(), left, rowTop, MUTED);
             return;
         }
-        List<GroupView> rows = page.rows();
+        List<ChartRow> rows = chartRows(page);
         if(rows.isEmpty()) {
             graphics.drawString(font, DSKeyLang.NoData.copy(), left, rowTop, MUTED);
             return;
@@ -323,24 +321,43 @@ public class StatsScreen extends Screen {
                 : Math.clamp(contentWidth / 3, 36, maxLabelWidth);
         int barLeft = Math.min(right - 1, left + labelWidth + 8);
         int barWidth = Math.max(1, right - barLeft);
-        float maxDamage = rows.stream().map(GroupView::damage).max(Float::compare).orElse(1f);
+        float maxDamage = 1f;
+        for (ChartRow row : rows) {
+            GroupView group = row.group();
+            if(group != null) maxDamage = Math.max(maxDamage, group.damage());
+        }
         for (int row = 0; row < rows.size(); row++) {
-            GroupView group = rows.get(row);
+            ChartRow chartRow = rows.get(row);
             int y = rowTop + row * ROW_HEIGHT;
+            GroupView group = chartRow.group();
+            if(group == null) {
+                Component marker = switch (chartRow.marker()) {
+                    case LOADING -> DSKeyLang.ScreenLoading.copy();
+                    case EMPTY -> chartRow.allowed() ? DSKeyLang.NoData.copy() : DSKeyLang.StatsPrivate.copy();
+                    case NEXT -> DSKeyLang.ScreenTruncated.copy();
+                    case NONE -> Component.empty();
+                };
+                graphics.drawString(font, marker,
+                        left + chartRow.indent() * 12, y + 5, MUTED);
+                continue;
+            }
+            int labelLeft = left + chartRow.indent() * 12;
+            int rowLabelWidth = Math.max(1, labelWidth - chartRow.indent() * 12);
             int widthForDamage = Mth.clamp(Math.round(barWidth * group.damage() / Math.max(1, maxDamage)), 1, barWidth);
             boolean hovered = mouseX >= left && mouseX <= right
                     && mouseY >= y && mouseY < y + ROW_HEIGHT - 2
                     && mouseY >= contentTop(layout) && mouseY < contentBottom(layout);
             graphics.fill(barLeft, y + 2, barLeft + widthForDamage, y + ROW_HEIGHT - 3,
                     hovered ? BAR_HOVER : BAR);
-            graphics.drawString(font, truncate(group.name(), labelWidth), left, y + 5, TEXT);
-            Component value = chartValues.get(row);
+            Component label = group.name();
+            if(chartRow.indent() == 0 && expandable(group)) {
+                label = Component.literal(expandedChartParents.contains(group.key()) ? "▼ " : "▶ ")
+                        .append(label);
+            }
+            graphics.drawString(font, truncate(label, rowLabelWidth), labelLeft, y + 5, TEXT);
+            Component value = chartValue(group);
             graphics.drawString(font, truncate(value, Math.max(1, barWidth - 4)), barLeft + 2, y + 5, TEXT);
             if(hovered) chartTooltip = chartTooltip(group);
-        }
-        if(page.hasNext()) {
-            int y = rowTop + rows.size() * ROW_HEIGHT;
-            graphics.drawString(font, DSKeyLang.ScreenTruncated.copy(), left, y, MUTED);
         }
     }
 
@@ -368,11 +385,24 @@ public class StatsScreen extends Screen {
         if(button != 0 || !insideContent(mouseX, mouseY, layout) || !validChartPage(page)) return false;
         int chartOffset = chartFilterHeight();
         int rowTop = contentTop(layout) + chartOffset + 16 - contentScrollOffset;
-        int chartBottom = rowTop + page.rows().size() * ROW_HEIGHT;
+        List<ChartRow> rows = chartRows(page);
+        int chartBottom = rowTop + rows.size() * ROW_HEIGHT;
         if(mouseY < rowTop || mouseY >= chartBottom) return false;
         int row = (int) ((mouseY - rowTop) / ROW_HEIGHT);
-        if(row < 0 || row >= page.rows().size()) return false;
-        applyChartFilter(page.rows().get(row));
+        if(row < 0 || row >= rows.size()) return false;
+        ChartRow chartRow = rows.get(row);
+        if(chartRow.group() == null) {
+            if(chartRow.marker() == RowMarker.NEXT && chartRow.parentKey() != null) {
+                FocusChartInstancesPage instances = ClientStats.chartInstancesPage(chartRow.parentKey());
+                if(validChartInstancesPage(instances, chartRow.parentKey()) && instances.hasNext()) {
+                    requestChartInstances(chartRow.parentKey(), instances.nextCursor());
+                }
+            } else if(chartRow.marker() == RowMarker.NEXT) {
+                nextChartPage();
+            }
+            return true;
+        }
+        applyChartFilter(chartRow.group());
         return true;
     }
 
@@ -392,11 +422,12 @@ public class StatsScreen extends Screen {
         if(!browsingInitialized) return;
         chartCursor = cursor == null ? "" : cursor;
         adopted = null;
-        chartValues = List.of();
+        expandedChartParents.clear();
+        ClientStats.clearChartInstances();
         contentScrollOffset = 0;
         chartRequestId = ClientStats.nextChartRequestId();
         PacketDistributor.sendToServer(new FocusChartRequestPacket(browsingFilter(), dimension, chartScope,
-                typeGrouping, entityGrouping, chartCursor, chartRequestId));
+                typeGrouping, EntityGrouping.TYPE, chartCursor, chartRequestId));
     }
 
     private void nextChartPage() {
@@ -525,29 +556,27 @@ public class StatsScreen extends Screen {
     private void applyChartFilter(GroupView group) {
         switch (group.key()) {
             case FilterKey.Source(EntitySelector selector) -> {
-                if(selector instanceof EntitySelector.Type && entityGrouping == EntityGrouping.TYPE
-                        && group.canOpenInstances()) {
-                    drillEntityInstances();
+                if(selector instanceof EntitySelector.Type && group.canOpenInstances()) {
+                    toggleChartInstances(group);
                 } else {
                     setBrowsingSource(selector, group.name());
                 }
             }
             case FilterKey.Target(EntitySelector selector) -> {
-                if(selector instanceof EntitySelector.Type && entityGrouping == EntityGrouping.TYPE
-                        && group.canOpenInstances()) {
-                    drillEntityInstances();
+                if(selector instanceof EntitySelector.Type && group.canOpenInstances()) {
+                    toggleChartInstances(group);
                 } else {
                     setBrowsingTarget(selector, group.name());
                 }
             }
             case FilterKey.Direct(EntitySelector.Type selector) -> {
-                if(entityGrouping == EntityGrouping.TYPE && group.canOpenInstances()) {
-                    drillEntityInstances();
+                if(group.canOpenInstances()) {
+                    toggleChartInstances(group);
                 } else {
                     toggleDirectFilter(selector, group.name());
                 }
             }
-            case FilterKey.Direct(EntitySelector.Instance selector) -> toggleDirectFilter(selector, group.name());
+            case FilterKey.Direct(EntitySelector.Instance selector) -> setBrowsingDirectSource(selector, group.name());
             case FilterKey.Type(DamageTypeSelector.Category selector) ->
                     drillDamageTypeCategory(selector, group.name());
             case FilterKey.Type(DamageTypeSelector.Exact selector) ->
@@ -555,9 +584,22 @@ public class StatsScreen extends Screen {
         }
     }
 
-    private void drillEntityInstances() {
-        entityGrouping = EntityGrouping.INSTANCE;
-        requestFirstChart();
+    private void toggleChartInstances(GroupView group) {
+        if(!expandable(group)) return;
+        FilterKey parentKey = group.key();
+        if(!expandedChartParents.add(parentKey)) {
+            expandedChartParents.remove(parentKey);
+            return;
+        }
+        FocusChartInstancesPage page = ClientStats.chartInstancesPage(parentKey);
+        if(!validChartInstancesPage(page, parentKey)) requestChartInstances(parentKey, "");
+    }
+
+    private void requestChartInstances(FilterKey parentKey, String cursor) {
+        if(!browsingInitialized) return;
+        int requestId = ClientStats.nextChartInstancesRequestId(parentKey);
+        PacketDistributor.sendToServer(new FocusChartInstancesRequestPacket(browsingFilter(), dimension,
+                chartScope, typeGrouping, parentKey, cursor == null ? "" : cursor, requestId));
     }
 
     private static <T> Optional<T> toggle(Optional<T> current, T selected) {
@@ -720,25 +762,61 @@ public class StatsScreen extends Screen {
                 && page.focusVersion() == ClientStats.summary().scope().version() && page.allowed();
     }
 
+    private boolean validChartInstancesPage(@Nullable FocusChartInstancesPage page, FilterKey parentKey) {
+        return page != null && page.focusVersion() == ClientStats.summary().scope().version()
+                && page.dimension() == dimension && page.scope() == chartScope
+                && page.typeGrouping() == typeGrouping && page.filter().equals(browsingFilter())
+                && page.parentKey().equals(parentKey);
+    }
+
     private int contentHeight(@Nullable FocusChartPage page) {
         return chartBlockHeight(page) + CONTENT_GAP;
     }
 
     private int chartBlockHeight(@Nullable FocusChartPage page) {
         int rows = 1;
-        int truncated = 0;
         if(validChartPage(page)) {
-            rows = Math.max(1, page.rows().size());
-            truncated = page.hasNext() ? LINE_HEIGHT : 0;
+            rows = Math.max(1, chartRows(page).size());
         }
-        return chartFilterHeight() + 16 + rows * ROW_HEIGHT + truncated + 4;
+        return chartFilterHeight() + 16 + rows * ROW_HEIGHT + 4;
     }
 
-    private static List<Component> chartValues(List<GroupView> rows) {
-        return rows.stream()
-                .<Component>map(group -> DSKeyLang.DetailLine.getNumber1f(Component.empty(), group.damage(),
-                        group.share() * 100, group.hitCount()))
-                .toList();
+    private List<ChartRow> chartRows(FocusChartPage page) {
+        List<ChartRow> rows = new ArrayList<>();
+        for (GroupView group : page.rows()) {
+            rows.add(new ChartRow(group, 0, null, RowMarker.NONE, true));
+            if(!expandedChartParents.contains(group.key())) continue;
+            FocusChartInstancesPage instances = ClientStats.chartInstancesPage(group.key());
+            if(!validChartInstancesPage(instances, group.key())) {
+                rows.add(new ChartRow(null, 1, group.key(), RowMarker.LOADING, true));
+                continue;
+            }
+            if(!instances.allowed() || instances.rows().isEmpty()) {
+                rows.add(new ChartRow(null, 1, group.key(), RowMarker.EMPTY, instances.allowed()));
+                continue;
+            }
+            instances.rows().forEach(child -> rows.add(new ChartRow(child, 1, null, RowMarker.NONE, true)));
+            if(instances.hasNext()) {
+                rows.add(new ChartRow(null, 1, group.key(), RowMarker.NEXT, true));
+            }
+        }
+        if(page.hasNext()) rows.add(new ChartRow(null, 0, null, RowMarker.NEXT, true));
+        return rows;
+    }
+
+    private static Component chartValue(GroupView group) {
+        return DSKeyLang.DetailLine.getNumber1f(Component.empty(), group.damage(),
+                group.share() * 100, group.hitCount());
+    }
+
+    private static boolean expandable(GroupView group) {
+        if(!group.canOpenInstances()) return false;
+        return switch (group.key()) {
+            case FilterKey.Source(EntitySelector.Type ignored) -> true;
+            case FilterKey.Target(EntitySelector.Type ignored) -> true;
+            case FilterKey.Direct(EntitySelector.Type ignored) -> true;
+            default -> false;
+        };
     }
 
     private boolean insideContent(double mouseX, double mouseY, PageLayout layout) {
@@ -817,6 +895,11 @@ public class StatsScreen extends Screen {
 
     private record FooterLayout(int top, @Nullable ScreenLayout.Bounds reset, @Nullable ScreenLayout.Bounds resetAll,
                                 ScreenLayout.Bounds done) {}
+
+    private enum RowMarker { NONE, LOADING, EMPTY, NEXT }
+
+    private record ChartRow(@Nullable GroupView group, int indent, @Nullable FilterKey parentKey,
+                            RowMarker marker, boolean allowed) {}
 
     private record PageLayout(int headerHeight, int footerTop,
                               List<ScreenLayout.Bounds> topRow, List<ScreenLayout.Bounds> middleRow,

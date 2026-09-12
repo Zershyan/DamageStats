@@ -4,7 +4,6 @@ import com.mojang.logging.LogUtils;
 import io.zershyan.damagestats.DamageStats;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
 import io.zershyan.damagestats.stats.DamageTracker;
-import io.zershyan.damagestats.stats.EntityRef;
 import io.zershyan.damagestats.stats.InstanceMetadata;
 import io.zershyan.damagestats.stats.ServerStats;
 import io.zershyan.damagestats.stats.filter.EntitySelector;
@@ -13,6 +12,7 @@ import io.zershyan.damagestats.stats.focus.FocusSelectionSlot;
 import io.zershyan.damagestats.stats.focus.StatsFocusManager;
 import io.zershyan.damagestats.stats.save.DamageEventJournal;
 import io.zershyan.damagestats.stats.view.EntityChoicePage;
+import io.zershyan.damagestats.stats.view.EntityChoiceSort;
 import io.zershyan.damagestats.stats.view.EntityChoiceView;
 import io.zershyan.damagestats.util.EntityTypeHelper;
 import io.zershyan.damagestats.util.StatsNames;
@@ -42,6 +42,7 @@ public record EntityChoiceRequestPacket(
         String search,
         String cursor,
         int requestId,
+        EntityChoiceSort sort,
         StatsFilter contextFilter
 ) implements CustomPacketPayload {
     private static final int MAX_SEARCH_LENGTH = 64;
@@ -64,6 +65,7 @@ public record EntityChoiceRequestPacket(
             FocusSelectionSlot slot,
             Optional<ResourceLocation> typeFilter,
             String search,
+            EntityChoiceSort sort,
             StatsFilter contextFilter,
             long snapshotId,
             List<EntityChoiceView> entries,
@@ -71,22 +73,33 @@ public record EntityChoiceRequestPacket(
     ) {
         private ChoiceCursor at(int newStart) {
             return new ChoiceCursor(owner, journal, queryRevision, directoryRevision, focusVersion, slot,
-                    typeFilter, search, contextFilter, snapshotId, entries, newStart);
+                    typeFilter, search, sort, contextFilter, snapshotId, entries, newStart);
         }
     }
 
     private record ChoiceSnapshot(List<InstanceMetadata> instances, Map<UUID, String> names) {}
 
     public static final Type<EntityChoiceRequestPacket> TYPE = new Type<>(DamageStats.id("entity_choices"));
-    public static final StreamCodec<RegistryFriendlyByteBuf, EntityChoiceRequestPacket> STREAM_CODEC = StreamCodec.composite(
-            FocusSelectionSlot.STREAM_CODEC, EntityChoiceRequestPacket::slot,
-            ByteBufCodecs.optional(ResourceLocation.STREAM_CODEC), EntityChoiceRequestPacket::typeFilter,
-            ByteBufCodecs.STRING_UTF8, EntityChoiceRequestPacket::search,
-            ByteBufCodecs.STRING_UTF8, EntityChoiceRequestPacket::cursor,
-            ByteBufCodecs.VAR_INT, EntityChoiceRequestPacket::requestId,
-            StatsFilter.STREAM_CODEC, EntityChoiceRequestPacket::contextFilter,
-            EntityChoiceRequestPacket::new
-    );
+    public static final StreamCodec<RegistryFriendlyByteBuf, EntityChoiceRequestPacket> STREAM_CODEC =
+            StreamCodec.of(EntityChoiceRequestPacket::encode, EntityChoiceRequestPacket::decode);
+
+    private static void encode(RegistryFriendlyByteBuf buf, EntityChoiceRequestPacket packet) {
+        FocusSelectionSlot.STREAM_CODEC.encode(buf, packet.slot);
+        ByteBufCodecs.optional(ResourceLocation.STREAM_CODEC).encode(buf, packet.typeFilter);
+        buf.writeUtf(packet.search);
+        buf.writeUtf(packet.cursor);
+        buf.writeVarInt(packet.requestId);
+        EntityChoiceSort.STREAM_CODEC.encode(buf, packet.sort);
+        StatsFilter.STREAM_CODEC.encode(buf, packet.contextFilter);
+    }
+
+    private static EntityChoiceRequestPacket decode(RegistryFriendlyByteBuf buf) {
+        return new EntityChoiceRequestPacket(
+                FocusSelectionSlot.STREAM_CODEC.decode(buf),
+                ByteBufCodecs.optional(ResourceLocation.STREAM_CODEC).decode(buf),
+                buf.readUtf(), buf.readUtf(), buf.readVarInt(), EntityChoiceSort.STREAM_CODEC.decode(buf),
+                StatsFilter.STREAM_CODEC.decode(buf));
+    }
 
     @Override
     public @NotNull Type<? extends CustomPacketPayload> type() {
@@ -122,7 +135,7 @@ public record EntityChoiceRequestPacket(
             ChoiceSnapshot snapshot = new ChoiceSnapshot(List.copyOf(tracker.instanceDirectory().entries()),
                     tracker.cachedNames());
             boolean fullAccess = StatsFocusManager.hasFullAccess(player);
-            CompletableFuture.supplyAsync(() -> buildEntries(journal, slot(), typeFilter(), search,
+            CompletableFuture.supplyAsync(() -> buildEntries(journal, slot(), typeFilter(), search, sort(),
                             contextFilter(), snapshot, fullAccess))
                     .whenComplete((entries, error) -> server.execute(() -> finishRequest(player, server, tracker,
                             manager, journal, this, search, entries, error)));
@@ -147,7 +160,7 @@ public record EntityChoiceRequestPacket(
 
     private static void sendDenied(ServerPlayer player, EntityChoiceRequestPacket payload, long focusVersion) {
         PacketDistributor.sendToPlayer(player, new EntityChoicePagePacket(new EntityChoicePage(
-                payload.slot(), focusVersion, payload.requestId(), 0, "", "", false,
+                payload.slot(), focusVersion, payload.requestId(), payload.sort(), 0, "", "", false,
                 payload.typeFilter(), List.of(), false)));
     }
 
@@ -168,7 +181,7 @@ public record EntityChoiceRequestPacket(
         long currentFocusVersion = manager.focusFor(player).version();
         ChoiceCursor page = new ChoiceCursor(player.getUUID(), journal,
                 journal == null ? 0 : journal.queryRevision(), tracker.instanceDirectory().revision(),
-                currentFocusVersion, payload.slot(), payload.typeFilter(), search,
+                currentFocusVersion, payload.slot(), payload.typeFilter(), search, payload.sort(),
                 payload.contextFilter(), ++nextSnapshotId, List.copyOf(entries), 0);
         String currentCursor = journal == null ? "" : UUID.randomUUID().toString();
         if(!currentCursor.isEmpty()) storeCursor(currentCursor, page);
@@ -179,7 +192,7 @@ public record EntityChoiceRequestPacket(
                                  @Nullable ChoiceCursor page, String currentCursor) {
         if(page == null) {
             PacketDistributor.sendToPlayer(player, new EntityChoicePagePacket(new EntityChoicePage(
-                    payload.slot(), focusVersion, payload.requestId(), 0, "", "", true,
+                    payload.slot(), focusVersion, payload.requestId(), payload.sort(), 0, "", "", true,
                     payload.typeFilter(), List.of(), false)));
             return;
         }
@@ -192,7 +205,7 @@ public record EntityChoiceRequestPacket(
             storeCursor(nextCursor, page.at(end));
         }
         PacketDistributor.sendToPlayer(player, new EntityChoicePagePacket(new EntityChoicePage(
-                page.slot(), focusVersion, payload.requestId(), page.snapshotId(), currentCursor, nextCursor, true,
+                page.slot(), focusVersion, payload.requestId(), page.sort(), page.snapshotId(), currentCursor, nextCursor, true,
                 page.typeFilter(), entries.subList(start, end), !nextCursor.isEmpty())));
     }
 
@@ -210,7 +223,8 @@ public record EntityChoiceRequestPacket(
                 || page.directoryRevision() != tracker.instanceDirectory().revision()
                 || page.focusVersion() != manager.focusFor(player).version()
                 || page.slot() != payload.slot() || !page.typeFilter().equals(payload.typeFilter())
-                || !page.search().equals(search) || !page.contextFilter().equals(payload.contextFilter())) return null;
+                || !page.search().equals(search) || page.sort() != payload.sort()
+                || !page.contextFilter().equals(payload.contextFilter())) return null;
         return page;
     }
 
@@ -230,12 +244,13 @@ public record EntityChoiceRequestPacket(
     private static List<EntityChoiceView> buildEntries(@Nullable DamageEventJournal journal,
                                                        FocusSelectionSlot slot,
                                                        Optional<ResourceLocation> typeFilter, String search,
-                                                       StatsFilter contextFilter, ChoiceSnapshot snapshot,
+                                                       EntityChoiceSort sort, StatsFilter contextFilter,
+                                                       ChoiceSnapshot snapshot,
                                                        boolean fullAccess) {
         return slot == FocusSelectionSlot.DIRECT_SOURCE
-                ? directSourceChoices(journal, typeFilter.orElseThrow(), search, contextFilter, snapshot)
+                ? directSourceChoices(journal, typeFilter.orElseThrow(), search, sort, contextFilter, snapshot)
                 : typeFilter.map(typeId -> instanceChoices(journal, typeId, search, slot, contextFilter,
-                        snapshot, fullAccess))
+                        sort, snapshot, fullAccess))
                         .orElseGet(() -> typeChoices(journal, search, slot, contextFilter, fullAccess));
     }
 
@@ -287,25 +302,28 @@ public record EntityChoiceRequestPacket(
     private static List<EntityChoiceView> instanceChoices(@Nullable DamageEventJournal journal,
                                                            ResourceLocation typeId, String search,
                                                            FocusSelectionSlot slot, StatsFilter contextFilter,
-                                                           ChoiceSnapshot snapshot, boolean fullAccess) {
+                                                           EntityChoiceSort sort, ChoiceSnapshot snapshot,
+                                                           boolean fullAccess) {
         if(!validTypeFilter(journal, fullAccess, slot, typeId)) return List.of();
         String normalized = search.toLowerCase(Locale.ROOT);
         if(journal == null) return List.of();
         StatsFilter queryFilter = withoutSlot(contextFilter, slot);
         DamageEventJournal.ContributionDimension dimension = contributionDimension(slot, contextFilter);
         DamageEventJournal.QueryResult query = journal.query(queryFilter);
-        return instanceEntries(typeId, normalized, dimension, query, snapshot, false);
+        return instanceEntries(typeId, normalized, dimension, query, sort, snapshot, false);
     }
 
     private static List<EntityChoiceView> instanceEntries(
             ResourceLocation typeId, String normalized, DamageEventJournal.ContributionDimension dimension,
-            DamageEventJournal.QueryResult query, ChoiceSnapshot snapshot, boolean contributingOnly) {
-        return buildInstanceEntries(typeId, normalized, query.contributions(dimension), snapshot, contributingOnly);
+            DamageEventJournal.QueryResult query, EntityChoiceSort sort, ChoiceSnapshot snapshot,
+            boolean contributingOnly) {
+        return buildInstanceEntries(typeId, normalized, query.contributions(dimension), sort, snapshot,
+                contributingOnly);
     }
 
     private static List<EntityChoiceView> buildInstanceEntries(
             ResourceLocation typeId, String normalized, Map<UUID, DamageEventJournal.DamageContribution> contributions,
-            ChoiceSnapshot snapshot, boolean contributingOnly) {
+            EntityChoiceSort sort, ChoiceSnapshot snapshot, boolean contributingOnly) {
         if(!isLivingType(typeId)) return List.of();
         Component fallbackName = StatsNames.entityType(typeId);
         return snapshot.instances().stream()
@@ -313,23 +331,23 @@ public record EntityChoiceRequestPacket(
                 .filter(metadata -> !metadata.ref().isTypeReference())
                 .filter(metadata -> !contributingOnly || contributions.containsKey(metadata.ref().id()))
                 .filter(metadata -> matches(displayName(snapshot, metadata, fallbackName), metadata.displayName(), normalized))
+                .sorted(instanceComparator(sort, contributions, snapshot, fallbackName))
                 .map(metadata -> new EntityChoiceView(new EntitySelector.Instance(metadata.ref()),
                         displayName(snapshot, metadata, fallbackName), detail(metadata,
                                 contributions.getOrDefault(metadata.ref().id(),
                                         new DamageEventJournal.DamageContribution(0, 0)))))
-                .sorted(Comparator.comparingDouble((EntityChoiceView entry) -> contribution(entry, contributions)).reversed()
-                        .thenComparing(EntityChoiceView::name, Comparator.comparing(Component::getString)))
                 .toList();
     }
 
     private static List<EntityChoiceView> directSourceChoices(@Nullable DamageEventJournal journal,
                                                                ResourceLocation typeId, String search,
-                                                               StatsFilter contextFilter, ChoiceSnapshot snapshot) {
+                                                               EntityChoiceSort sort, StatsFilter contextFilter,
+                                                               ChoiceSnapshot snapshot) {
         if(journal == null) return List.of();
         String normalized = search.toLowerCase(Locale.ROOT);
         StatsFilter queryFilter = withoutSlot(contextFilter, FocusSelectionSlot.DIRECT_SOURCE);
         return instanceEntries(typeId, normalized, DamageEventJournal.ContributionDimension.DIRECT_SOURCE,
-                journal.query(queryFilter), snapshot, true);
+                journal.query(queryFilter), sort, snapshot, true);
     }
 
     private static DamageEventJournal.ContributionDimension contributionDimension(
@@ -354,11 +372,27 @@ public record EntityChoiceRequestPacket(
         };
     }
 
-    private static float contribution(EntityChoiceView entry,
-                                      Map<UUID, DamageEventJournal.DamageContribution> contributions) {
-        if(!(entry.selector() instanceof EntitySelector.Instance(EntityRef ref))) return 0;
-        return contributions.getOrDefault(ref.id(),
-                new DamageEventJournal.DamageContribution(0, 0)).damage();
+    private static Comparator<InstanceMetadata> instanceComparator(
+            EntityChoiceSort sort, Map<UUID, DamageEventJournal.DamageContribution> contributions,
+            ChoiceSnapshot snapshot, Component fallbackName) {
+        Comparator<InstanceMetadata> primary = switch (sort) {
+            case RECENT -> Comparator.comparingLong(InstanceMetadata::lastInteractionMillis).reversed();
+            case DAMAGE -> Comparator.comparingDouble((InstanceMetadata metadata) ->
+                    contribution(metadata, contributions).damage()).reversed();
+            case HITS -> Comparator.comparingInt((InstanceMetadata metadata) ->
+                    contribution(metadata, contributions).hitCount()).reversed();
+        };
+        return primary
+                .thenComparingLong(InstanceMetadata::instanceId)
+                .thenComparing(metadata -> displayName(snapshot, metadata, fallbackName).getString(),
+                        String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(metadata -> metadata.ref().id().toString());
+    }
+
+    private static DamageEventJournal.DamageContribution contribution(
+            InstanceMetadata metadata, Map<UUID, DamageEventJournal.DamageContribution> contributions) {
+        return contributions.getOrDefault(metadata.ref().id(),
+                new DamageEventJournal.DamageContribution(0, 0));
     }
 
     private static boolean matches(Component name, String fallback, String search) {

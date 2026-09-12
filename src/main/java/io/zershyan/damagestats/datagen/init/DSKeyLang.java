@@ -259,6 +259,14 @@ public class DSKeyLang extends DSLang {
             "Loading...", "正在加载……");
     public static final MutableComponent ScreenRecent = entry(ScreenPrefix + "recent",
             "Recent types", "最近类型");
+    public static final LazyComponent ScreenSort = entryLazy(ScreenPrefix + "sort",
+            "Sort: %s", "排序：%s");
+    public static final MutableComponent SortRecent = entry(ScreenPrefix + "sort.recent",
+            "Recent", "最近");
+    public static final MutableComponent SortDamage = entry(ScreenPrefix + "sort.damage",
+            "Highest damage", "最高伤害");
+    public static final MutableComponent SortHits = entry(ScreenPrefix + "sort.hits",
+            "Most hits", "最多命中");
     public static final MutableComponent ScreenPrevious = entry(ScreenPrefix + "previous",
             "Previous", "上一页");
     public static final MutableComponent ScreenNext = entry(ScreenPrefix + "next",

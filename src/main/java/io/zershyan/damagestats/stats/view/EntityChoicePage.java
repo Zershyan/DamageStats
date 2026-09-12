@@ -14,6 +14,7 @@ public record EntityChoicePage(
         FocusSelectionSlot slot,
         long focusVersion,
         int requestId,
+        EntityChoiceSort sort,
         long snapshotId,
         String cursor,
         String nextCursor,
@@ -33,6 +34,7 @@ public record EntityChoicePage(
         FocusSelectionSlot.STREAM_CODEC.encode(buf, page.slot);
         buf.writeVarLong(page.focusVersion);
         buf.writeVarInt(page.requestId);
+        EntityChoiceSort.STREAM_CODEC.encode(buf, page.sort);
         buf.writeVarLong(page.snapshotId);
         buf.writeUtf(page.cursor, 128);
         buf.writeUtf(page.nextCursor, 128);
@@ -47,6 +49,7 @@ public record EntityChoicePage(
                 FocusSelectionSlot.STREAM_CODEC.decode(buf),
                 buf.readVarLong(),
                 buf.readVarInt(),
+                EntityChoiceSort.STREAM_CODEC.decode(buf),
                 buf.readVarLong(),
                 buf.readUtf(128),
                 buf.readUtf(128),
