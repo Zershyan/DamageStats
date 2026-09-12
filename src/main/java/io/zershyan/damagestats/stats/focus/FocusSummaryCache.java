@@ -48,14 +48,17 @@ public final class FocusSummaryCache {
 
     public void accept(DamageRecord record) {
         lifetime.accept(record, record.target());
-        if(session == null || session.isTimedOut(record.gameTime(), DSConfig.SessionTimeoutTicks.get())) {
-            session = new DamageSession(record.gameTime());
+        DamageSession current = session;
+        if(current == null || current.isTimedOut(record.gameTime(), DSConfig.SessionTimeoutTicks.get())) {
+            current = new DamageSession(record.gameTime());
         }
-        session.accept(record, record.target());
+        current.accept(record, record.target());
+        session = current;
     }
 
     public boolean expire(long gameTime) {
-        if(session == null || !session.isTimedOut(gameTime, DSConfig.SessionTimeoutTicks.get())) return false;
+        DamageSession current = session;
+        if(current == null || !current.isTimedOut(gameTime, DSConfig.SessionTimeoutTicks.get())) return false;
         session = null;
         return true;
     }
@@ -66,11 +69,15 @@ public final class FocusSummaryCache {
             session = null;
             current = null;
         }
-        float realtimeDps = current == null ? 0 : current.getRealtimeDps(gameTime, DSConfig.DpsWindowTicks.get());
-        float realtimeOriginalDps = current == null ? 0
-                : current.getRealtimeOriginalDps(gameTime, DSConfig.DpsWindowTicks.get());
-        FocusMetricsView sessionView = current == null ? FocusMetricsView.EMPTY
-                : StatsViewBuilder.focusMetrics(tracker, current.getAccumulator(), realtimeDps, realtimeOriginalDps);
+        float realtimeDps = 0;
+        float realtimeOriginalDps = 0;
+        FocusMetricsView sessionView = FocusMetricsView.EMPTY;
+        if(current != null) {
+            realtimeDps = current.getRealtimeDps(gameTime, DSConfig.DpsWindowTicks.get());
+            realtimeOriginalDps = current.getRealtimeOriginalDps(gameTime, DSConfig.DpsWindowTicks.get());
+            sessionView = StatsViewBuilder.focusMetrics(tracker, current.getAccumulator(), realtimeDps,
+                    realtimeOriginalDps);
+        }
         FocusMetricsView lifetimeView = StatsViewBuilder.focusMetrics(tracker, lifetime, realtimeDps, realtimeOriginalDps);
         return new FocusSummary(0, scope, sessionView, lifetimeView, current != null, ServerStats.worldId());
     }
@@ -84,15 +91,16 @@ public final class FocusSummaryCache {
         }
         DamageRecord latest = records.getLast();
         if(latest.gameTime() + timeout < gameTime) return;
-        session = new DamageSession(records.get(start).gameTime());
-        for (int i = start; i < records.size(); i++) session.accept(records.get(i), records.get(i).target());
+        DamageSession current = new DamageSession(records.get(start).gameTime());
+        for (int i = start; i < records.size(); i++) current.accept(records.get(i), records.get(i).target());
+        session = current;
     }
 
     private static FocusScopeView scope(DamageTracker tracker, StatsFocus focus) {
         Component sourceName = focus.source().map(selector -> StatsNames.entitySelector(tracker, selector))
-                .orElseGet(() -> DSKeyLang.ScreenAllDamage.copy());
+                .orElseGet(DSKeyLang.ScreenAllDamage::copy);
         Component targetName = focus.target().map(selector -> StatsNames.entitySelector(tracker, selector))
-                .orElseGet(() -> DSKeyLang.OverlayAllTargets.copy());
+                .orElseGet(DSKeyLang.OverlayAllTargets::copy);
         return new FocusScopeView(focus.version(), focus.source(), focus.target(), focus.sourceIsDirectSource(),
                 sourceName, targetName);
     }

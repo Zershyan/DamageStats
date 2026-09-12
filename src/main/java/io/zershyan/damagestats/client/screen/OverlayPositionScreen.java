@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Optional;
 
 /** Overlay 的位置、外观和字段设置页；每个指标可独立选择本场或累计范围。 */
+@SuppressWarnings("OptionalUsedAsFieldOrParameterType")
 public class OverlayPositionScreen extends Screen {
     private static final int BUTTON_WIDTH = 100;
     private static final int BUTTON_HEIGHT = 20;
@@ -164,7 +165,7 @@ public class OverlayPositionScreen extends Screen {
             int row = index - fieldScroll;
             int x = (width - fieldWidth) / 2;
             int y = layout.fieldTop() + row * FIELD_HEIGHT;
-            int scopeWidth = field.scope() == null ? 0 : Math.min(SCOPE_WIDTH, Math.max(1, fieldWidth / 3));
+            int scopeWidth = field.scope() == null ? 0 : Math.clamp(fieldWidth / 3, 1, SCOPE_WIDTH);
             int checkboxWidth = field.scope() == null ? fieldWidth : Math.max(1, fieldWidth - scopeWidth - 2);
             Checkbox fieldCheckbox = Checkbox.builder(Component.translatable(field.label().getKey()), font)
                     .pos(x, y)
@@ -173,12 +174,13 @@ public class OverlayPositionScreen extends Screen {
                     .build();
             fieldCheckbox.setWidth(checkboxWidth);
             addRenderableWidget(fieldCheckbox);
-            if(field.scope() == null) continue;
-            addRenderableWidget(Button.builder(scopeLabel(field.scope().get()), button -> {
-                        OverlayMetricScope next = field.scope().get() == OverlayMetricScope.SESSION
+            var scope = field.scope();
+            if(scope == null) continue;
+            addRenderableWidget(Button.builder(scopeLabel(scope.get()), button -> {
+                        OverlayMetricScope next = scope.get() == OverlayMetricScope.SESSION
                                 ? OverlayMetricScope.LIFETIME
                                 : OverlayMetricScope.SESSION;
-                        field.scope().set(next);
+                        scope.set(next);
                         button.setMessage(scopeLabel(next));
                     })
                     .bounds(x + checkboxWidth + 2, y, scopeWidth, 18)
@@ -263,7 +265,8 @@ public class OverlayPositionScreen extends Screen {
         DSClientConfig.OverlayBackgroundOpacity.save();
         FIELDS.forEach(field -> {
             field.visible().save();
-            if(field.scope() != null) field.scope().save();
+            var scope = field.scope();
+            if(scope != null) scope.save();
         });
         if(returnScreen != null) minecraft.setScreen(returnScreen);
         else super.onClose();
@@ -275,16 +278,20 @@ public class OverlayPositionScreen extends Screen {
     }
 
     private void openTargetSelector() {
-        if(minecraft.player == null) return;
-        EntitySelector self = new EntitySelector.Instance(EntityRef.of(minecraft.player));
+        if(minecraft == null) return;
+        var player = minecraft.player;
+        if(player == null) return;
+        EntitySelector self = new EntitySelector.Instance(EntityRef.of(player));
         minecraft.setScreen(new FocusEntitySelectorScreen(this, FocusSelectionSlot.TARGET,
                 StatsFilter.fromSource(self),
                 (selector, ignored) -> setOverlayTarget(Optional.of(selector))));
     }
 
     private void setOverlayTarget(Optional<EntitySelector> target) {
-        if(minecraft.player == null) return;
-        EntitySelector self = new EntitySelector.Instance(EntityRef.of(minecraft.player));
+        if(minecraft == null) return;
+        var player = minecraft.player;
+        if(player == null) return;
+        EntitySelector self = new EntitySelector.Instance(EntityRef.of(player));
         ClientFocusPreferences.requestFocus(Optional.of(self), target, false);
     }
 
@@ -336,9 +343,9 @@ public class OverlayPositionScreen extends Screen {
         ScreenLayout.Flow footer = ScreenLayout.bottomFlow(width, height, 8, BUTTON_HEIGHT, 4, 6,
                 BUTTON_WIDTH, BUTTON_WIDTH);
         int controlWidth = ScreenLayout.width(width, 8);
-        int sliderWidth = Math.max(1, Math.min(220, controlWidth));
+        int sliderWidth = Math.clamp(controlWidth, 1, 220);
         int controlLeft = ScreenLayout.left(width, 8) + Math.max(0, (controlWidth - sliderWidth) / 2);
-        int scaleY = Math.min(44, Math.max(0, footer.top() - 48));
+        int scaleY = Math.clamp(footer.top() - 48, 0, 44);
         int opacityY = scaleY + 24;
         int targetY = opacityY + 24;
         List<ScreenLayout.Bounds> targetBounds = ScreenLayout.flow(width, 8, targetY, BUTTON_HEIGHT, 4,
@@ -348,7 +355,7 @@ public class OverlayPositionScreen extends Screen {
                 : ScreenLayout.bottom(targetBounds, targetY);
         int fieldTop = controlsBottom + 6;
         int fieldBottom = Math.max(fieldTop, footer.top() - 6);
-        int fieldWidth = Math.max(1, Math.min(FIELD_WIDTH, ScreenLayout.width(width, 8)));
+        int fieldWidth = Math.clamp(ScreenLayout.width(width, 8), 1, FIELD_WIDTH);
         return new Layout(controlLeft, sliderWidth, scaleY, opacityY, targetBounds,
                 fieldTop, fieldBottom, fieldWidth, footer);
     }

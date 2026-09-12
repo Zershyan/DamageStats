@@ -14,6 +14,6 @@ public final class DSOverlays {
     }
 
     private static void registerGuiLayers(RegisterGuiLayersEvent event) {
-        event.registerAboveAll(DamageStats.id("stats_overlay"), StatsOverlay::render);
+        event.registerAboveAll(DamageStats.id("stats_overlay"), new StatsOverlay());
     }
 }

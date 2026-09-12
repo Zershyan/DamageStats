@@ -22,7 +22,7 @@ public record HistoryPagePacket(HistoryPage page) implements CustomPacketPayload
         return TYPE;
     }
 
-    public static void handle(HistoryPagePacket payload, IPayloadContext context) {
-        context.enqueueWork(() -> ClientStats.acceptHistoryPage(payload.page()));
+    public void handle(IPayloadContext context) {
+        context.enqueueWork(() -> ClientStats.acceptHistoryPage(page()));
     }
 }

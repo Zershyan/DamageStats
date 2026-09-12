@@ -31,7 +31,6 @@ public final class StatsDetailsScreen extends Screen {
 
     private final StatsScreen parent;
     private int scrollOffset;
-    private List<Component> tooltip = List.of();
     private long cachedSummaryRevision = -1;
     private long cachedScopeVersion = -1;
     private List<DetailLine> cachedLines = List.of();
@@ -43,6 +42,7 @@ public final class StatsDetailsScreen extends Screen {
 
     @Override
     protected void init() {
+        if(minecraft == null) return;
         ScreenLayout.Flow footer = footerFlow();
         ScreenLayout.Bounds done = footer.bounds().getFirst();
         addRenderableWidget(Button.builder(CommonComponents.GUI_DONE, button -> minecraft.setScreen(parent))
@@ -70,7 +70,7 @@ public final class StatsDetailsScreen extends Screen {
         int bottom = footerTop - 6;
         int visible = Math.max(0, (bottom - top) / LINE_HEIGHT);
         scrollOffset = Mth.clamp(scrollOffset, 0, Math.max(0, lines.size() - visible));
-        tooltip = List.of();
+        List<Component> tooltip = List.of();
         if(bottom > top && visible > 0) {
             int textWidth = Math.max(1, ScreenLayout.width(width, SIDE));
             graphics.enableScissor(0, top, width, bottom);
@@ -102,7 +102,7 @@ public final class StatsDetailsScreen extends Screen {
     }
 
     private int headerHeight() {
-        return Math.min(PREFERRED_HEADER_HEIGHT, Math.min(Math.max(0, height / 3), footerFlow().top()));
+        return Math.clamp(Math.min(height / 3, footerFlow().top()), 0, PREFERRED_HEADER_HEIGHT);
     }
 
     private ScreenLayout.Flow footerFlow() {

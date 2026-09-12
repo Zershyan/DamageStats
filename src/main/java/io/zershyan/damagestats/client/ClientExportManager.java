@@ -63,7 +63,8 @@ public final class ClientExportManager {
 
     /** 检查导出是否超时，超时则清空并通知玩家 */
     private static void checkTimeout() {
-        if(assembly == null) return;
+        ExportAssembly current = assembly;
+        if(current == null) return;
         long elapsed = System.currentTimeMillis() - assemblyStartTime;
         if(elapsed > EXPORT_TIMEOUT_MILLIS) {
             assembly = null;
@@ -94,7 +95,8 @@ public final class ClientExportManager {
 
     private static void notifyPlayer(Component message) {
         Minecraft minecraft = Minecraft.getInstance();
-        if(minecraft.player != null) minecraft.player.displayClientMessage(message, false);
+        var player = minecraft.player;
+        if(player != null) player.displayClientMessage(message, false);
     }
 
     private record ExportAssembly(ExportStartPacket start, Map<Integer, ExportChunkPacket> chunks) {

@@ -31,6 +31,7 @@ public final class ConfirmResetScreen extends Screen {
 
     @Override
     protected void init() {
+        if(minecraft == null) return;
         Layout layout = layout();
         ScreenLayout.Bounds confirm = layout.buttons().getFirst();
         ScreenLayout.Bounds cancel = layout.buttons().getLast();
@@ -69,16 +70,14 @@ public final class ConfirmResetScreen extends Screen {
     }
 
     private Layout layout() {
-        int panelWidth = Math.min(248, Math.max(1, width - 8));
+        int panelWidth = Math.clamp(width - 8, 1, 248);
         int panelX = Math.max(0, (width - panelWidth) / 2);
-        int buttonWidth = Math.min(BUTTON_WIDTH, Math.max(1, (panelWidth - 6) / 2));
+        int buttonWidth = Math.clamp((panelWidth - 6) / 2, 1, BUTTON_WIDTH);
         boolean stacked = panelWidth < buttonWidth * 2 + 6;
         int rows = stacked ? 2 : 1;
         int panelHeight = Math.min(height, 108 + (stacked ? 24 : 0));
-        int buttonHeight = Math.min(20, Math.max(1,
-                (panelHeight - 64 - (rows - 1) * 4) / rows));
-        int buttonTop = Math.max(0, Math.min(54,
-                panelHeight - rows * buttonHeight - (rows - 1) * 4 - 2));
+        int buttonHeight = Math.clamp((panelHeight - 64 - (rows - 1) * 4) / rows, 1, 20);
+        int buttonTop = Math.clamp(panelHeight - (long) rows * buttonHeight - (rows - 1) * 4 - 2, 0, 54);
         int panelTop = Math.max(0, (height - panelHeight) / 2);
         int buttonsWidth = stacked ? buttonWidth : buttonWidth * 2 + 6;
         int buttonsX = panelX + Math.max(0, (panelWidth - buttonsWidth) / 2);

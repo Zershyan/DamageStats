@@ -12,6 +12,7 @@ import java.util.Optional;
  * 一次筛选查询。四个槽位都是空的表示不限，于是需求里那三种组合都落在同一套逻辑上：
  * 只填目标 = 这个目标受到的全部伤害；只填来源 = 这个来源打出的全部伤害；两个都填 = 来源对目标的伤害。
  */
+@SuppressWarnings("OptionalUsedAsFieldOrParameterType")
 public record StatsFilter(
         Optional<EntitySelector> source,
         Optional<EntitySelector> target,
@@ -45,7 +46,7 @@ public record StatsFilter(
         return matchesEntity(source, sourceIsDirectSource ? record.directSource() : record.source())
                 && matchesEntity(target, record.target())
                 && matchesEntity(directSource, record.directSource())
-                && (damageType.isEmpty() || damageType.get().matches(record.damageTypeId()));
+                && damageType.map(selector -> selector.matches(record.damageTypeId())).orElse(true);
     }
 
     /** 再点一次同一行就把这个槽清空，所以「点击隐藏其他伤害」和「取消隐藏」是同一个操作 */
@@ -71,7 +72,7 @@ public record StatsFilter(
     }
 
     private static boolean matchesEntity(Optional<EntitySelector> selector, EntityRef candidate) {
-        return selector.isEmpty() || selector.get().matches(candidate);
+        return selector.map(value -> value.matches(candidate)).orElse(true);
     }
 
     private static <T> Optional<T> toggled(Optional<T> current, T clicked) {

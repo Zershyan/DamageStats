@@ -3,6 +3,7 @@ package io.zershyan.damagestats.stats;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
@@ -33,9 +34,13 @@ public record InstanceMetadata(
 
     public static InstanceMetadata from(Entity entity, long nowMillis) {
         BlockPos position = entity.blockPosition();
-        String displayName = entity instanceof Player player
-                ? player.getGameProfile().getName()
-                : entity.getCustomName() == null ? "" : entity.getCustomName().getString();
+        String displayName;
+        if(entity instanceof Player player) {
+            displayName = player.getGameProfile().getName();
+        } else {
+            Component customName = entity.getCustomName();
+            displayName = customName == null ? "" : customName.getString();
+        }
         return new InstanceMetadata(
                 0L,
                 EntityRef.of(entity),

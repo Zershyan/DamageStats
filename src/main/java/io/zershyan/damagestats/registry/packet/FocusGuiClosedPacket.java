@@ -25,7 +25,7 @@ public record FocusGuiClosedPacket() implements CustomPacketPayload {
         return TYPE;
     }
 
-    public static void handle(FocusGuiClosedPacket payload, IPayloadContext context) {
+    public void handle(IPayloadContext context) {
         context.enqueueWork(() -> {
             if(!(context.player() instanceof ServerPlayer player)) return;
             DamageTracker tracker = ServerStats.tracker();

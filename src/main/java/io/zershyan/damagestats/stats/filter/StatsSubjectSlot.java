@@ -23,10 +23,10 @@ public enum StatsSubjectSlot {
 
     /** 权限校验会改写筛选条件，因此必须在校验后收敛到真实存在的槽位。 */
     public StatsSubjectSlot resolve(StatsFilter filter) {
-        if(sourcePresent(filter) && targetPresent(filter)) return this == GLOBAL ? SOURCE : this;
-        if(sourcePresent(filter)) return SOURCE;
-        if(targetPresent(filter)) return TARGET;
-        return GLOBAL;
+        boolean sourcePresent = sourcePresent(filter);
+        boolean targetPresent = targetPresent(filter);
+        if(sourcePresent && targetPresent) return this == GLOBAL ? SOURCE : this;
+        return sourcePresent ? SOURCE : targetPresent ? TARGET : GLOBAL;
     }
 
     private static boolean sourcePresent(StatsFilter filter) {

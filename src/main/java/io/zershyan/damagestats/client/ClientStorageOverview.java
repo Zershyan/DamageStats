@@ -17,17 +17,18 @@ public final class ClientStorageOverview {
 
     public static void accept(StorageOverviewPacket payload) {
         Minecraft minecraft = Minecraft.getInstance();
+        var player = minecraft.player;
         if(!payload.allowed()) {
-            if(minecraft.player != null) minecraft.player.displayClientMessage(DSKeyLang.StatsPrivate.copy(), false);
+            if(player != null) player.displayClientMessage(DSKeyLang.StatsPrivate.copy(), false);
             return;
         }
         overview = payload.overview();
         completedCleanup = payload.completedCleanup();
-        if(completedCleanup != StorageCleanupTarget.NONE && minecraft.player != null) {
+        if(completedCleanup != StorageCleanupTarget.NONE && player != null) {
             Component message = payload.cleanupSucceeded()
                     ? DSKeyLang.StorageCleanupDone.get(cleanupLabel(completedCleanup))
                     : DSKeyLang.StorageCleanupFailed.get(cleanupLabel(completedCleanup));
-            minecraft.player.displayClientMessage(message, false);
+            player.displayClientMessage(message, false);
         }
         if(payload.openScreen()) minecraft.setScreen(new StorageOverviewScreen());
     }

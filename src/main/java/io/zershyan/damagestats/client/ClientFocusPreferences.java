@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Optional;
 
 /** 只保存类型焦点；实体实例和直接来源下钻权限均限定在当前连接。 */
+@SuppressWarnings("OptionalUsedAsFieldOrParameterType")
 public final class ClientFocusPreferences {
     private record SavedFocus(
             @Nullable String sourceTypeId,
@@ -61,7 +62,8 @@ public final class ClientFocusPreferences {
     /** 收到登录后的完整焦点摘要时，按服务器和世界标识恢复上次的类型焦点。 */
     public static void applyIfReady() {
         Minecraft minecraft = Minecraft.getInstance();
-        if(minecraft.player == null) return;
+        var player = minecraft.player;
+        if(player == null) return;
         String key = connectionKey(minecraft, ClientStats.summary().worldId());
         if(key == null || key.equals(appliedKey)) return;
         appliedKey = key;
@@ -70,7 +72,7 @@ public final class ClientFocusPreferences {
         Optional<EntitySelector> sourceType = selector(saved.sourceTypeId());
         Optional<EntitySelector> targetType = selector(saved.targetTypeId());
         if(sourceType.isEmpty() && targetType.isEmpty() && !saved.sourceUnrestricted()) return;
-        EntitySelector self = new EntitySelector.Instance(EntityRef.of(minecraft.player));
+        EntitySelector self = new EntitySelector.Instance(EntityRef.of(player));
         Optional<EntitySelector> source = saved.sourceUnrestricted()
                 ? Optional.empty()
                 : sourceType.isPresent() ? sourceType : Optional.of(self);
@@ -121,8 +123,8 @@ public final class ClientFocusPreferences {
     }
 
     private static Optional<String> typeId(Optional<EntitySelector> selector) {
-        return selector.flatMap(value -> value instanceof EntitySelector.Type type
-                ? Optional.of(type.typeId().toString()) : Optional.empty());
+        return selector.flatMap(value -> value instanceof EntitySelector.Type(ResourceLocation typeId)
+                ? Optional.of(typeId.toString()) : Optional.empty());
     }
 
     private static Optional<EntitySelector> selector(@Nullable String typeId) {
@@ -133,7 +135,8 @@ public final class ClientFocusPreferences {
 
     private static @Nullable String connectionKey(Minecraft minecraft, String worldId) {
         if(worldId.isEmpty()) return null;
-        String server = minecraft.getCurrentServer() == null ? "singleplayer" : minecraft.getCurrentServer().ip;
+        var currentServer = minecraft.getCurrentServer();
+        String server = currentServer == null ? "singleplayer" : currentServer.ip;
         return server + "|" + worldId;
     }
 

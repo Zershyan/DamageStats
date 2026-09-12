@@ -59,22 +59,22 @@ public record FocusChartRequestPacket(
         return TYPE;
     }
 
-    public static void handle(FocusChartRequestPacket payload, IPayloadContext context) {
+    public void handle(IPayloadContext context) {
         context.enqueueWork(() -> {
             if(!(context.player() instanceof ServerPlayer player)) return;
             DamageTracker tracker = ServerStats.tracker();
             StatsFocusManager manager = ServerStats.focusManager();
             if(tracker == null || manager == null) return;
-            if(!manager.canBrowse(player, payload.filter(), tracker)) {
+            if(!manager.canBrowse(player, filter(), tracker)) {
                 FocusChartPage denied = StatsViewBuilder.deniedFocusChartPage(manager.focusFor(player),
-                        payload.dimension(), payload.scope(), payload.typeGrouping(), payload.entityGrouping());
-                PacketDistributor.sendToPlayer(player, new FocusChartPagePacket(denied.withRequestId(payload.requestId())));
+                        dimension(), scope(), typeGrouping(), entityGrouping());
+                PacketDistributor.sendToPlayer(player, new FocusChartPagePacket(denied.withRequestId(requestId())));
                 return;
             }
             FocusChartPage page = StatsViewBuilder.focusChartPage(tracker, player, manager.focusFor(player),
-                    payload.filter(), payload.dimension(), payload.scope(), payload.typeGrouping(),
-                    payload.entityGrouping(), payload.cursor());
-            PacketDistributor.sendToPlayer(player, new FocusChartPagePacket(page.withRequestId(payload.requestId())));
+                    filter(), dimension(), scope(), typeGrouping(),
+                    entityGrouping(), cursor());
+            PacketDistributor.sendToPlayer(player, new FocusChartPagePacket(page.withRequestId(requestId())));
         });
     }
 }

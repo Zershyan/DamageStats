@@ -25,8 +25,8 @@ public record FocusStatePacket(
         return TYPE;
     }
 
-    public static void handle(FocusStatePacket payload, IPayloadContext context) {
-        context.enqueueWork(() -> ClientStats.acceptFocusState(payload.result(), payload.summary(), payload.requestId()));
+    public void handle(IPayloadContext context) {
+        context.enqueueWork(() -> ClientStats.acceptFocusState(result(), summary(), requestId()));
     }
 
     private static void encode(RegistryFriendlyByteBuf buf, FocusStatePacket packet) {

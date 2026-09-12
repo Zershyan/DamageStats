@@ -38,15 +38,15 @@ public record FocusSetPacket(
         return TYPE;
     }
 
-    public static void handle(FocusSetPacket payload, IPayloadContext context) {
+    public void handle(IPayloadContext context) {
         context.enqueueWork(() -> {
             if(!(context.player() instanceof ServerPlayer player)) return;
             DamageTracker tracker = ServerStats.tracker();
             StatsFocusManager manager = ServerStats.focusManager();
             if(tracker == null || manager == null) return;
-            FocusChangeResult result = manager.setFocus(player, payload.source(), payload.target(),
-                    payload.sourceIsDirectSource(), tracker);
-            StatsSyncHandler.pushFocusState(tracker, player, result, payload.requestId());
+            FocusChangeResult result = manager.setFocus(player, source(), target(),
+                    sourceIsDirectSource(), tracker);
+            StatsSyncHandler.pushFocusState(tracker, player, result, requestId());
         });
     }
 }

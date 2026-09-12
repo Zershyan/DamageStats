@@ -8,6 +8,7 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -21,7 +22,6 @@ public final class ChartEntityActionScreen extends Screen {
     private final FilterKey key;
     private final EntitySelector selector;
     private final Component entityName;
-    private List<Component> tooltip = List.of();
 
     private record Layout(int x, int top, int width, int height, int titleHeight,
                           List<ScreenLayout.Bounds> buttons) {}
@@ -36,6 +36,7 @@ public final class ChartEntityActionScreen extends Screen {
 
     @Override
     protected void init() {
+        if(minecraft == null) return;
         Layout layout = layout();
         int buttonIndex = 0;
         if(key instanceof FilterKey.Direct) {
@@ -58,7 +59,7 @@ public final class ChartEntityActionScreen extends Screen {
                         minecraft.setScreen(parent);
                     })
                     .bounds(bounds.x(), bounds.y(), bounds.width(), bounds.height()).build());
-        } else if(selector instanceof EntitySelector.Type type) {
+        } else if(selector instanceof EntitySelector.Type(ResourceLocation typeId)) {
             if(key instanceof FilterKey.Source) {
                 if(parent.canChooseAnySource()) {
                     addSetAsSourceButton(layout.buttons().get(buttonIndex++), false);
@@ -72,7 +73,7 @@ public final class ChartEntityActionScreen extends Screen {
             }
             ScreenLayout.Bounds bounds = layout.buttons().get(buttonIndex++);
             addRenderableWidget(Button.builder(DSKeyLang.ScreenInstances.copy(), button ->
-                            parent.openInstances(type, key, this))
+                            parent.openInstances(new EntitySelector.Type(typeId), key, this))
                     .bounds(bounds.x(), bounds.y(), bounds.width(), bounds.height()).build());
         }
         ScreenLayout.Bounds cancel = layout.buttons().get(buttonIndex);
@@ -95,7 +96,7 @@ public final class ChartEntityActionScreen extends Screen {
         Component displayTitle = truncate(title, Math.max(1, layout.width() - 12));
         graphics.drawCenteredString(font, displayTitle, width / 2,
                 Math.clamp(y + 10, 0, Math.max(0, height - 1)), 0xFFFFFFFF);
-        tooltip = font.width(title) > layout.width() - 12
+        List<Component> tooltip = font.width(title) > layout.width() - 12
                 && mouseX >= x && mouseX <= x + layout.width() + 16
                 && mouseY >= y && mouseY < y + layout.titleHeight()
                 ? List.of(title) : List.of();
@@ -148,12 +149,12 @@ public final class ChartEntityActionScreen extends Screen {
 
     private Layout layout() {
         int count = buttonCount();
-        int panelWidth = Math.min(PANEL_WIDTH, Math.max(1, width - 8));
-        int titleHeight = Math.min(28, Math.max(1, height / 5));
-        int padding = Math.min(8, Math.max(0, height / 12));
+        int panelWidth = Math.clamp(width - 8, 1, PANEL_WIDTH);
+        int titleHeight = Math.clamp(height / 5, 1, 28);
+        int padding = Math.clamp(height / 12, 0, 8);
         int available = Math.max(1, height - titleHeight - padding * 2);
-        int gap = count <= 1 ? 0 : Math.min(4, Math.max(0, (available - count) / (count - 1)));
-        int buttonHeight = Math.min(BUTTON_HEIGHT, Math.max(1, (available - gap * (count - 1)) / count));
+        int gap = count <= 1 ? 0 : Math.clamp((available - count) / (count - 1), 0, 4);
+        int buttonHeight = Math.clamp((available - gap * (count - 1)) / count, 1, BUTTON_HEIGHT);
         int panelHeight = titleHeight + padding * 2 + count * buttonHeight + gap * (count - 1);
         int top = Math.max(0, (height - panelHeight) / 2);
         int panelX = Math.max(0, (width - panelWidth) / 2);

@@ -8,6 +8,7 @@ import io.zershyan.damagestats.stats.save.StorageMaintenance;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
@@ -25,15 +26,17 @@ public record StorageOverviewRequestPacket() implements CustomPacketPayload {
         return TYPE;
     }
 
-    public static void handle(StorageOverviewRequestPacket payload, IPayloadContext context) {
+    public void handle(IPayloadContext context) {
         context.enqueueWork(() -> {
             if(!(context.player() instanceof ServerPlayer player)) return;
             if(!StatsFocusManager.hasFullAccess(player)) {
                 PacketDistributor.sendToPlayer(player, StorageOverviewPacket.denied());
                 return;
             }
+            MinecraftServer server = player.getServer();
+            if(server == null) return;
             PacketDistributor.sendToPlayer(player, StorageOverviewPacket.updated(
-                    StorageMaintenance.overview(StatsStorage.directory(player.getServer()), ServerStats.journal())));
+                    StorageMaintenance.overview(StatsStorage.directory(server), ServerStats.journal())));
         });
     }
 }

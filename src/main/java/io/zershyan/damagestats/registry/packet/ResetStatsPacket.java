@@ -14,6 +14,7 @@ import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
@@ -36,14 +37,16 @@ public record ResetStatsPacket(boolean global) implements CustomPacketPayload {
         return TYPE;
     }
 
-    public static void handle(ResetStatsPacket payload, IPayloadContext context) {
+    public void handle(IPayloadContext context) {
         context.enqueueWork(() -> {
             if(!(context.player() instanceof ServerPlayer player)) return;
             DamageTracker tracker = ServerStats.tracker();
             if(tracker == null) return;
-            if(payload.global()) {
+            if(global()) {
                 if(!StatsFocusManager.hasFullAccess(player)) return;
-                StatsResetService.resetAll(player.getServer());
+                MinecraftServer server = player.getServer();
+                if(server == null) return;
+                StatsResetService.resetAll(server);
                 return;
             }
             EntityRef self = EntityRef.of(player);

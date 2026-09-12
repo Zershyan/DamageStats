@@ -21,6 +21,7 @@ import java.util.*;
 /**
  * 管理临时焦点及其订阅索引。焦点不进存档，实体实例下钻授权也只在当前 GUI 会话有效。
  */
+@SuppressWarnings("OptionalUsedAsFieldOrParameterType")
 public final class StatsFocusManager {
     private static final class PlayerFocus {
         private StatsFocus focus;
@@ -58,8 +59,8 @@ public final class StatsFocusManager {
             state.delegatedSources.clear();
             if(!hasFullAccess(player)) {
                 // 若当前来源是下钻的直接来源，检查其是否在新目标下仍合法
-                if(state.focus.sourceIsDirectSource() && state.focus.source().isPresent()) {
-                    EntitySelector currentSource = state.focus.source().get();
+                if(state.focus.sourceIsDirectSource()) {
+                    EntitySelector currentSource = state.focus.source().orElse(null);
                     if(currentSource instanceof EntitySelector.Instance(EntityRef ref)) {
                         // 验证该下钻来源在新目标下是否仍出现在玩家的伤害路径中
                         if(!isDirectSourceOfPlayer(player, target, ref, tracker)) {
@@ -67,8 +68,11 @@ public final class StatsFocusManager {
                             source = Optional.of(self);
                             sourceIsDirectSource = false;
                         }
+                    } else {
+                        source = Optional.of(self);
+                        sourceIsDirectSource = false;
                     }
-                } else if(!state.focus.source().filter(self::equals).isPresent()) {
+                } else if(state.focus.source().filter(self::equals).isEmpty()) {
                     source = Optional.of(self);
                     sourceIsDirectSource = false;
                 }
@@ -77,7 +81,9 @@ public final class StatsFocusManager {
 
         FocusChangeResult sourceResult = validateSource(player, source, target, sourceIsDirectSource, state, self, tracker);
         if(sourceResult != FocusChangeResult.ACCEPTED) return sourceResult;
-        if(target.isPresent() && !isKnownTarget(target.get(), tracker)) return FocusChangeResult.UNKNOWN_TARGET;
+        if(target.filter(selector -> !isKnownTarget(selector, tracker)).isPresent()) {
+            return FocusChangeResult.UNKNOWN_TARGET;
+        }
 
         state.focus = state.focus.next(source, target, sourceIsDirectSource);
         state.summaryCache = FocusSummaryCache.load(tracker, player, state.focus);
@@ -94,8 +100,12 @@ public final class StatsFocusManager {
     /** 首次订阅和焦点切换允许建立一次缓存；后续同步仅读取该缓存。 */
     public FocusSummary summaryFor(DamageTracker tracker, ServerPlayer player) {
         PlayerFocus state = stateFor(player);
-        if(state.summaryCache == null) state.summaryCache = FocusSummaryCache.load(tracker, player, state.focus);
-        return state.summaryCache.summary(tracker, player.level().getGameTime());
+        FocusSummaryCache cache = state.summaryCache;
+        if(cache == null) {
+            cache = FocusSummaryCache.load(tracker, player, state.focus);
+            state.summaryCache = cache;
+        }
+        return cache.summary(tracker, player.level().getGameTime());
     }
 
     public boolean canBrowse(ServerPlayer player, StatsFilter filter, DamageTracker tracker) {
@@ -114,11 +124,11 @@ public final class StatsFocusManager {
         if(source.isEmpty()) return false;
         EntitySelector self = new EntitySelector.Instance(EntityRef.of(player));
         PlayerFocus state = stateFor(player);
-        if(sourceIsDirectSource) return source.get() instanceof EntitySelector.Instance(EntityRef ref)
+        EntitySelector selected = source.orElse(null);
+        if(sourceIsDirectSource) return selected instanceof EntitySelector.Instance(EntityRef ref)
                 && isLivingRef(ref) && tracker.instanceDirectory().contains(ref)
                 && (state.delegatedSources.contains(ref) || isDirectSourceOfPlayer(player, target, ref, tracker));
-        return source.filter(self::equals).isPresent()
-                && isValidSourceSelector(player, source.get(), tracker);
+        return self.equals(selected) && isValidSourceSelector(player, selected, tracker);
     }
 
     /** 普通玩家关闭 GUI 后立即失去实体来源下钻权限，并恢复为自身来源。 */
@@ -146,7 +156,7 @@ public final class StatsFocusManager {
             return FocusChangeResult.ACCEPTED;
         }
         EntitySelector self = new EntitySelector.Instance(EntityRef.of(player));
-        if(!state.focus.source().filter(self::equals).isPresent()) return FocusChangeResult.SOURCE_NOT_ALLOWED;
+        if(state.focus.source().filter(self::equals).isEmpty()) return FocusChangeResult.SOURCE_NOT_ALLOWED;
         DamageEventJournal journal = ServerStats.journal();
         if(journal == null) return FocusChangeResult.UNKNOWN_SOURCE;
         StatsFilter proof = new StatsFilter(Optional.of(self), state.focus.target(),
@@ -171,7 +181,9 @@ public final class StatsFocusManager {
             return state == null || !state.focus.matches(record);
         });
         sources.forEach(playerId -> {
-            FocusSummaryCache cache = focuses.get(playerId).summaryCache;
+            PlayerFocus state = focuses.get(playerId);
+            if(state == null) return;
+            FocusSummaryCache cache = state.summaryCache;
             if(cache != null) cache.accept(record);
         });
         return sources;
@@ -181,7 +193,8 @@ public final class StatsFocusManager {
     public Set<UUID> expireSessions(long gameTime) {
         Set<UUID> expired = new HashSet<>();
         focuses.forEach((playerId, state) -> {
-            if(state.summaryCache != null && state.summaryCache.expire(gameTime)) expired.add(playerId);
+            FocusSummaryCache cache = state.summaryCache;
+            if(cache != null && cache.expire(gameTime)) expired.add(playerId);
         });
         return expired;
     }
@@ -225,8 +238,8 @@ public final class StatsFocusManager {
     }
 
     private static boolean isOwner(EntitySelector selector, EntityRef owner) {
-        return selector instanceof EntitySelector.Instance instance
-                && instance.ref().id().equals(owner.id());
+        return selector instanceof EntitySelector.Instance(EntityRef ref)
+                && ref.id().equals(owner.id());
     }
 
     public void remove(UUID playerId) {
@@ -271,10 +284,8 @@ public final class StatsFocusManager {
             return FocusChangeResult.SOURCE_NOT_ALLOWED;
         }
         if(hasFullAccess(player)) {
-            if(source.isEmpty() || isValidSourceSelector(player, source.get(), tracker)) {
-                return FocusChangeResult.ACCEPTED;
-            }
-            return FocusChangeResult.UNKNOWN_SOURCE;
+            return source.map(selector -> isValidSourceSelector(player, selector, tracker)).orElse(true)
+                    ? FocusChangeResult.ACCEPTED : FocusChangeResult.UNKNOWN_SOURCE;
         }
         if(source.filter(self::equals).isPresent()) return FocusChangeResult.ACCEPTED;
         return FocusChangeResult.SOURCE_NOT_ALLOWED;
@@ -321,12 +332,14 @@ public final class StatsFocusManager {
         if(filter.sourceIsDirectSource()) {
             if(!(filter.source().orElse(null) instanceof EntitySelector.Instance(EntityRef ref))
                     || !isLivingRef(ref) || !tracker.instanceDirectory().contains(ref)) return false;
-        } else if(filter.source().isPresent()
-                && !isValidSourceSelector(player, filter.source().get(), tracker)) return false;
-        if(filter.target().isPresent() && !isKnownTarget(filter.target().get(), tracker)) return false;
-        if(filter.directSource().isPresent()
-                && !isValidDirectSourceSelector(filter.directSource().get(), tracker)) return false;
-        return filter.damageType().isEmpty() || isValidDamageTypeSelector(filter.damageType().get());
+        } else if(filter.source().map(selector -> !isValidSourceSelector(player, selector, tracker)).orElse(false)) {
+            return false;
+        }
+        if(filter.target().map(selector -> !isKnownTarget(selector, tracker)).orElse(false)) return false;
+        if(filter.directSource().map(selector -> !isValidDirectSourceSelector(selector, tracker)).orElse(false)) {
+            return false;
+        }
+        return filter.damageType().map(StatsFocusManager::isValidDamageTypeSelector).orElse(true);
     }
 
     private static boolean isValidDirectSourceSelector(EntitySelector selector, DamageTracker tracker) {
@@ -343,11 +356,11 @@ public final class StatsFocusManager {
     private static boolean isValidDamageTypeSelector(
             io.zershyan.damagestats.stats.filter.DamageTypeSelector selector) {
         return switch (selector) {
-            case io.zershyan.damagestats.stats.filter.DamageTypeSelector.Category category ->
-                    DamageTypeCategories.hasCategory(category.name());
-            case io.zershyan.damagestats.stats.filter.DamageTypeSelector.Exact exact -> {
+            case io.zershyan.damagestats.stats.filter.DamageTypeSelector.Category(String name) ->
+                    DamageTypeCategories.hasCategory(name);
+            case io.zershyan.damagestats.stats.filter.DamageTypeSelector.Exact(ResourceLocation id) -> {
                 DamageEventJournal journal = ServerStats.journal();
-                yield journal != null && journal.recordedDamageTypes().contains(exact.id());
+                yield journal != null && journal.recordedDamageTypes().contains(id);
             }
         };
     }
@@ -411,16 +424,14 @@ public final class StatsFocusManager {
                               Map<UUID, Set<UUID>> instances,
                               Map<ResourceLocation, Set<UUID>> types,
                               Set<UUID> unrestricted) {
-        if(selector.isEmpty()) {
-            unrestricted.add(playerId);
-            return;
-        }
-        switch (selector.get()) {
-            case EntitySelector.Instance(EntityRef ref) ->
-                    instances.computeIfAbsent(ref.id(), ignored -> new HashSet<>()).add(playerId);
-            case EntitySelector.Type(ResourceLocation typeId) ->
-                    types.computeIfAbsent(typeId, ignored -> new HashSet<>()).add(playerId);
-        }
+        selector.ifPresentOrElse(value -> {
+            switch (value) {
+                case EntitySelector.Instance(EntityRef ref) ->
+                        instances.computeIfAbsent(ref.id(), ignored -> new HashSet<>()).add(playerId);
+                case EntitySelector.Type(ResourceLocation typeId) ->
+                        types.computeIfAbsent(typeId, ignored -> new HashSet<>()).add(playerId);
+            }
+        }, () -> unrestricted.add(playerId));
     }
 
     private static Set<UUID> selectorSubscribers(EntityRef ref, Map<UUID, Set<UUID>> instances,

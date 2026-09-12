@@ -38,24 +38,26 @@ public final class ServerLifecycleHandler {
 
     @SubscribeEvent
     public static void onServerStarted(ServerStartedEvent event) {
-        worldDirectory = StatsStorage.directory(event.getServer());
+        Path directory = StatsStorage.directory(event.getServer());
+        worldDirectory = directory;
         shutdownSaved = false;
-        storageWritesBlocked = !StatsStorage.recoverPendingReset(worldDirectory);
+        storageWritesBlocked = !StatsStorage.recoverPendingReset(directory);
         if(storageWritesBlocked) {
             LOGGER.error("伤害统计清理事务恢复失败，本次运行不会写入统计数据：{}", worldDirectory);
         }
-        DamageEventJournal journal = DamageEventJournal.open(worldDirectory);
+        DamageEventJournal journal = DamageEventJournal.open(directory);
         // 原始事件日志是权威数据；缓存损坏时回放它，避免实例选择和快速聚合从空数据开始。
         DamageTracker restored = storageWritesBlocked ? null : StatsStorage.load(event.getServer());
         boolean recoveredFromJournal = !storageWritesBlocked && restored == null;
         if(recoveredFromJournal) {
             restored = journal.rebuildTracker(event.getServer().overworld().getGameTime());
-            if(!StatsStorage.save(worldDirectory, restored)) {
-                LOGGER.warn("伤害统计缓存已从事件日志恢复，但修复后的缓存写入失败：{}", worldDirectory);
+            if(!StatsStorage.save(directory, restored)) {
+                LOGGER.warn("伤害统计缓存已从事件日志恢复，但修复后的缓存写入失败：{}", directory);
             }
         }
-        ServerStats.start(restored, journal, StatsStorage.focusWorldId(worldDirectory));
-        ServerStats.tracker().pruneInstanceDirectory(System.currentTimeMillis());
+        ServerStats.start(restored, journal, StatsStorage.focusWorldId(directory));
+        DamageTracker tracker = ServerStats.tracker();
+        if(tracker != null) tracker.pruneInstanceDirectory(System.currentTimeMillis());
     }
 
     /** 正常退出走这里，这时存档会话还开着 */
@@ -144,8 +146,9 @@ public final class ServerLifecycleHandler {
     private static boolean saveStats() {
         DamageTracker tracker = ServerStats.tracker();
         DamageEventJournal journal = ServerStats.journal();
-        if(storageWritesBlocked || tracker == null || worldDirectory == null || journal != null && journal.isClearing()) return false;
-        return StatsStorage.save(worldDirectory, tracker);
+        Path directory = worldDirectory;
+        if(storageWritesBlocked || tracker == null || directory == null || journal != null && journal.isClearing()) return false;
+        return StatsStorage.save(directory, tracker);
     }
 
     public static void saveNow() {
@@ -154,17 +157,18 @@ public final class ServerLifecycleHandler {
 
     /** 显式重置不服从自动保存开关，必须让磁盘中的旧统计同步失效。 */
     public static boolean persistReset(@Nullable EntityRef owner) {
-        if(worldDirectory == null || storageWritesBlocked) return false;
+        Path directory = worldDirectory;
+        if(directory == null || storageWritesBlocked) return false;
         DamageTracker tracker = ServerStats.tracker();
         if(owner == null) {
             DamageEventJournal journal = ServerStats.journal();
             if(journal == null || tracker == null) return false;
-            return StatsStorage.resetAllAtomically(worldDirectory, journal, tracker);
+            return StatsStorage.resetAllAtomically(directory, journal, tracker);
         } else {
             DamageEventJournal journal = ServerStats.journal();
             if(tracker == null) return false;
             if(journal != null) {
-                if(!StatsStorage.invalidateCache(worldDirectory)) return false;
+                if(!StatsStorage.invalidateCache(directory)) return false;
                 if(!journal.markReset(owner)) return false;
                 tracker.resetFor(owner);
                 return true;

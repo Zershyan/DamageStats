@@ -22,7 +22,7 @@ public record EntityChoicePagePacket(EntityChoicePage page) implements CustomPac
         return TYPE;
     }
 
-    public static void handle(EntityChoicePagePacket payload, IPayloadContext context) {
-        context.enqueueWork(() -> ClientStats.acceptEntityChoices(payload.page()));
+    public void handle(IPayloadContext context) {
+        context.enqueueWork(() -> ClientStats.acceptEntityChoices(page()));
     }
 }

@@ -59,8 +59,7 @@ public final class DamageTypeCategories {
     /** 玩家自己加的分类没有对应翻译，回落显示分类名本身 */
     public static Component displayName(ResourceLocation damageTypeId) {
         String category = BY_TYPE.get(damageTypeId);
-        if(category == null) return Component.literal(damageTypeId.toString());
-        return categoryName(category);
+        return category == null ? Component.literal(damageTypeId.toString()) : categoryName(category);
     }
 
     public static Component categoryName(String category) {

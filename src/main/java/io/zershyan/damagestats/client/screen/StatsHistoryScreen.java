@@ -35,7 +35,6 @@ public final class StatsHistoryScreen extends Screen {
     private int scrollOffset;
     private @Nullable HistoryPage adopted;
     private List<HistoryLine> displayedLines = List.of();
-    private List<Component> tooltip = List.of();
 
     public StatsHistoryScreen(StatsScreen parent) {
         super(DSKeyLang.ScreenHistory.copy());
@@ -44,6 +43,7 @@ public final class StatsHistoryScreen extends Screen {
 
     @Override
     protected void init() {
+        if(minecraft == null) return;
         ScreenLayout.Flow footer = footerFlow();
         ScreenLayout.Bounds refresh = footer.bounds().getFirst();
         ScreenLayout.Bounds done = footer.bounds().getLast();
@@ -81,7 +81,7 @@ public final class StatsHistoryScreen extends Screen {
         int bottom = footerTop - 6;
         int visible = Math.max(0, (bottom - top) / ROW_HEIGHT);
         scrollOffset = Mth.clamp(scrollOffset, 0, Math.max(0, lines.size() - visible));
-        tooltip = List.of();
+        List<Component> tooltip = List.of();
         if(bottom > top && visible > 0) {
             int left = ScreenLayout.left(width, SIDE);
             int right = ScreenLayout.right(width, SIDE);
@@ -112,7 +112,7 @@ public final class StatsHistoryScreen extends Screen {
     }
 
     private int headerHeight() {
-        return Math.min(PREFERRED_HEADER_HEIGHT, Math.min(Math.max(0, height / 3), footerFlow().top()));
+        return Math.clamp(Math.min(height / 3, footerFlow().top()), 0, PREFERRED_HEADER_HEIGHT);
     }
 
     private ScreenLayout.Flow footerFlow() {

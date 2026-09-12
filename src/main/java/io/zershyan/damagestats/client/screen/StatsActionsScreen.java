@@ -16,7 +16,6 @@ public final class StatsActionsScreen extends Screen {
     private static final int PANEL_WIDTH = 180;
     private static final int BACKGROUND = 0xFF15181C;
     private final StatsScreen parent;
-    private List<Component> tooltip = List.of();
 
     private record Layout(int x, int top, int width, int height, int titleHeight,
                           List<ScreenLayout.Bounds> buttons) {}
@@ -28,6 +27,7 @@ public final class StatsActionsScreen extends Screen {
 
     @Override
     protected void init() {
+        if(minecraft == null) return;
         Layout layout = layout();
         int index = 0;
         ScreenLayout.Bounds details = layout.buttons().get(index++);
@@ -71,7 +71,7 @@ public final class StatsActionsScreen extends Screen {
         Component displayTitle = truncate(title, Math.max(1, layout.width() - 12));
         graphics.drawCenteredString(font, displayTitle, width / 2,
                 Math.clamp(y + 10, 0, Math.max(0, height - 1)), 0xFFFFFFFF);
-        tooltip = font.width(title) > layout.width() - 12
+        List<Component> tooltip = font.width(title) > layout.width() - 12
                 && mouseX >= x && mouseX <= x + layout.width() + 16
                 && mouseY >= y && mouseY < y + layout.titleHeight()
                 ? List.of(title) : List.of();
@@ -92,12 +92,12 @@ public final class StatsActionsScreen extends Screen {
 
     private Layout layout() {
         int count = buttonCount();
-        int panelWidth = Math.min(PANEL_WIDTH, Math.max(1, width - 8));
-        int titleHeight = Math.min(28, Math.max(1, height / 5));
-        int padding = Math.min(8, Math.max(0, height / 12));
+        int panelWidth = Math.clamp(width - 8, 1, PANEL_WIDTH);
+        int titleHeight = Math.clamp(height / 5, 1, 28);
+        int padding = Math.clamp(height / 12, 0, 8);
         int available = Math.max(1, height - titleHeight - padding * 2);
-        int gap = count <= 1 ? 0 : Math.min(4, Math.max(0, (available - count) / (count - 1)));
-        int buttonHeight = Math.min(20, Math.max(1, (available - gap * (count - 1)) / count));
+        int gap = count <= 1 ? 0 : Math.clamp((available - count) / (count - 1), 0, 4);
+        int buttonHeight = Math.clamp((available - (long) gap * (count - 1)) / count, 1, 20);
         int panelHeight = titleHeight + padding * 2 + count * buttonHeight + gap * (count - 1);
         int top = Math.max(0, (height - panelHeight) / 2);
         int panelX = Math.max(0, (width - panelWidth) / 2);

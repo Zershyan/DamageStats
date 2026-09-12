@@ -6,7 +6,7 @@ import java.util.List;
 /** 小窗口下统一收缩边距并计算控件位置，避免各页面各自计算后发生重叠。 */
 final class ScreenLayout {
     static int side(int screenWidth, int preferred) {
-        return Math.min(preferred, Math.max(0, (screenWidth - 1) / 2));
+        return Math.clamp(preferred, 0, Math.max(0, (screenWidth - 1) / 2));
     }
 
     static int left(int screenWidth, int preferredSide) {
@@ -30,7 +30,7 @@ final class ScreenLayout {
         int y = Math.max(0, top);
         List<Bounds> bounds = new ArrayList<>(preferredWidths.length);
         for(int preferredWidth : preferredWidths) {
-            int buttonWidth = Math.min(Math.max(1, preferredWidth), available);
+            int buttonWidth = Math.clamp(preferredWidth, 1, available);
             if(x > left && x + buttonWidth > right) {
                 x = left;
                 y += height + gap;
@@ -51,7 +51,7 @@ final class ScreenLayout {
         int itemCount = preferredWidths.length;
         int requestedGap = Math.max(0, gap);
         int effectiveGap = itemCount <= 1 ? 0
-                : Math.min(requestedGap, Math.max(0, (available - itemCount) / (itemCount - 1)));
+                : Math.clamp((available - itemCount) / (itemCount - 1), 0, requestedGap);
         int gaps = (itemCount - 1) * effectiveGap;
         int content = Math.max(itemCount, available - gaps);
         int preferredTotal = 0;
@@ -66,7 +66,7 @@ final class ScreenLayout {
             } else {
                 buttonWidth = Math.max(1, Math.round((float) Math.max(1, preferredWidths[index])
                         * content / Math.max(1, preferredTotal)));
-                buttonWidth = Math.min(buttonWidth, Math.max(1, content - used -
+                buttonWidth = Math.clamp(buttonWidth, 1, Math.max(1, content - used -
                         (preferredWidths.length - index - 1)));
             }
             bounds.add(new Bounds(x, Math.max(0, top), buttonWidth, Math.max(1, height)));
@@ -79,8 +79,8 @@ final class ScreenLayout {
     static Flow bottomSingleRow(int screenWidth, int screenHeight, int preferredSide,
                                 int preferredButtonHeight, int preferredGap, int padding,
                                 int... preferredWidths) {
-        int safePadding = Math.min(Math.max(0, padding), Math.max(0, (screenHeight - 1) / 2));
-        int buttonHeight = Math.min(Math.max(1, preferredButtonHeight),
+        int safePadding = Math.clamp(padding, 0, Math.max(0, (screenHeight - 1) / 2));
+        int buttonHeight = Math.clamp(preferredButtonHeight, 1,
                 Math.max(1, screenHeight - safePadding * 2));
         int totalHeight = safePadding * 2 + buttonHeight;
         int top = Math.max(0, screenHeight - totalHeight);
@@ -107,8 +107,8 @@ final class ScreenLayout {
     }
 
     static Bounds centered(int screenWidth, int screenHeight, int preferredWidth, int preferredHeight) {
-        int panelWidth = Math.min(Math.max(1, preferredWidth), Math.max(1, screenWidth));
-        int panelHeight = Math.min(Math.max(1, preferredHeight), Math.max(1, screenHeight));
+        int panelWidth = Math.clamp(preferredWidth, 1, Math.max(1, screenWidth));
+        int panelHeight = Math.clamp(preferredHeight, 1, Math.max(1, screenHeight));
         return new Bounds(Math.max(0, (screenWidth - panelWidth) / 2),
                 Math.max(0, (screenHeight - panelHeight) / 2), panelWidth, panelHeight);
     }

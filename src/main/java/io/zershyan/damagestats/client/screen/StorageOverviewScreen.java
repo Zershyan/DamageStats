@@ -34,7 +34,6 @@ public final class StorageOverviewScreen extends Screen {
     private int scrollOffset;
     private StorageOverview displayedOverview;
     private List<Component> displayedLines = List.of();
-    private List<Component> tooltip = List.of();
 
     public StorageOverviewScreen() {
         super(DSKeyLang.ScreenStorageTitle.copy());
@@ -93,7 +92,7 @@ public final class StorageOverviewScreen extends Screen {
         int bottom = actions.top() - 8;
         int visible = Math.max(0, (bottom - top) / LINE_HEIGHT);
         scrollOffset = Mth.clamp(scrollOffset, 0, Math.max(0, lines.size() - visible));
-        tooltip = List.of();
+        List<Component> tooltip = List.of();
         if(bottom > top && visible > 0) {
             int left = ScreenLayout.left(width, SIDE);
             int right = ScreenLayout.right(width, SIDE);
@@ -129,6 +128,7 @@ public final class StorageOverviewScreen extends Screen {
     }
 
     private void confirm(StorageCleanupTarget target) {
+        if(minecraft == null) return;
         minecraft.setScreen(new ConfirmStorageCleanupScreen(this, target));
     }
 
@@ -137,7 +137,7 @@ public final class StorageOverviewScreen extends Screen {
     }
 
     private int headerHeight() {
-        return Math.min(PREFERRED_HEADER_HEIGHT, Math.min(Math.max(0, height / 3), footerFlow().top()));
+        return Math.clamp(Math.min(height / 3, footerFlow().top()), 0, PREFERRED_HEADER_HEIGHT);
     }
 
     private ScreenLayout.Flow footerFlow() {
@@ -153,8 +153,8 @@ public final class StorageOverviewScreen extends Screen {
         List<ScreenLayout.Bounds> preferred = ScreenLayout.flow(width, SIDE, 0, 20, 4, preferredWidths);
         int rows = preferred.stream().map(ScreenLayout.Bounds::y).distinct().mapToInt(ignored -> 1).sum();
         if(available < rows) return new ActionLayout(bottom, 0, 0, List.of());
-        int gap = rows <= 1 ? 0 : Math.min(4, Math.max(0, (available - rows) / (rows - 1)));
-        int buttonHeight = Math.min(20, Math.max(1, (available - gap * (rows - 1)) / rows));
+        int gap = rows <= 1 ? 0 : Math.clamp((available - rows) / (rows - 1), 0, 4);
+        int buttonHeight = Math.clamp((available - (long) gap * (rows - 1)) / rows, 1, 20);
         int used = rows * buttonHeight + gap * (rows - 1);
         int actionTop = bottom - used;
         return new ActionLayout(actionTop, buttonHeight, gap,

@@ -35,6 +35,7 @@ import java.util.zip.GZIPOutputStream;
  * 每条记录都有长度与校验和，异常停机时读取器会停在最后一条完整帧；段索引只是查询加速器，
  * 丢失或损坏后可以由段文件重建，永远不作为唯一数据源。
  */
+@SuppressWarnings("OptionalUsedAsFieldOrParameterType")
 public final class DamageEventJournal {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final String DIRECTORY_NAME = "events";
@@ -318,20 +319,19 @@ public final class DamageEventJournal {
         }
 
         private boolean mayMatch(Optional<EntitySelector> selector, Set<UUID> ids, Set<ResourceLocation> types) {
-            if(selector.isEmpty()) return true;
-            return switch (selector.get()) {
+            return selector.map(value -> switch (value) {
                 case EntitySelector.Instance(EntityRef ref) -> ids.contains(ref.id());
                 case EntitySelector.Type(ResourceLocation typeId) -> types.contains(typeId);
-            };
+            }).orElse(true);
         }
 
         /** 分类由可热重载 JSON 决定，索引不能安全地假定分类内容，因此只优化精确 ID。 */
+        @SuppressWarnings("PatternVariableHidesField")
         private boolean mayMatch(Optional<DamageTypeSelector> selector) {
-            if(selector.isEmpty()) return true;
-            return switch (selector.get()) {
+            return selector.map(value -> switch (value) {
                 case DamageTypeSelector.Category ignored -> true;
                 case DamageTypeSelector.Exact(ResourceLocation id) -> damageTypes.contains(id);
-            };
+            }).orElse(true);
         }
     }
 
@@ -588,7 +588,7 @@ public final class DamageEventJournal {
     public Set<ResourceLocation> recordedDamageTypes() {
         lock.readLock().lock();
         try {
-            return recordedTypes(SegmentMetadata::damageTypes, record -> record.damageTypeId());
+            return recordedTypes(SegmentMetadata::damageTypes, DamageRecord::damageTypeId);
         } finally {
             lock.readLock().unlock();
         }
@@ -778,10 +778,10 @@ public final class DamageEventJournal {
         addCandidates(candidates, filter.directSource(), directSourceIdIndex, directSourceTypeIndex);
         filter.damageType().ifPresent(selector -> {
             switch (selector) {
-                case DamageTypeSelector.Category category -> candidates.add(
-                        damageCategoryIndex.getOrDefault(category.name(), List.of()));
-                case DamageTypeSelector.Exact exact -> candidates.add(
-                        damageTypeIndex.getOrDefault(exact.id(), List.of()));
+                case DamageTypeSelector.Category(String name) -> candidates.add(
+                        damageCategoryIndex.getOrDefault(name, List.of()));
+                case DamageTypeSelector.Exact(ResourceLocation id) -> candidates.add(
+                        damageTypeIndex.getOrDefault(id, List.of()));
             }
         });
         return candidates.stream()
@@ -793,13 +793,10 @@ public final class DamageEventJournal {
                                       Optional<EntitySelector> selector,
                                       Map<UUID, List<JournalEntry>> instanceIndex,
                                       Map<ResourceLocation, List<JournalEntry>> typeIndex) {
-        if(selector.isEmpty()) return;
-        candidates.add(switch (selector.get()) {
-            case EntitySelector.Instance(EntityRef ref) ->
-                    instanceIndex.getOrDefault(ref.id(), List.of());
-            case EntitySelector.Type(ResourceLocation typeId) ->
-                    typeIndex.getOrDefault(typeId, List.of());
-        });
+        selector.ifPresent(value -> candidates.add(switch (value) {
+            case EntitySelector.Instance(EntityRef ref) -> instanceIndex.getOrDefault(ref.id(), List.of());
+            case EntitySelector.Type(ResourceLocation typeId) -> typeIndex.getOrDefault(typeId, List.of());
+        }));
     }
 
     private void initialize() {
@@ -894,7 +891,7 @@ public final class DamageEventJournal {
         sealedSegments.sort(Comparator.comparingLong(SegmentMetadata::id));
         nextSequence = highestSequence + 1;
         eventCount = sealedSegments.stream().mapToLong(SegmentMetadata::recordCount).sum()
-                + (activeSegment == null ? 0 : activeSegment.recordCount);
+                + activeSegment.recordCount;
         if(writeIndex()) indexState = StorageIndexState.LOADED;
     }
 
@@ -946,8 +943,9 @@ public final class DamageEventJournal {
                             .resultOrPartial(error -> LOGGER.warn(
                                     "旧版原始伤害事件第 {} 行解析失败，将跳过：{}，文件：{}",
                                     currentLine, error, legacyPath));
-                    if(parsed.isPresent()) {
-                        entries.add(parsed.get());
+                    LegacyJournalEntry parsedEntry = parsed.orElse(null);
+                    if(parsedEntry != null) {
+                        entries.add(parsedEntry);
                         importedCount++;
                     } else {
                         skippedCount++;
@@ -1054,8 +1052,8 @@ public final class DamageEventJournal {
     }
 
     private boolean clearedBefore(JournalEntry entry, Optional<EntitySelector> selector, EntityRef candidate) {
-        if(!(selector.orElse(null) instanceof EntitySelector.Instance instance)) return false;
-        if(!instance.ref().id().equals(candidate.id())) return false;
+        if(!(selector.orElse(null) instanceof EntitySelector.Instance(EntityRef ref))) return false;
+        if(!ref.id().equals(candidate.id())) return false;
         Long resetSequence = resetSequences.get(candidate.id());
         return resetSequence != null && entry.sequence() < resetSequence;
     }
@@ -1206,9 +1204,8 @@ public final class DamageEventJournal {
             long id = unindexed.iterator().next();
             if(id != segmentPaths.lastKey() || isCompressedSegment(segmentPaths.get(id))) return false;
         }
-        if(!segmentPaths.isEmpty() && segmentPaths.lastKey() == ids.stream().max(Long::compareTo).orElse(Long.MIN_VALUE)
-                && !isCompressedSegment(segmentPaths.lastEntry().getValue())) return false;
-        return true;
+        return segmentPaths.isEmpty() || !Objects.equals(segmentPaths.lastKey(), ids.stream().max(Long::compareTo).orElse(Long.MIN_VALUE))
+                || isCompressedSegment(segmentPaths.lastEntry().getValue());
     }
 
     private boolean writeIndex() {

@@ -22,7 +22,7 @@ public record FocusChartPagePacket(FocusChartPage page) implements CustomPacketP
         return TYPE;
     }
 
-    public static void handle(FocusChartPagePacket payload, IPayloadContext context) {
-        context.enqueueWork(() -> ClientStats.acceptChartPage(payload.page()));
+    public void handle(IPayloadContext context) {
+        context.enqueueWork(() -> ClientStats.acceptChartPage(page()));
     }
 }

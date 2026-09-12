@@ -26,13 +26,13 @@ public record FocusStateRequestPacket(int requestId) implements CustomPacketPayl
         return TYPE;
     }
 
-    public static void handle(FocusStateRequestPacket payload, IPayloadContext context) {
+    public void handle(IPayloadContext context) {
         context.enqueueWork(() -> {
             if(!(context.player() instanceof ServerPlayer player)) return;
             DamageTracker tracker = ServerStats.tracker();
             StatsFocusManager manager = ServerStats.focusManager();
             if(tracker == null || manager == null) return;
-            StatsSyncHandler.pushFocusState(tracker, player, FocusChangeResult.ACCEPTED, payload.requestId());
+            StatsSyncHandler.pushFocusState(tracker, player, FocusChangeResult.ACCEPTED, requestId());
         });
     }
 }

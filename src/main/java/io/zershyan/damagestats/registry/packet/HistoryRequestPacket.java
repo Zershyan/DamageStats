@@ -32,21 +32,21 @@ public record HistoryRequestPacket(StatsFilter filter, int requestId) implements
         return TYPE;
     }
 
-    public static void handle(HistoryRequestPacket payload, IPayloadContext context) {
+    public void handle(IPayloadContext context) {
         context.enqueueWork(() -> {
             if(!(context.player() instanceof ServerPlayer player)) return;
             DamageTracker tracker = ServerStats.tracker();
             StatsFocusManager manager = ServerStats.focusManager();
             if(tracker == null || manager == null) return;
-            if(!manager.canBrowse(player, payload.filter(), tracker)) {
+            if(!manager.canBrowse(player, filter(), tracker)) {
                 PacketDistributor.sendToPlayer(player, new HistoryPagePacket(
-                        new HistoryPage(payload.requestId(), false, List.of(), List.of())));
+                        new HistoryPage(requestId(), false, List.of(), List.of())));
                 return;
             }
             List<io.zershyan.damagestats.stats.view.SessionView> history =
-                    StatsViewBuilder.historyFromJournal(payload.filter(), player.level().getGameTime());
-            boolean incoming = payload.filter().source().isEmpty() && payload.filter().target().isPresent();
-            PacketDistributor.sendToPlayer(player, new HistoryPagePacket(new HistoryPage(payload.requestId(), true,
+                    StatsViewBuilder.historyFromJournal(filter(), player.level().getGameTime());
+            boolean incoming = filter().source().isEmpty() && filter().target().isPresent();
+            PacketDistributor.sendToPlayer(player, new HistoryPagePacket(new HistoryPage(requestId(), true,
                     incoming ? List.of() : history, incoming ? history : List.of())));
         });
     }

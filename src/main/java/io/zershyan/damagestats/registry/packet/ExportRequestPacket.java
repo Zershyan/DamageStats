@@ -36,21 +36,21 @@ public record ExportRequestPacket(StatsFilter filter, DamageTypeGrouping typeGro
         return TYPE;
     }
 
-    public static void handle(ExportRequestPacket payload, IPayloadContext context) {
+    public void handle(IPayloadContext context) {
         context.enqueueWork(() -> {
             if(!(context.player() instanceof ServerPlayer player)) return;
             DamageTracker tracker = ServerStats.tracker();
             StatsFocusManager manager = ServerStats.focusManager();
             if(tracker == null || manager == null) return;
-            if(!manager.canBrowse(player, payload.filter(), tracker)) {
-                PacketDistributor.sendToPlayer(player, ExportStartPacket.denied(payload.requestId()));
+            if(!manager.canBrowse(player, filter(), tracker)) {
+                PacketDistributor.sendToPlayer(player, ExportStartPacket.denied(requestId()));
                 return;
             }
-            StatsSnapshot snapshot = StatsViewBuilder.snapshotFor(tracker, player, payload.filter(),
-                    StatsSubjectSlot.SOURCE.resolve(payload.filter()),
-                    payload.typeGrouping());
-            List<ExportChunkPacket> chunks = chunks(payload.requestId(), snapshot);
-            PacketDistributor.sendToPlayer(player, ExportStartPacket.accepted(payload.requestId(), snapshot, chunks.size()));
+            StatsSnapshot snapshot = StatsViewBuilder.snapshotFor(tracker, player, filter(),
+                    StatsSubjectSlot.SOURCE.resolve(filter()),
+                    typeGrouping());
+            List<ExportChunkPacket> chunks = chunks(requestId(), snapshot);
+            PacketDistributor.sendToPlayer(player, ExportStartPacket.accepted(requestId(), snapshot, chunks.size()));
             chunks.forEach(chunk -> PacketDistributor.sendToPlayer(player, chunk));
         });
     }

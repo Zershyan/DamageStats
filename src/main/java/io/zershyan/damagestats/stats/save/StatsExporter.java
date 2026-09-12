@@ -206,10 +206,10 @@ public final class StatsExporter {
                 object.addProperty("type", ref.typeIdOrEnvironment().toString());
                 yield object;
             }
-            case EntitySelector.Type type -> {
+            case EntitySelector.Type(ResourceLocation typeId) -> {
                 JsonObject object = new JsonObject();
                 object.addProperty("kind", "type");
-                object.addProperty("type", type.typeId().toString());
+                object.addProperty("type", typeId.toString());
                 yield object;
             }
         };
@@ -217,16 +217,16 @@ public final class StatsExporter {
 
     private static JsonObject damageTypeSelectorJson(DamageTypeSelector selector) {
         return switch (selector) {
-            case DamageTypeSelector.Category category -> {
+            case DamageTypeSelector.Category(String name) -> {
                 JsonObject object = new JsonObject();
                 object.addProperty("kind", "category");
-                object.addProperty("name", category.name());
+                object.addProperty("name", name);
                 yield object;
             }
-            case DamageTypeSelector.Exact exact -> {
+            case DamageTypeSelector.Exact(ResourceLocation id) -> {
                 JsonObject object = new JsonObject();
                 object.addProperty("kind", "exact");
-                object.addProperty("id", exact.id().toString());
+                object.addProperty("id", id.toString());
                 yield object;
             }
         };

@@ -54,7 +54,7 @@ public record ExportChunkPacket(
         return TYPE;
     }
 
-    public static void handle(ExportChunkPacket payload, IPayloadContext context) {
-        context.enqueueWork(() -> ClientExportManager.acceptChunk(payload));
+    public void handle(IPayloadContext context) {
+        context.enqueueWork(() -> ClientExportManager.acceptChunk(this));
     }
 }

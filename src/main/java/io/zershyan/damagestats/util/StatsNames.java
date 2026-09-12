@@ -41,15 +41,15 @@ public final class StatsNames {
 
     public static Component entitySelector(DamageTracker tracker, EntitySelector selector) {
         return switch (selector) {
-            case EntitySelector.Instance instance -> opponent(tracker, instance.ref());
-            case EntitySelector.Type type -> entityType(type.typeId());
+            case EntitySelector.Instance(EntityRef ref) -> opponent(tracker, ref);
+            case EntitySelector.Type(ResourceLocation typeId) -> entityType(typeId);
         };
     }
 
     public static Component damageTypeSelector(DamageTypeSelector selector) {
         return switch (selector) {
-            case DamageTypeSelector.Category category -> DamageTypeCategories.categoryName(category.name());
-            case DamageTypeSelector.Exact exact -> Component.literal(exact.id().toString());
+            case DamageTypeSelector.Category(String name) -> DamageTypeCategories.categoryName(name);
+            case DamageTypeSelector.Exact(ResourceLocation id) -> Component.literal(id.toString());
         };
     }
 }

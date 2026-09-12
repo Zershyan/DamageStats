@@ -4,6 +4,7 @@ import com.mojang.logging.LogUtils;
 import io.zershyan.damagestats.DamageStats;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
 import io.zershyan.damagestats.stats.DamageTracker;
+import io.zershyan.damagestats.stats.EntityRef;
 import io.zershyan.damagestats.stats.InstanceMetadata;
 import io.zershyan.damagestats.stats.ServerStats;
 import io.zershyan.damagestats.stats.filter.EntitySelector;
@@ -92,39 +93,39 @@ public record EntityChoiceRequestPacket(
         return TYPE;
     }
 
-    public static void handle(EntityChoiceRequestPacket payload, IPayloadContext context) {
+    public void handle(IPayloadContext context) {
         context.enqueueWork(() -> {
             if(!(context.player() instanceof ServerPlayer player)) return;
             DamageTracker tracker = ServerStats.tracker();
             StatsFocusManager manager = ServerStats.focusManager();
             if(tracker == null || manager == null) return;
             DamageEventJournal journal = ServerStats.journal();
-            if(!isAllowed(payload, player, tracker, manager, journal)) {
-                sendDenied(player, payload, manager.focusFor(player).version());
+            if(!isAllowed(this, player, tracker, manager, journal)) {
+                sendDenied(player, this, manager.focusFor(player).version());
                 return;
             }
             long focusVersion = manager.focusFor(player).version();
-            String search = payload.search().length() > MAX_SEARCH_LENGTH
-                    ? payload.search().substring(0, MAX_SEARCH_LENGTH)
-                    : payload.search();
+            String search = search().length() > MAX_SEARCH_LENGTH
+                    ? search().substring(0, MAX_SEARCH_LENGTH)
+                    : search();
             MinecraftServer server = player.getServer();
             if(server == null) return;
-            if(journal != null && !payload.cursor().isEmpty()) {
-                ChoiceCursor page = findCursor(journal, payload.cursor(), player, tracker, manager, payload, search);
+            if(journal != null && !cursor().isEmpty()) {
+                ChoiceCursor page = findCursor(journal, cursor(), player, tracker, manager, this, search);
                 if(page != null) {
-                    sendPage(player, payload, focusVersion, page, payload.cursor());
+                    sendPage(player, this, focusVersion, page, cursor());
                     return;
                 }
-                sendPage(player, payload, focusVersion, null, "");
+                sendPage(player, this, focusVersion, null, "");
                 return;
             }
             ChoiceSnapshot snapshot = new ChoiceSnapshot(List.copyOf(tracker.instanceDirectory().entries()),
                     tracker.cachedNames());
             boolean fullAccess = StatsFocusManager.hasFullAccess(player);
-            CompletableFuture.supplyAsync(() -> buildEntries(journal, payload.slot(), payload.typeFilter(), search,
-                            payload.contextFilter(), snapshot, fullAccess))
+            CompletableFuture.supplyAsync(() -> buildEntries(journal, slot(), typeFilter(), search,
+                            contextFilter(), snapshot, fullAccess))
                     .whenComplete((entries, error) -> server.execute(() -> finishRequest(player, server, tracker,
-                            manager, journal, payload, search, entries, error)));
+                            manager, journal, this, search, entries, error)));
         });
     }
 
@@ -138,9 +139,10 @@ public record EntityChoiceRequestPacket(
             case DIRECT_SOURCE -> payload.typeFilter().isPresent()
                     && manager.canBrowse(player, payload.contextFilter(), tracker);
         };
-        return allowed && (payload.typeFilter().isEmpty()
-                || validTypeFilter(journal, StatsFocusManager.hasFullAccess(player),
-                payload.slot(), payload.typeFilter().get()));
+        return allowed && payload.typeFilter()
+                .map(typeId -> validTypeFilter(journal, StatsFocusManager.hasFullAccess(player),
+                        payload.slot(), typeId))
+                .orElse(true);
     }
 
     private static void sendDenied(ServerPlayer player, EntityChoiceRequestPacket payload, long focusVersion) {
@@ -354,8 +356,8 @@ public record EntityChoiceRequestPacket(
 
     private static float contribution(EntityChoiceView entry,
                                       Map<UUID, DamageEventJournal.DamageContribution> contributions) {
-        if(!(entry.selector() instanceof EntitySelector.Instance instance)) return 0;
-        return contributions.getOrDefault(instance.ref().id(),
+        if(!(entry.selector() instanceof EntitySelector.Instance(EntityRef ref))) return 0;
+        return contributions.getOrDefault(ref.id(),
                 new DamageEventJournal.DamageContribution(0, 0)).damage();
     }
 

@@ -16,6 +16,7 @@ import java.util.*;
  * 全部统计数据的容器。实例级条目限量淘汰，按实体类型汇总的条目体量小，永久保留。
  * 同一条伤害会同时记进「来源的输出统计」和「目标的承伤统计」，冗余换来查询时不必遍历原始记录。
  */
+@SuppressWarnings("OptionalUsedAsFieldOrParameterType")
 public class DamageTracker {
     /** 玩家条目永不淘汰：玩家是最主要的统计对象，被一群小怪挤掉会让数据莫名消失 */
     private static final ResourceLocation PLAYER_TYPE = ResourceLocation.withDefaultNamespace("player");
@@ -232,11 +233,8 @@ public class DamageTracker {
         tracker.incomingByType.putAll(incomingByType);
         tracker.nameCache.putAll(names);
         tracker.instanceDirectory.restore(instanceDirectory.entries());
-        if(global.isPresent()) {
-            tracker.global = global.get();
-        } else {
-            outgoingByType.values().forEach(tracker.global::absorbLifetime);
-        }
+        global.ifPresentOrElse(value -> tracker.global = value,
+                () -> outgoingByType.values().forEach(tracker.global::absorbLifetime));
         return tracker;
     }
 

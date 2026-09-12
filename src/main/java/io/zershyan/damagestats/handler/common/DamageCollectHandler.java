@@ -5,6 +5,7 @@ import io.zershyan.damagestats.config.DSConfig;
 import io.zershyan.damagestats.stats.*;
 import io.zershyan.damagestats.stats.save.DamageEventJournal;
 import io.zershyan.damagestats.util.DamageResolver;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
@@ -90,8 +91,8 @@ public final class DamageCollectHandler {
         if(entity instanceof net.minecraft.world.entity.player.Player player) {
             return limitName(player.getGameProfile().getName());
         }
-        if(entity.getCustomName() == null) return "";
-        return limitName(entity.getCustomName().getString());
+        Component customName = entity.getCustomName();
+        return customName == null ? "" : limitName(customName.getString());
     }
 
     /** 限制名称长度，防止超长名称占用过多网络带宽和导致 GUI 溢出 */

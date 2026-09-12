@@ -9,6 +9,7 @@ import io.zershyan.damagestats.stats.save.StatsStorage;
 import io.zershyan.damagestats.stats.save.StorageMaintenance;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
 
@@ -23,8 +24,10 @@ public final class StorageCommand {
 
     private static int execute(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         ServerPlayer player = context.getSource().getPlayerOrException();
+        MinecraftServer server = player.getServer();
+        if(server == null) return 0;
         PacketDistributor.sendToPlayer(player, StorageOverviewPacket.open(StorageMaintenance.overview(
-                StatsStorage.directory(player.getServer()), ServerStats.journal())));
+                StatsStorage.directory(server), ServerStats.journal())));
         return 1;
     }
 }

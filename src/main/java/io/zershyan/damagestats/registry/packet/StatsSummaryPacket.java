@@ -23,7 +23,7 @@ public record StatsSummaryPacket(FocusSummaryDelta delta) implements CustomPacke
         return TYPE;
     }
 
-    public static void handle(StatsSummaryPacket payload, IPayloadContext context) {
-        context.enqueueWork(() -> ClientStats.acceptSummary(payload.delta()));
+    public void handle(IPayloadContext context) {
+        context.enqueueWork(() -> ClientStats.acceptSummary(delta()));
     }
 }

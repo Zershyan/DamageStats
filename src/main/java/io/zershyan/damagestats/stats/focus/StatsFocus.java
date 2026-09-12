@@ -9,6 +9,7 @@ import net.minecraft.server.level.ServerPlayer;
 import java.util.Optional;
 
 /** 每位玩家唯一的服务端权威焦点，页头与 Overlay 都使用同一份范围。 */
+@SuppressWarnings("OptionalUsedAsFieldOrParameterType")
 public record StatsFocus(
         long version,
         Optional<EntitySelector> source,

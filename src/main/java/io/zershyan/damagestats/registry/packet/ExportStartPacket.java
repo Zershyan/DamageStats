@@ -49,8 +49,8 @@ public record ExportStartPacket(
         return TYPE;
     }
 
-    public static void handle(ExportStartPacket payload, IPayloadContext context) {
-        context.enqueueWork(() -> ClientExportManager.acceptStart(payload));
+    public void handle(IPayloadContext context) {
+        context.enqueueWork(() -> ClientExportManager.acceptStart(this));
     }
 
     private static void encode(RegistryFriendlyByteBuf buf, ExportStartPacket packet) {

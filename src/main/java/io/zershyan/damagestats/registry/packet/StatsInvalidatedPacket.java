@@ -19,7 +19,7 @@ public record StatsInvalidatedPacket() implements CustomPacketPayload {
         return TYPE;
     }
 
-    public static void handle(StatsInvalidatedPacket payload, IPayloadContext context) {
+    public void handle(IPayloadContext context) {
         context.enqueueWork(ClientStats::invalidateSnapshot);
     }
 }

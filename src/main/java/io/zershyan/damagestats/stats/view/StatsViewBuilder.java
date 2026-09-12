@@ -63,14 +63,19 @@ public final class StatsViewBuilder {
             history = historyFromJournal(filter, gameTime);
         } else if(fast != null) {
             DamageSession current = fast.getCurrentSession();
-            boolean active = current != null
-                    && !current.isTimedOut(gameTime, DSConfig.SessionTimeoutTicks.get());
             // 实时 DPS 是「当下」的量，和看本场还是累计无关，所以两个视图给同一个值
-            float realtimeDps = active ? current.getRealtimeDps(gameTime, window) : 0;
-            float realtimeOriginalDps = active ? current.getRealtimeOriginalDps(gameTime, window) : 0;
-            session = !active
-                    ? StatsView.EMPTY
-                    : view(tracker, current.getAccumulator(), realtimeDps, realtimeOriginalDps, subjectSlot, typeGrouping);
+            float realtimeDps;
+            float realtimeOriginalDps;
+            if(current == null || current.isTimedOut(gameTime, DSConfig.SessionTimeoutTicks.get())) {
+                realtimeDps = 0;
+                realtimeOriginalDps = 0;
+                session = StatsView.EMPTY;
+            } else {
+                realtimeDps = current.getRealtimeDps(gameTime, window);
+                realtimeOriginalDps = current.getRealtimeOriginalDps(gameTime, window);
+                session = view(tracker, current.getAccumulator(), realtimeDps, realtimeOriginalDps,
+                        subjectSlot, typeGrouping);
+            }
             lifetime = view(tracker, fast.getLifetime(), realtimeDps, realtimeOriginalDps, subjectSlot, typeGrouping);
             history = history(fast);
         } else {
@@ -98,20 +103,26 @@ public final class StatsViewBuilder {
         long gameTime = player.level().getGameTime();
         int windowTicks = DSConfig.DpsWindowTicks.get();
         Component sourceName = filter.source().map(selector -> StatsNames.entitySelector(tracker, selector))
-                .orElseGet(() -> DSKeyLang.ScreenAllDamage.copy());
+                .orElseGet(DSKeyLang.ScreenAllDamage::copy);
         Component targetName = filter.target().map(selector -> StatsNames.entitySelector(tracker, selector))
-                .orElseGet(() -> DSKeyLang.OverlayAllTargets.copy());
+                .orElseGet(DSKeyLang.OverlayAllTargets::copy);
         FocusScopeView scope = new FocusScopeView(focus.version(), focus.source(), focus.target(),
                 focus.sourceIsDirectSource(), sourceName, targetName);
         StatsEntry fast = fastPathEntry(tracker, filter);
         if(fast != null) {
             DamageSession current = fast.getCurrentSession();
-            boolean active = current != null
-                    && !current.isTimedOut(gameTime, DSConfig.SessionTimeoutTicks.get());
-            float realtimeDps = active ? current.getRealtimeDps(gameTime, windowTicks) : 0;
-            float realtimeOriginalDps = active ? current.getRealtimeOriginalDps(gameTime, windowTicks) : 0;
-            FocusMetricsView session = !active ? FocusMetricsView.EMPTY
-                    : focusMetrics(tracker, current.getAccumulator(), realtimeDps, realtimeOriginalDps);
+            float realtimeDps;
+            float realtimeOriginalDps;
+            FocusMetricsView session;
+            if(current == null || current.isTimedOut(gameTime, DSConfig.SessionTimeoutTicks.get())) {
+                realtimeDps = 0;
+                realtimeOriginalDps = 0;
+                session = FocusMetricsView.EMPTY;
+            } else {
+                realtimeDps = current.getRealtimeDps(gameTime, windowTicks);
+                realtimeOriginalDps = current.getRealtimeOriginalDps(gameTime, windowTicks);
+                session = focusMetrics(tracker, current.getAccumulator(), realtimeDps, realtimeOriginalDps);
+            }
             FocusMetricsView lifetime = focusMetrics(tracker, fast.getLifetime(), realtimeDps, realtimeOriginalDps);
             return new FocusSummary(0, scope, session, lifetime, current != null, ServerStats.worldId());
         }
@@ -194,7 +205,7 @@ public final class StatsViewBuilder {
         LinkedHashMap<String, ChartCursor> cursors = CHART_CURSORS.get(journal);
         if(cursors == null) return null;
         ChartCursor page = cursors.get(cursor);
-        if(page == null || page.owner().equals(player.getUUID()) == false) return null;
+        if(page == null || !page.owner().equals(player.getUUID())) return null;
         if(page.journal() != journal || page.journalRevision() != journal.queryRevision()
                 || page.directoryRevision() != tracker.instanceDirectory().revision()
                 || page.focusVersion() != focus.version() || !page.filter().equals(filter)
@@ -219,9 +230,9 @@ public final class StatsViewBuilder {
     private static Component subjectName(DamageTracker tracker, StatsFilter filter, StatsSubjectSlot subjectSlot) {
         return switch (subjectSlot) {
             case SOURCE -> filter.source().map(selector -> StatsNames.entitySelector(tracker, selector))
-                    .orElseGet(() -> DSKeyLang.ScreenAllDamage.copy());
+                    .orElseGet(DSKeyLang.ScreenAllDamage::copy);
             case TARGET -> filter.target().map(selector -> StatsNames.entitySelector(tracker, selector))
-                    .orElseGet(() -> DSKeyLang.ScreenAllDamage.copy());
+                    .orElseGet(DSKeyLang.ScreenAllDamage::copy);
             case GLOBAL -> DSKeyLang.ScreenAllDamage.copy();
         };
     }
@@ -237,10 +248,10 @@ public final class StatsViewBuilder {
             return tracker.global().getLifetime().getHitCount() == 0 ? null : tracker.global();
         }
         if(filter.source().isPresent() && filter.target().isEmpty()) {
-            return entryFor(tracker, filter.source().get(), true);
+            return filter.source().map(selector -> entryFor(tracker, selector, true)).orElse(null);
         }
-        if(filter.target().isPresent() && filter.source().isEmpty()) {
-            return entryFor(tracker, filter.target().get(), false);
+        if(filter.source().isEmpty()) {
+            return filter.target().map(selector -> entryFor(tracker, selector, false)).orElse(null);
         }
         return null;
     }
@@ -353,12 +364,18 @@ public final class StatsViewBuilder {
                                          DamageTypeGrouping typeGrouping, EntityGrouping entityGrouping,
                                          FocusChartScope scope, long gameTime) {
         DamageSession current = entry.getCurrentSession();
-        boolean active = current != null
-                && !current.isTimedOut(gameTime, DSConfig.SessionTimeoutTicks.get());
-        float realtimeDps = active
-                ? current.getRealtimeDps(gameTime, DSConfig.DpsWindowTicks.get()) : 0;
-        float realtimeOriginalDps = active
-                ? current.getRealtimeOriginalDps(gameTime, DSConfig.DpsWindowTicks.get()) : 0;
+        float realtimeDps;
+        float realtimeOriginalDps;
+        boolean active;
+        if(current == null || current.isTimedOut(gameTime, DSConfig.SessionTimeoutTicks.get())) {
+            active = false;
+            realtimeDps = 0;
+            realtimeOriginalDps = 0;
+        } else {
+            active = true;
+            realtimeDps = current.getRealtimeDps(gameTime, DSConfig.DpsWindowTicks.get());
+            realtimeOriginalDps = current.getRealtimeOriginalDps(gameTime, DSConfig.DpsWindowTicks.get());
+        }
         if(scope == FocusChartScope.SESSION) {
             return !active ? StatsView.EMPTY
                     : view(tracker, current.getAccumulator(), realtimeDps, realtimeOriginalDps,

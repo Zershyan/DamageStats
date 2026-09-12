@@ -51,7 +51,7 @@ public record StorageOverviewPacket(
         return TYPE;
     }
 
-    public static void handle(StorageOverviewPacket payload, IPayloadContext context) {
-        context.enqueueWork(() -> ClientStorageOverview.accept(payload));
+    public void handle(IPayloadContext context) {
+        context.enqueueWork(() -> ClientStorageOverview.accept(this));
     }
 }

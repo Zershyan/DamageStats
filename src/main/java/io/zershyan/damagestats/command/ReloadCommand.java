@@ -19,7 +19,8 @@ public final class ReloadCommand {
 
     private static int execute(CommandContext<CommandSourceStack> context) {
         DamageTypeCategories.load();
-        if(ServerStats.journal() != null) ServerStats.journal().invalidateDamageTypeCategoryCache();
+        var journal = ServerStats.journal();
+        if(journal != null) journal.invalidateDamageTypeCategoryCache();
         context.getSource().sendSuccess(DSKeyLang.CategoriesReloaded::copy, true);
         return 1;
     }

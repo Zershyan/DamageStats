@@ -10,6 +10,7 @@ import io.zershyan.damagestats.stats.save.StorageMaintenance;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
@@ -28,23 +29,25 @@ public record StorageCleanupPacket(StorageCleanupTarget target) implements Custo
         return TYPE;
     }
 
-    public static void handle(StorageCleanupPacket payload, IPayloadContext context) {
+    public void handle(IPayloadContext context) {
         context.enqueueWork(() -> {
             if(!(context.player() instanceof ServerPlayer player)) return;
             if(!StatsFocusManager.hasFullAccess(player)) {
                 PacketDistributor.sendToPlayer(player, StorageOverviewPacket.denied());
                 return;
             }
-            boolean succeeded = switch (payload.target()) {
+            MinecraftServer server = player.getServer();
+            if(server == null) return;
+            boolean succeeded = switch (target()) {
                 case TEMPORARY_AND_BACKUPS -> StorageMaintenance.cleanTemporaryAndBackups(
-                        StatsStorage.directory(player.getServer()), ServerStats.journal());
-                case EXPORTS -> StorageMaintenance.cleanExports(StatsStorage.directory(player.getServer()));
-                case ALL_RECORDS -> StatsResetService.resetAll(player.getServer());
+                        StatsStorage.directory(server), ServerStats.journal());
+                case EXPORTS -> StorageMaintenance.cleanExports(StatsStorage.directory(server));
+                case ALL_RECORDS -> StatsResetService.resetAll(server);
                 case NONE -> true;
             };
             PacketDistributor.sendToPlayer(player, StorageOverviewPacket.updated(
-                    StorageMaintenance.overview(StatsStorage.directory(player.getServer()), ServerStats.journal()),
-                    payload.target(), succeeded));
+                    StorageMaintenance.overview(StatsStorage.directory(server), ServerStats.journal()),
+                    target(), succeeded));
         });
     }
 }

@@ -77,7 +77,6 @@ public class StatsScreen extends Screen {
     private @Nullable Button scopeButton;
     private @Nullable Button groupingButton;
     private @Nullable Button setFocusButton;
-    private @Nullable Button actionsButton;
     private @Nullable Button clearSourceButton;
     private @Nullable Button clearTargetButton;
     private @Nullable Button clearChartFiltersButton;
@@ -104,23 +103,24 @@ public class StatsScreen extends Screen {
     }
 
     private void addHeaderButtons(PageLayout layout) {
+        if(minecraft == null) return;
         ScreenLayout.Bounds sourceBounds = layout.topRow().get(0);
         ScreenLayout.Bounds targetBounds = layout.topRow().get(1);
         ScreenLayout.Bounds focusBounds = layout.topRow().get(2);
         ScreenLayout.Bounds actionsBounds = layout.topRow().get(3);
         sourceButton = addRenderableWidget(Button.builder(Component.empty(), button ->
                         minecraft.setScreen(new FocusEntitySelectorScreen(this, FocusSelectionSlot.SOURCE,
-                                browsingFilter(), (selector, name) -> setBrowsingSource(selector, name))))
+                                browsingFilter(), this::setBrowsingSource)))
                 .bounds(sourceBounds.x(), sourceBounds.y(), sourceBounds.width(), sourceBounds.height()).build());
         targetButton = addRenderableWidget(Button.builder(Component.empty(), button ->
                         minecraft.setScreen(new FocusEntitySelectorScreen(this, FocusSelectionSlot.TARGET,
-                                browsingFilter(), (selector, name) -> setBrowsingTarget(selector, name))))
+                                browsingFilter(), this::setBrowsingTarget)))
                     .bounds(targetBounds.x(), targetBounds.y(), targetBounds.width(), targetBounds.height()).build());
         setFocusButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenSetFocus.copy(), button ->
                         ClientFocusPreferences.requestFocus(browsingSource, browsingTarget,
                                 browsingSourceIsDirectSource))
                         .bounds(focusBounds.x(), focusBounds.y(), focusBounds.width(), focusBounds.height()).build());
-        actionsButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenActions.copy(), button ->
+        addRenderableWidget(Button.builder(DSKeyLang.ScreenActions.copy(), button ->
                         minecraft.setScreen(new StatsActionsScreen(this)))
                 .bounds(actionsBounds.x(), actionsBounds.y(), actionsBounds.width(), actionsBounds.height()).build());
 
@@ -318,7 +318,9 @@ public class StatsScreen extends Screen {
             return;
         }
         int contentWidth = Math.max(1, right - left);
-        int labelWidth = Math.min(Math.max(36, contentWidth / 3), Math.max(1, contentWidth - 24));
+        int maxLabelWidth = Math.max(1, contentWidth - 24);
+        int labelWidth = maxLabelWidth < 36 ? maxLabelWidth
+                : Math.clamp(contentWidth / 3, 36, maxLabelWidth);
         int barLeft = Math.min(right - 1, left + labelWidth + 8);
         int barWidth = Math.max(1, right - barLeft);
         float maxDamage = rows.stream().map(GroupView::damage).max(Float::compare).orElse(1f);
@@ -362,14 +364,15 @@ public class StatsScreen extends Screen {
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if(super.mouseClicked(mouseX, mouseY, button)) return true;
         PageLayout layout = layout();
-        if(button != 0 || !insideContent(mouseX, mouseY, layout) || !validChartPage(adopted)) return false;
+        FocusChartPage page = adopted;
+        if(button != 0 || !insideContent(mouseX, mouseY, layout) || !validChartPage(page)) return false;
         int chartOffset = chartFilterHeight();
         int rowTop = contentTop(layout) + chartOffset + 16 - contentScrollOffset;
-        int chartBottom = rowTop + adopted.rows().size() * ROW_HEIGHT;
+        int chartBottom = rowTop + page.rows().size() * ROW_HEIGHT;
         if(mouseY < rowTop || mouseY >= chartBottom) return false;
         int row = (int) ((mouseY - rowTop) / ROW_HEIGHT);
-        if(row < 0 || row >= adopted.rows().size()) return false;
-        applyChartFilter(adopted.rows().get(row));
+        if(row < 0 || row >= page.rows().size()) return false;
+        applyChartFilter(page.rows().get(row));
         return true;
     }
 
@@ -397,9 +400,10 @@ public class StatsScreen extends Screen {
     }
 
     private void nextChartPage() {
-        if(adopted == null || !adopted.hasNext() || adopted.nextCursor().isEmpty()) return;
+        FocusChartPage page = adopted;
+        if(page == null || !page.hasNext() || page.nextCursor().isEmpty()) return;
         chartCursorHistory.add(chartCursor);
-        requestChart(adopted.nextCursor());
+        requestChart(page.nextCursor());
     }
 
     private void previousChartPage() {
@@ -445,7 +449,8 @@ public class StatsScreen extends Screen {
         }
         if(refreshButton != null) refreshButton.setMessage(DSKeyLang.ScreenRefresh.copy());
         if(previousButton != null) previousButton.active = !chartCursorHistory.isEmpty();
-        if(nextButton != null) nextButton.active = adopted != null && adopted.hasNext();
+        FocusChartPage page = adopted;
+        if(nextButton != null) nextButton.active = page != null && page.hasNext();
         if(sourceButton != null) sourceButton.active = browsingInitialized && canChooseAnySource();
         if(targetButton != null) targetButton.active = browsingInitialized;
         if(clearSourceButton != null) clearSourceButton.active = browsingInitialized && canChooseAnySource()
@@ -560,6 +565,7 @@ public class StatsScreen extends Screen {
     }
 
     void showEntityActions(FilterKey key, Component name) {
+        if(minecraft == null) return;
         minecraft.setScreen(new ChartEntityActionScreen(this, key, name));
     }
 
@@ -597,6 +603,7 @@ public class StatsScreen extends Screen {
     }
 
     void openInstances(EntitySelector.Type type, FilterKey key, Screen backScreen) {
+        if(minecraft == null) return;
         if(key instanceof FilterKey.Direct) {
             minecraft.setScreen(FocusEntitySelectorScreen.directSourceInstances(backScreen, this, type.typeId(),
                     browsingFilter(), this::selectAsDirectSource));
@@ -608,7 +615,9 @@ public class StatsScreen extends Screen {
     }
 
     boolean canChooseAnySource() {
-        return minecraft.player != null && (minecraft.hasSingleplayerServer() || minecraft.player.hasPermissions(2));
+        if(minecraft == null) return false;
+        var player = minecraft.player;
+        return player != null && (minecraft.hasSingleplayerServer() || player.hasPermissions(2));
     }
 
     void confirmReset(boolean global) {
@@ -616,27 +625,34 @@ public class StatsScreen extends Screen {
     }
 
     void openResetConfirmation() {
+        if(minecraft == null) return;
         minecraft.setScreen(new ConfirmResetScreen(this));
     }
 
     void openGlobalResetConfirmation() {
+        if(minecraft == null) return;
         if(!canResetAll()) return;
         minecraft.setScreen(new ConfirmResetScreen(this, true));
     }
 
     boolean canResetAll() {
-        return minecraft.player != null && (minecraft.hasSingleplayerServer() || minecraft.player.hasPermissions(2));
+        if(minecraft == null) return false;
+        var player = minecraft.player;
+        return player != null && (minecraft.hasSingleplayerServer() || player.hasPermissions(2));
     }
 
     void openOverlay() {
+        if(minecraft == null) return;
         minecraft.setScreen(new OverlayPositionScreen(this));
     }
 
     void openDetails() {
+        if(minecraft == null) return;
         minecraft.setScreen(new StatsDetailsScreen(this));
     }
 
     void openHistory() {
+        if(minecraft == null) return;
         minecraft.setScreen(new StatsHistoryScreen(this));
     }
 
@@ -709,8 +725,12 @@ public class StatsScreen extends Screen {
     }
 
     private int chartBlockHeight(@Nullable FocusChartPage page) {
-        int rows = validChartPage(page) ? Math.max(1, page.rows().size()) : 1;
-        int truncated = validChartPage(page) && page.hasNext() ? LINE_HEIGHT : 0;
+        int rows = 1;
+        int truncated = 0;
+        if(validChartPage(page)) {
+            rows = Math.max(1, page.rows().size());
+            truncated = page.hasNext() ? LINE_HEIGHT : 0;
+        }
         return chartFilterHeight() + 16 + rows * ROW_HEIGHT + truncated + 4;
     }
 
@@ -741,7 +761,7 @@ public class StatsScreen extends Screen {
         int titleHeight = Math.min(14, maximumHeader);
         int rowGap = 3;
         int availableRows = Math.max(3, maximumHeader - titleHeight - rowGap * 2 - 4);
-        int rowHeight = Math.max(1, Math.min(20, availableRows / 3));
+        int rowHeight = Math.clamp(availableRows / 3, 1, 20);
         int top = titleHeight;
         List<ScreenLayout.Bounds> topRow = ScreenLayout.singleRow(width, SIDE, top, rowHeight, 4,
                 140, 140, 92, 92);
