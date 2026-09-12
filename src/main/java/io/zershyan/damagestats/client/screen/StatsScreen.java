@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Optional;
 
 /** 全屏焦点仪表盘：页头即时更新，页间统一滚动，图表和历史数据按需请求。 */
+@SuppressWarnings("OptionalUsedAsFieldOrParameterType")
 public class StatsScreen extends Screen {
     private static final int SIDE = 14;
     private static final int LINE_HEIGHT = 12;
