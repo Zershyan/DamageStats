@@ -34,6 +34,8 @@ public class OverlayPositionScreen extends Screen {
 
     private final @Nullable Screen returnScreen;
     private static final int PREVIEW_BORDER = 0xFFFFD700;
+    private static final int PREVIEW_Z = 1000;
+    private static final int CONTROLS_Z = 2000;
     private static final int FIELD_HEIGHT = 22;
     private static final int FIELD_WIDTH = 280;
     private static final int SCOPE_WIDTH = 44;
@@ -211,15 +213,19 @@ public class OverlayPositionScreen extends Screen {
         int previewY = originY();
         graphics.flush();
         graphics.pose().pushPose();
-        graphics.pose().translate(0, 0, -1000);
+        graphics.pose().translate(0, 0, PREVIEW_Z);
         StatsOverlay.renderBox(graphics, font, StatsOverlay.previewSummary(), previewX, previewY);
         graphics.renderOutline(previewX, previewY, StatsOverlay.width(), StatsOverlay.height(), PREVIEW_BORDER);
         graphics.pose().popPose();
         graphics.flush();
+        graphics.pose().pushPose();
+        graphics.pose().translate(0, 0, CONTROLS_Z);
         graphics.drawCenteredString(font, title, width / 2,
                 Math.clamp(TITLE_Y, 0, Math.max(0, height - 1)), 0xFFFFFFFF);
         if(targetButton != null) targetButton.setMessage(DSKeyLang.FilterTarget.get(ClientStats.summary().scope().targetName()));
         renderables.forEach(renderable -> renderable.render(graphics, mouseX, mouseY, partialTick));
+        graphics.flush();
+        graphics.pose().popPose();
     }
 
     @Override

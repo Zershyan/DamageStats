@@ -7,6 +7,7 @@ import io.zershyan.damagestats.stats.*;
 import io.zershyan.damagestats.stats.filter.*;
 import io.zershyan.damagestats.stats.focus.*;
 import io.zershyan.damagestats.stats.save.DamageEventJournal;
+import io.zershyan.damagestats.util.EntityTypeHelper;
 import io.zershyan.damagestats.util.StatsNames;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -382,7 +383,7 @@ public final class StatsViewBuilder {
         boolean typeLevel = acc.getOpponentGrouping() == DamageAccumulator.OpponentGrouping.TYPE;
         List<GroupView> directSources = entityGrouping == EntityGrouping.INSTANCE
                 ? groups(tracker, acc.getByDirectSource(), total, ref -> StatsNames.opponent(tracker, ref),
-                ref -> new FilterKey.Direct(new EntitySelector.Instance(ref)))
+                ref -> new FilterKey.Direct(directSourceSelector(ref)))
                 : groups(tracker, acc.getByDirectSourceType(), total, StatsNames::entityType,
                 typeId -> new FilterKey.Direct(new EntitySelector.Type(typeId)));
         return new StatsView(
@@ -429,6 +430,12 @@ public final class StatsViewBuilder {
                 ? new EntitySelector.Type(ref.typeIdOrEnvironment())
                 : new EntitySelector.Instance(ref);
         return opponentIsSource ? new FilterKey.Source(selector) : new FilterKey.Target(selector);
+    }
+
+    private static EntitySelector directSourceSelector(EntityRef ref) {
+        return ref.isTypeReference()
+                ? new EntitySelector.Type(ref.typeIdOrEnvironment())
+                : new EntitySelector.Instance(ref);
     }
 
     /**
@@ -494,8 +501,10 @@ public final class StatsViewBuilder {
         };
         if(selector == null) return false;
         return switch (selector) {
-            case EntitySelector.Instance(EntityRef ref) -> tracker.instanceDirectory().contains(ref);
-            case EntitySelector.Type(ResourceLocation typeId) -> tracker.instanceDirectory().containsType(typeId);
+            case EntitySelector.Instance(EntityRef ref) -> EntityTypeHelper.isLivingType(ref.typeId())
+                    && tracker.instanceDirectory().contains(ref);
+            case EntitySelector.Type(ResourceLocation typeId) -> EntityTypeHelper.isLivingType(typeId)
+                    && tracker.instanceDirectory().containsType(typeId);
         };
     }
 

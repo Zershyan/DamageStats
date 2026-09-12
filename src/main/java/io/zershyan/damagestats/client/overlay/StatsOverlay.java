@@ -14,6 +14,7 @@ import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.screens.ChatScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.EntityType;
@@ -48,7 +49,7 @@ public final class StatsOverlay {
         if(!DSClientConfig.OverlayVisible.get()) return;
         Minecraft minecraft = Minecraft.getInstance();
         if(minecraft.options.hideGui) return;
-        if(minecraft.screen != null) return;
+        if(minecraft.screen != null && !(minecraft.screen instanceof ChatScreen)) return;
         FocusSummary summary = ClientStats.summary();
         if(summary.lifetime().metrics().hitCount() == 0) return;
         renderBox(graphics, minecraft.font, summary,

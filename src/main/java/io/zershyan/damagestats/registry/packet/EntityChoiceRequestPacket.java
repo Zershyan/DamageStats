@@ -304,9 +304,11 @@ public record EntityChoiceRequestPacket(
     private static List<EntityChoiceView> buildInstanceEntries(
             ResourceLocation typeId, String normalized, Map<UUID, DamageEventJournal.DamageContribution> contributions,
             ChoiceSnapshot snapshot, boolean contributingOnly) {
+        if(!isLivingType(typeId)) return List.of();
         Component fallbackName = StatsNames.entityType(typeId);
         return snapshot.instances().stream()
                 .filter(metadata -> typeId.equals(metadata.ref().typeId()))
+                .filter(metadata -> !metadata.ref().isTypeReference())
                 .filter(metadata -> !contributingOnly || contributions.containsKey(metadata.ref().id()))
                 .filter(metadata -> matches(displayName(snapshot, metadata, fallbackName), metadata.displayName(), normalized))
                 .map(metadata -> new EntityChoiceView(new EntitySelector.Instance(metadata.ref()),

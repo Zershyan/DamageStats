@@ -61,8 +61,11 @@ public final class DamageCollectHandler {
         tracker.record(record);
         tracker.touchInstance(target, nowMillis);
         touchIfPresent(tracker, sourceEntity, nowMillis);
-        touchIfPresent(tracker, directSourceEntity, nowMillis);
-        cacheNames(tracker, target, sourceEntity, directSourceEntity);
+        if(directSourceEntity instanceof LivingEntity) {
+            touchIfPresent(tracker, directSourceEntity, nowMillis);
+        }
+        cacheNames(tracker, target, sourceEntity,
+                directSourceEntity instanceof LivingEntity ? directSourceEntity : null);
         if(journal != null) journal.append(record);
         StatsSyncHandler.onDamageRecorded(record);
     }

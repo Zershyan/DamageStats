@@ -152,7 +152,9 @@ public class DamageTracker {
     }
 
     private void recoverName(EntityRef ref, String name) {
-        if(!name.isBlank() && !ref.isEnvironment()) nameCache.put(ref.id(), name);
+        if(!name.isBlank() && !ref.isEnvironment() && !ref.isTypeReference()) {
+            nameCache.put(ref.id(), name);
+        }
     }
 
     private static boolean clearedBefore(UUID ownerId, long sequence, Map<UUID, Long> resetSequences) {

@@ -2,6 +2,7 @@ package io.zershyan.damagestats.stats;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import io.zershyan.damagestats.util.EntityTypeHelper;
 import net.minecraft.resources.ResourceLocation;
 import org.jetbrains.annotations.Nullable;
 
@@ -126,8 +127,9 @@ public class DamageAccumulator {
 
         if(opponentGrouping == OpponentGrouping.NONE) return;
         group(byDamageType, record.damageTypeId()).accept(record, opponent);
-        group(byDirectSourceType, record.directSource().typeIdOrEnvironment()).accept(record, opponent);
-        group(byDirectSource, record.directSource()).accept(record, opponent);
+        EntityRef directSource = directSourceKey(record.directSource());
+        group(byDirectSourceType, directSource.typeIdOrEnvironment()).accept(record, opponent);
+        group(byDirectSource, directSource).accept(record, opponent);
         group(byOpponent, opponentKey(opponent)).accept(record, opponent);
     }
 
@@ -140,6 +142,12 @@ public class DamageAccumulator {
     private EntityRef opponentKey(EntityRef opponent) {
         if(opponentGrouping != OpponentGrouping.TYPE || opponent.isEnvironment()) return opponent;
         return EntityRef.ofType(opponent.typeIdOrEnvironment());
+    }
+
+    private static EntityRef directSourceKey(EntityRef directSource) {
+        if(directSource.isEnvironment() || directSource.isTypeReference()) return directSource;
+        return EntityTypeHelper.isLivingType(directSource.typeId())
+                ? directSource : EntityRef.ofType(directSource.typeIdOrEnvironment());
     }
 
     private static <K> DamageAccumulator group(Map<K, DamageAccumulator> map, K key) {
@@ -289,7 +297,10 @@ public class DamageAccumulator {
         DamageAccumulator accumulator = restore(new DamageAccumulator(OpponentGrouping.TYPE), totals);
         accumulator.byDamageType.putAll(byType);
         accumulator.byDirectSourceType.putAll(bySource);
-        bySourceInstance.forEach(group -> accumulator.byDirectSource.put(group.opponent(), group.stats()));
+        bySourceInstance.forEach(group -> accumulator.byDirectSource
+                .computeIfAbsent(directSourceKey(group.opponent()), ignored ->
+                        new DamageAccumulator(OpponentGrouping.NONE))
+                .absorb(group.stats()));
         byOpponent.forEach(group -> accumulator.byOpponent
                 .computeIfAbsent(accumulator.opponentKey(group.opponent()), ignored ->
                         new DamageAccumulator(OpponentGrouping.NONE))

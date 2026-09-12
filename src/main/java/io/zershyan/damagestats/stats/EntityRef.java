@@ -60,6 +60,11 @@ public record EntityRef(UUID id, @Nullable ResourceLocation typeId) {
         return ENVIRONMENT_ID.equals(id);
     }
 
+    /** 判断该引用是否只是某个实体类型的聚合占位，而不是具体实体实例。 */
+    public boolean isTypeReference() {
+        return typeId != null && id.equals(ofType(typeId).id());
+    }
+
     public ResourceLocation typeIdOrEnvironment() {
         return typeId == null ? ENVIRONMENT_TYPE : typeId;
     }

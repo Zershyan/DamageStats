@@ -286,7 +286,8 @@ public class StatsScreen extends Screen {
         int top = contentTop(layout);
         int bottom = contentBottom(layout);
         if(bottom <= top) return;
-        int chartOffset = 0;
+        int chartOffset = chartFilterHeight();
+        renderChartFilters(graphics, top);
         int totalHeight = chartBlockHeight(page) + CONTENT_GAP;
         int viewportHeight = bottom - top;
         contentScrollOffset = Mth.clamp(contentScrollOffset, 0, Math.max(0, totalHeight - viewportHeight));
@@ -361,7 +362,7 @@ public class StatsScreen extends Screen {
         if(super.mouseClicked(mouseX, mouseY, button)) return true;
         PageLayout layout = layout();
         if(button != 0 || !insideContent(mouseX, mouseY, layout) || !validChartPage(adopted)) return false;
-        int chartOffset = 0;
+        int chartOffset = chartFilterHeight();
         int rowTop = contentTop(layout) + chartOffset + 16 - contentScrollOffset;
         int chartBottom = rowTop + adopted.rows().size() * ROW_HEIGHT;
         if(mouseY < rowTop || mouseY >= chartBottom) return false;
@@ -662,6 +663,11 @@ public class StatsScreen extends Screen {
         graphics.drawString(font, truncate(line, Math.max(1, ScreenLayout.width(width, SIDE))), left, y, MUTED);
     }
 
+    private int chartFilterHeight() {
+        return browsingDirectSource.isPresent() || browsingDamageType.isPresent()
+                ? LINE_HEIGHT + 4 : 0;
+    }
+
     private void cycleDimension() {
         FocusChartDimension[] values = FocusChartDimension.values();
         for (int offset = 1; offset <= values.length; offset++) {
@@ -704,7 +710,7 @@ public class StatsScreen extends Screen {
     private int chartBlockHeight(@Nullable FocusChartPage page) {
         int rows = validChartPage(page) ? Math.max(1, page.rows().size()) : 1;
         int truncated = validChartPage(page) && page.hasNext() ? LINE_HEIGHT : 0;
-        return 16 + rows * ROW_HEIGHT + truncated + 4;
+        return chartFilterHeight() + 16 + rows * ROW_HEIGHT + truncated + 4;
     }
 
     private static List<Component> chartValues(List<GroupView> rows) {

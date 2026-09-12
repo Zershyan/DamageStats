@@ -2,6 +2,7 @@ package io.zershyan.damagestats.util;
 
 import io.zershyan.damagestats.DamageStats;
 import io.zershyan.damagestats.stats.EntityRef;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.damagesource.DamageSource;
@@ -32,9 +33,14 @@ public final class DamageResolver {
         return causing == null ? null : climbToOwner(causing);
     }
 
-    /** 直接来源，用于界面二次筛选：箭、火球、狼本体都在这一层区分 */
+    /**
+     * 直接来源用于二次筛选。非生物实体只记录实体类型，不记录短命投射物的具体实例。
+     */
     public static EntityRef resolveDirectSource(DamageSource source) {
-        return EntityRef.of(source.getDirectEntity());
+        Entity direct = source.getDirectEntity();
+        if(direct == null) return EntityRef.ENVIRONMENT;
+        if(direct instanceof LivingEntity) return EntityRef.of(direct);
+        return EntityRef.ofType(BuiltInRegistries.ENTITY_TYPE.getKey(direct.getType()));
     }
 
     public static ResourceLocation resolveDamageTypeId(DamageSource source) {

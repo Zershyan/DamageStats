@@ -27,7 +27,7 @@ public class InstanceDirectory {
     }
 
     void touchFromRecord(EntityRef ref, DamageRecord record, String recoveredName) {
-        if(ref.isEnvironment() || ref.typeId() == null) return;
+        if(ref.isEnvironment() || ref.typeId() == null || ref.isTypeReference()) return;
         InstanceMetadata previous = entries.get(ref.id());
         if(previous != null && previous.lastInteractionMillis() > record.occurredAtMillis()) return;
         String displayName = recoveredName.isBlank() && previous != null
@@ -105,6 +105,7 @@ public class InstanceDirectory {
         nextInstanceId = 1L;
         Set<Long> usedIds = new HashSet<>();
         for(InstanceMetadata metadata : restored) {
+            if(metadata.ref().isEnvironment() || metadata.ref().isTypeReference()) continue;
             long instanceId = metadata.instanceId();
             if(instanceId <= 0 || !usedIds.add(instanceId)) instanceId = allocateId(usedIds);
             nextInstanceId = Math.max(nextInstanceId, instanceId + 1);
