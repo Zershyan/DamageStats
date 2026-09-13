@@ -21,6 +21,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -44,6 +45,7 @@ public class StatsScreen extends Screen {
     private static final int MUTED = 0xFFACB8C2;
     private static final int TEXT = 0xFFFFFFFF;
     private static final int ACCENT = 0xFF55D6E8;
+    private static final ResourceLocation PLAYER_TYPE = new ResourceLocation("minecraft", "player");
 
     private FocusChartDimension dimension = FocusChartDimension.DAMAGE_TYPE;
     private FocusChartScope chartScope = FocusChartScope.LIFETIME;
@@ -90,7 +92,32 @@ public class StatsScreen extends Screen {
 
     /** 每次打开统计界面时重新请求焦点摘要，并让当前图表在新摘要到达后重新加载。 */
     public void refreshOnOpen() {
-        resetDisplayedData();
+        resetForServerRefresh();
+    }
+
+    private void resetForServerRefresh() {
+        ClientStats.expectFocusState();
+        browsingInitialized = false;
+        focusStateRequested = false;
+        dataRequestsStarted = false;
+        chartFocusVersion = -1;
+        chartCursor = new String();
+        chartCursorHistory.clear();
+        expandedChartParents.clear();
+        contentScrollOffset = 0;
+        adopted = null;
+        browsingSource = Optional.empty();
+        browsingTarget = Optional.empty();
+        browsingDirectSource = Optional.empty();
+        browsingDamageType = Optional.empty();
+        browsingSourceIsDirectSource = false;
+        browsingSourceName = Component.empty();
+        browsingTargetName = Component.empty();
+        browsingDirectSourceName = Component.empty();
+        browsingDamageTypeName = Component.empty();
+        ClientStats.clearChartInstances();
+        chartTooltip = List.of();
+        headerTooltip = List.of();
         requestFocusState();
     }
 
@@ -196,8 +223,7 @@ public class StatsScreen extends Screen {
     public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         renderBackground(graphics);
         if(ClientStats.consumeSnapshotInvalidation()) {
-            resetDisplayedData();
-            requestFocusState();
+            resetForServerRefresh();
         }
         FocusSummary summary = ClientStats.summary();
         boolean dataReady = prepareData(summary);
@@ -439,22 +465,20 @@ public class StatsScreen extends Screen {
                 typeGrouping, EntityGrouping.TYPE, chartCursor, chartRequestId));
     }
 
-    private void resetDisplayedData() {
-        dataRequestsStarted = false;
-        adopted = null;
-        chartFocusVersion = -1;
-        chartCursorHistory.clear();
-        expandedChartParents.clear();
-        ClientStats.clearChartInstances();
-        contentScrollOffset = 0;
-        chartTooltip = List.of();
-        headerTooltip = List.of();
-    }
-
     private void requestFocusState() {
-        ClientStats.expectFocusState();
+        if(focusStateRequested) return;
         focusStateRequested = true;
         DSPackets.sendToServer(new FocusStateRequestPacket(FOCUS_STATE_REQUEST_ID));
+    }
+
+    private static boolean isPlayerSelector(EntitySelector selector) {
+        if(selector instanceof EntitySelector.Instance instance) {
+            return PLAYER_TYPE.equals(instance.ref().typeId());
+        }
+        if(selector instanceof EntitySelector.Type type) {
+            return PLAYER_TYPE.equals(type.typeId());
+        }
+        return false;
     }
 
     private void nextChartPage() {
@@ -570,6 +594,12 @@ public class StatsScreen extends Screen {
     }
 
     private void setBrowsingDirectSource(EntitySelector selector, Component name) {
+        if(isPlayerSelector(selector)) {
+            browsingDirectSource = Optional.empty();
+            browsingDirectSourceName = Component.empty();
+            setBrowsingSource(selector, name);
+            return;
+        }
         browsingSource = Optional.of(selector);
         browsingSourceName = name;
         browsingSourceIsDirectSource = true;

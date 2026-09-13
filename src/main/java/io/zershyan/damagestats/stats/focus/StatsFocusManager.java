@@ -23,6 +23,8 @@ import java.util.*;
  */
 @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
 public final class StatsFocusManager {
+    private static final ResourceLocation PLAYER_TYPE = new ResourceLocation("minecraft", "player");
+
     private static final class PlayerFocus {
         private StatsFocus focus;
         private final Set<EntityRef> delegatedSources = new HashSet<>();
@@ -53,6 +55,7 @@ public final class StatsFocusManager {
                                        DamageTracker tracker) {
         PlayerFocus state = stateFor(player);
         EntitySelector self = new EntitySelector.Instance(EntityRef.of(player));
+        if(source.filter(StatsFocusManager::isPlayerSelector).isPresent()) sourceIsDirectSource = false;
         boolean targetChanged = !state.focus.target().equals(target);
         if(targetChanged) {
             // 目标改变时，清空下钻授权并验证下钻来源是否仍合法
@@ -123,6 +126,7 @@ public final class StatsFocusManager {
                                    Optional<EntitySelector> target, boolean sourceIsDirectSource,
                                    DamageTracker tracker) {
         if(source.isEmpty()) return false;
+        if(source.filter(StatsFocusManager::isPlayerSelector).isPresent()) sourceIsDirectSource = false;
         EntitySelector self = new EntitySelector.Instance(EntityRef.of(player));
         PlayerFocus state = stateFor(player);
         EntitySelector selected = source.orElse(null);
@@ -153,8 +157,10 @@ public final class StatsFocusManager {
     public FocusChangeResult selectDirectSource(ServerPlayer player, EntityRef source, DamageTracker tracker) {
         if(!isLivingRef(source) || !tracker.instanceDirectory().contains(source)) return FocusChangeResult.UNKNOWN_SOURCE;
         PlayerFocus state = stateFor(player);
+        boolean sourceIsDirectSource = !PLAYER_TYPE.equals(source.typeId());
         if(hasFullAccess(player)) {
-            state.focus = state.focus.next(Optional.of(new EntitySelector.Instance(source)), state.focus.target(), true);
+            state.focus = state.focus.next(Optional.of(new EntitySelector.Instance(source)), state.focus.target(),
+                    sourceIsDirectSource);
             state.summaryCache = FocusSummaryCache.load(tracker, player, state.focus);
             reindex(player.getUUID(), state.focus);
             return FocusChangeResult.ACCEPTED;
@@ -167,7 +173,8 @@ public final class StatsFocusManager {
                 Optional.of(new EntitySelector.Instance(source)), Optional.empty());
         if(journal.matching(proof).isEmpty()) return FocusChangeResult.SOURCE_NOT_ALLOWED;
         state.delegatedSources.add(source);
-        state.focus = state.focus.next(Optional.of(new EntitySelector.Instance(source)), state.focus.target(), true);
+        state.focus = state.focus.next(Optional.of(new EntitySelector.Instance(source)), state.focus.target(),
+                sourceIsDirectSource);
         state.summaryCache = FocusSummaryCache.load(tracker, player, state.focus);
         reindex(player.getUUID(), state.focus);
         return FocusChangeResult.ACCEPTED;
@@ -225,25 +232,14 @@ public final class StatsFocusManager {
         reindex(playerId, state.focus);
     }
 
-    public void resetSummaryCache(ServerPlayer player, DamageTracker tracker, EntityRef clearedOwner) {
+    public void resetSummaryCache(ServerPlayer player, DamageTracker tracker) {
         UUID playerId = player.getUUID();
         PlayerFocus state = focuses.get(playerId);
         if(state == null) return;
-        state.summaryCache = focusContains(state.focus, clearedOwner)
-                ? FocusSummaryCache.empty(tracker, state.focus) : state.summaryCache;
         state.delegatedSources.clear();
         if(!hasFullAccess(player)) restoreOrdinarySource(state, playerId);
+        state.summaryCache = FocusSummaryCache.load(tracker, player, state.focus);
         reindex(playerId, state.focus);
-    }
-
-    private static boolean focusContains(StatsFocus focus, EntityRef owner) {
-        return focus.source().filter(selector -> isOwner(selector, owner)).isPresent()
-                || focus.target().filter(selector -> isOwner(selector, owner)).isPresent();
-    }
-
-    private static boolean isOwner(EntitySelector selector, EntityRef owner) {
-        return selector instanceof EntitySelector.Instance instance
-                && instance.ref().id().equals(owner.id());
     }
 
     public void remove(UUID playerId) {
@@ -396,6 +392,16 @@ public final class StatsFocusManager {
 
     private static boolean isLivingType(ResourceLocation typeId) {
         return EntityTypeHelper.isLivingType(typeId);
+    }
+
+    private static boolean isPlayerSelector(EntitySelector selector) {
+        if(selector instanceof EntitySelector.Instance instance) {
+            return PLAYER_TYPE.equals(instance.ref().typeId());
+        }
+        if(selector instanceof EntitySelector.Type type) {
+            return PLAYER_TYPE.equals(type.typeId());
+        }
+        return false;
     }
 
     private static boolean isRecordedLivingSourceType(ServerPlayer player, ResourceLocation typeId) {

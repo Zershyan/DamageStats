@@ -52,7 +52,7 @@ public record ResetStatsPacket(boolean global) implements CustomPacketPayload {
             boolean persisted = ServerLifecycleHandler.persistReset(self);
             StatsFocusManager manager = ServerStats.focusManager();
             if(manager != null) {
-                if(persisted) manager.resetSummaryCache(player, tracker, self);
+                if(persisted) manager.resetSummaryCache(player, tracker);
                 else manager.invalidateSummaryCache(player);
             }
             DSPackets.sendToPlayer(player, StatsInvalidatedPacket.INSTANCE);
