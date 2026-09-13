@@ -1,6 +1,7 @@
 package io.zershyan.damagestats.handler.common;
 
 import io.zershyan.damagestats.DamageStats;
+import io.zershyan.damagestats.registry.DSPackets;
 import io.zershyan.damagestats.registry.packet.FocusStatePacket;
 import io.zershyan.damagestats.registry.packet.StatsSummaryPacket;
 import io.zershyan.damagestats.stats.DamageRecord;
@@ -11,10 +12,10 @@ import io.zershyan.damagestats.stats.focus.StatsFocusManager;
 import io.zershyan.damagestats.stats.view.FocusSummary;
 import io.zershyan.damagestats.stats.view.FocusSummaryDelta;
 import net.minecraft.server.level.ServerPlayer;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.event.tick.ServerTickEvent;
-import net.neoforged.neoforge.network.PacketDistributor;
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.TickEvent.ServerTickEvent;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
 
 import java.util.*;
 
@@ -25,7 +26,8 @@ public final class StatsSyncHandler {
     private static final Set<UUID> DIRTY_PLAYERS = new HashSet<>();
 
     @SubscribeEvent
-    public static void onServerTick(ServerTickEvent.Post event) {
+    public static void onServerTick(ServerTickEvent event) {
+        if(event.phase != TickEvent.Phase.END) return;
         DamageTracker tracker = ServerStats.tracker();
         StatsFocusManager manager = ServerStats.focusManager();
         if(tracker == null || manager == null || DIRTY_PLAYERS.isEmpty()) return;
@@ -63,7 +65,7 @@ public final class StatsSyncHandler {
         FocusSummary summary = revised(playerId, manager.summaryFor(tracker, player));
         LAST_SUMMARIES.put(playerId, summary);
         DIRTY_PLAYERS.remove(playerId);
-        PacketDistributor.sendToPlayer(player, new FocusStatePacket(result, summary, requestId));
+        DSPackets.sendToPlayer(player, new FocusStatePacket(result, summary, requestId));
     }
 
     private static void pushTo(DamageTracker tracker, StatsFocusManager manager, ServerPlayer player) {
@@ -71,7 +73,7 @@ public final class StatsSyncHandler {
         FocusSummary summary = revised(playerId, manager.summaryFor(tracker, player));
         FocusSummaryDelta delta = FocusSummaryDelta.between(LAST_SUMMARIES.put(playerId, summary), summary);
         if(delta.isEmpty()) return;
-        PacketDistributor.sendToPlayer(player, new StatsSummaryPacket(delta));
+        DSPackets.sendToPlayer(player, new StatsSummaryPacket(delta));
     }
 
     public static void clearPlayer(UUID playerId) {

@@ -3,15 +3,17 @@ package io.zershyan.damagestats.handler.common;
 import io.zershyan.damagestats.DamageStats;
 import io.zershyan.damagestats.stats.DamageTracker;
 import io.zershyan.damagestats.stats.ServerStats;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.TickEvent.ServerTickEvent;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
 
 /** 驱动战斗会话的超时判定 */
 @EventBusSubscriber(modid = DamageStats.MODID)
 public final class SessionTickHandler {
     @SubscribeEvent
-    public static void onServerTick(ServerTickEvent.Post event) {
+    public static void onServerTick(ServerTickEvent event) {
+        if(event.phase != TickEvent.Phase.END) return;
         DamageTracker tracker = ServerStats.tracker();
         if(tracker == null) return;
         // gameTime 全局单调递增，各维度共享，可以直接当统一时间轴用

@@ -7,10 +7,11 @@ import io.zershyan.damagestats.datagen.init.DSKeyLang;
 import io.zershyan.damagestats.registry.DSKeyMappings;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.client.event.ClientTickEvent;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.TickEvent.ClientTickEvent;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
 import org.jetbrains.annotations.Nullable;
 
 /** 两个按键的响应。用 while(consumeClick()) 是原版惯例，一次 tick 里按了多下也不会漏 */
@@ -19,7 +20,8 @@ public final class ClientInputHandler {
     private static @Nullable StatsScreen statsScreen;
 
     @SubscribeEvent
-    public static void onClientTick(ClientTickEvent.Post event) {
+    public static void onClientTick(ClientTickEvent event) {
+        if(event.phase != TickEvent.Phase.END) return;
         Minecraft minecraft = Minecraft.getInstance();
         LocalPlayer player = minecraft.player;
         if(player == null) return;
@@ -30,6 +32,7 @@ public final class ClientInputHandler {
     /** 打开仪表盘后仅请求当前可见图表页，避免旧版全量快照占用网络。 */
     private static void openStats(Minecraft minecraft) {
         if(statsScreen == null) statsScreen = new StatsScreen();
+        statsScreen.refreshOnOpen();
         minecraft.setScreen(statsScreen);
     }
 

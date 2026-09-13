@@ -2,17 +2,16 @@ package io.zershyan.damagestats.registry.packet;
 
 import io.zershyan.damagestats.DamageStats;
 import io.zershyan.damagestats.handler.common.StatsSyncHandler;
+import io.zershyan.damagestats.network.CustomPacketPayload;
+import io.zershyan.damagestats.network.codec.ByteBufCodecs;
+import io.zershyan.damagestats.network.codec.StreamCodec;
 import io.zershyan.damagestats.stats.DamageTracker;
 import io.zershyan.damagestats.stats.ServerStats;
 import io.zershyan.damagestats.stats.filter.EntitySelector;
 import io.zershyan.damagestats.stats.focus.FocusChangeResult;
 import io.zershyan.damagestats.stats.focus.StatsFocusManager;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
-import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Optional;
@@ -25,7 +24,7 @@ public record FocusSetPacket(
         int requestId
 ) implements CustomPacketPayload {
     public static final Type<FocusSetPacket> TYPE = new Type<>(DamageStats.id("focus_set"));
-    public static final StreamCodec<RegistryFriendlyByteBuf, FocusSetPacket> STREAM_CODEC = StreamCodec.composite(
+    public static final StreamCodec<FriendlyByteBuf, FocusSetPacket> STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.optional(EntitySelector.STREAM_CODEC), FocusSetPacket::source,
             ByteBufCodecs.optional(EntitySelector.STREAM_CODEC), FocusSetPacket::target,
             ByteBufCodecs.BOOL, FocusSetPacket::sourceIsDirectSource,

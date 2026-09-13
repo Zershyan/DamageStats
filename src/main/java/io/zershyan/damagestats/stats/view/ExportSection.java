@@ -1,8 +1,8 @@
 package io.zershyan.damagestats.stats.view;
 
-import io.netty.buffer.ByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
+import io.zershyan.damagestats.network.codec.ByteBufCodecs;
+import io.zershyan.damagestats.network.codec.StreamCodec;
+import net.minecraft.network.FriendlyByteBuf;
 
 /** 完整导出快照分块传输时的逻辑分区。 */
 public enum ExportSection {
@@ -14,7 +14,7 @@ public enum ExportSection {
     LIFETIME_OPPONENT,
     HISTORY;
 
-    public static final StreamCodec<ByteBuf, ExportSection> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, ExportSection> STREAM_CODEC =
             ByteBufCodecs.VAR_INT.map(ExportSection::fromOrdinal, ExportSection::ordinal);
 
     private static ExportSection fromOrdinal(int ordinal) {

@@ -179,7 +179,7 @@ public final class StatsStorage {
             if(readResetManifest(transaction.resolve(RESET_MANIFEST_FILE_NAME)) == null
                     || !committedTargetsReady(directory, transaction)) return false;
         }
-        Path transaction = committedTransactions.getLast();
+        Path transaction = committedTransactions.get(committedTransactions.size() - 1);
         if(!clearMemoryAfterCommit(transaction, journal, currentTracker)) return false;
         boolean success = true;
         for(Path committed : committedTransactions) success = tryDeleteTree(committed) && success;

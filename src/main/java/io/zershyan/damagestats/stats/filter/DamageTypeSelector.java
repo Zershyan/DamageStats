@@ -1,9 +1,9 @@
 package io.zershyan.damagestats.stats.filter;
 
-import io.netty.buffer.ByteBuf;
 import io.zershyan.damagestats.config.DamageTypeCategories;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
+import io.zershyan.damagestats.network.codec.ByteBufCodecs;
+import io.zershyan.damagestats.network.codec.StreamCodec;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 
 /**
@@ -29,21 +29,20 @@ public sealed interface DamageTypeSelector {
 
     boolean matches(ResourceLocation damageTypeId);
 
-    StreamCodec<ByteBuf, DamageTypeSelector> STREAM_CODEC = StreamCodec.of(
+    StreamCodec<FriendlyByteBuf, DamageTypeSelector> STREAM_CODEC = StreamCodec.of(
             (buf, selector) -> {
-                switch (selector) {
-                    case Category category -> {
-                        buf.writeBoolean(true);
-                        ByteBufCodecs.STRING_UTF8.encode(buf, category.name());
-                    }
-                    case Exact exact -> {
-                        buf.writeBoolean(false);
-                        ResourceLocation.STREAM_CODEC.encode(buf, exact.id());
-                    }
+                if(selector instanceof Category category) {
+                    buf.writeBoolean(true);
+                    ByteBufCodecs.STRING_UTF8.encode(buf, category.name());
+                } else if(selector instanceof Exact exact) {
+                    buf.writeBoolean(false);
+                    ByteBufCodecs.RESOURCE_LOCATION.encode(buf, exact.id());
+                } else {
+                    throw new IllegalArgumentException("???????????" + selector);
                 }
             },
             buf -> buf.readBoolean()
                     ? new Category(ByteBufCodecs.STRING_UTF8.decode(buf))
-                    : new Exact(ResourceLocation.STREAM_CODEC.decode(buf))
+                    : new Exact(ByteBufCodecs.RESOURCE_LOCATION.decode(buf))
     );
 }

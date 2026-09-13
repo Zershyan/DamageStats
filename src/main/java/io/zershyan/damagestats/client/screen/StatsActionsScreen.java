@@ -7,6 +7,7 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.Mth;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -58,7 +59,7 @@ public final class StatsActionsScreen extends Screen {
 
     @Override
     public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics, mouseX, mouseY, partialTick);
+        renderBackground(graphics);
         Layout layout = layout();
         int x = Math.max(0, layout.x() - 8);
         int y = layout.top();
@@ -70,7 +71,7 @@ public final class StatsActionsScreen extends Screen {
         graphics.flush();
         Component displayTitle = truncate(title, Math.max(1, layout.width() - 12));
         graphics.drawCenteredString(font, displayTitle, width / 2,
-                Math.clamp(y + 10, 0, Math.max(0, height - 1)), 0xFFFFFFFF);
+                Mth.clamp(y + 10, 0, Math.max(0, height - 1)), 0xFFFFFFFF);
         List<Component> tooltip = font.width(title) > layout.width() - 12
                 && mouseX >= x && mouseX <= x + layout.width() + 16
                 && mouseY >= y && mouseY < y + layout.titleHeight()
@@ -82,7 +83,7 @@ public final class StatsActionsScreen extends Screen {
     }
 
     @Override
-    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+    public void renderBackground(GuiGraphics graphics) {
         graphics.fill(0, 0, width, height, BACKGROUND);
     }
 
@@ -92,12 +93,12 @@ public final class StatsActionsScreen extends Screen {
 
     private Layout layout() {
         int count = buttonCount();
-        int panelWidth = Math.clamp(width - 8, 1, PANEL_WIDTH);
-        int titleHeight = Math.clamp(height / 5, 1, 28);
-        int padding = Math.clamp(height / 12, 0, 8);
+        int panelWidth = Mth.clamp(width - 8, 1, PANEL_WIDTH);
+        int titleHeight = Mth.clamp(height / 5, 1, 28);
+        int padding = Mth.clamp(height / 12, 0, 8);
         int available = Math.max(1, height - titleHeight - padding * 2);
-        int gap = count <= 1 ? 0 : Math.clamp((available - count) / (count - 1), 0, 4);
-        int buttonHeight = Math.clamp((available - (long) gap * (count - 1)) / count, 1, 20);
+        int gap = count <= 1 ? 0 : Mth.clamp((available - count) / (count - 1), 0, 4);
+        int buttonHeight = Mth.clamp((available - gap * (count - 1)) / count, 1, 20);
         int panelHeight = titleHeight + padding * 2 + count * buttonHeight + gap * (count - 1);
         int top = Math.max(0, (height - panelHeight) / 2);
         int panelX = Math.max(0, (width - panelWidth) / 2);

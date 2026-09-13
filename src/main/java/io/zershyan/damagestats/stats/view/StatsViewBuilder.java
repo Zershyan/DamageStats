@@ -12,6 +12,7 @@ import io.zershyan.damagestats.util.StatsNames;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.Mth;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
@@ -181,7 +182,7 @@ public final class StatsViewBuilder {
             storeChartCursor(currentCursor, page);
         }
         List<GroupView> groups = page.groups();
-        int start = Math.clamp(page.start(), 0, groups.size());
+        int start = Mth.clamp(page.start(), 0, groups.size());
         int end = Math.min(groups.size(), start + FocusChartPage.PAGE_SIZE);
         String nextCursor = "";
         if(end < groups.size()) {
@@ -223,41 +224,48 @@ public final class StatsViewBuilder {
 
     public static @Nullable StatsFilter instanceFilter(StatsFilter filter, FocusChartDimension dimension,
                                                         FilterKey parentKey) {
-        if(!(parentKey instanceof FilterKey.Source(EntitySelector.Type type))) {
-            if(!(parentKey instanceof FilterKey.Target(EntitySelector.Type targetType))) {
-                if(!(parentKey instanceof FilterKey.Direct(EntitySelector.Type directType))) return null;
-                if(dimension != FocusChartDimension.DIRECT_SOURCE || !EntityTypeHelper.isLivingType(directType.typeId())) {
-                    return null;
-                }
-                EntitySelector selected = compatibleSelector(filter.directSource(), directType.typeId());
-                if(selected == null) return null;
-                return new StatsFilter(filter.source(), filter.target(), Optional.of(selected), filter.damageType(),
-                        filter.sourceIsDirectSource());
-            }
-            if(dimension != FocusChartDimension.TARGET || !EntityTypeHelper.isLivingType(targetType.typeId())) {
+        EntitySelector.Type type;
+        if(parentKey instanceof FilterKey.Source source && source.selector() instanceof EntitySelector.Type sourceType) {
+            type = sourceType;
+            if(dimension != FocusChartDimension.RESPONSIBLE_SOURCE || !EntityTypeHelper.isLivingType(type.typeId())) {
                 return null;
             }
-            EntitySelector selected = compatibleSelector(filter.target(), targetType.typeId());
+            EntitySelector selected = compatibleSelector(filter.source(), type.typeId());
+            if(selected == null) return null;
+            return new StatsFilter(Optional.of(selected), filter.target(), filter.directSource(), filter.damageType(), false);
+        }
+        if(parentKey instanceof FilterKey.Target target && target.selector() instanceof EntitySelector.Type targetType) {
+            type = targetType;
+            if(dimension != FocusChartDimension.TARGET || !EntityTypeHelper.isLivingType(type.typeId())) return null;
+            EntitySelector selected = compatibleSelector(filter.target(), type.typeId());
             if(selected == null) return null;
             return new StatsFilter(filter.source(), Optional.of(selected), filter.directSource(), filter.damageType(),
                     filter.sourceIsDirectSource());
         }
-        if(dimension != FocusChartDimension.RESPONSIBLE_SOURCE || !EntityTypeHelper.isLivingType(type.typeId())) {
-            return null;
+        if(parentKey instanceof FilterKey.Direct direct && direct.selector() instanceof EntitySelector.Type directType) {
+            type = directType;
+            if(dimension != FocusChartDimension.DIRECT_SOURCE || !EntityTypeHelper.isLivingType(type.typeId())) {
+                return null;
+            }
+            EntitySelector selected = compatibleSelector(filter.directSource(), type.typeId());
+            if(selected == null) return null;
+            return new StatsFilter(filter.source(), filter.target(), Optional.of(selected), filter.damageType(),
+                    filter.sourceIsDirectSource());
         }
-        EntitySelector selected = compatibleSelector(filter.source(), type.typeId());
-        if(selected == null) return null;
-        return new StatsFilter(Optional.of(selected), filter.target(), filter.directSource(), filter.damageType(), false);
+        return null;
     }
 
     private static @Nullable EntitySelector compatibleSelector(Optional<EntitySelector> existing,
                                                                ResourceLocation typeId) {
         EntitySelector selector = existing.orElse(null);
         if(selector == null) return new EntitySelector.Type(typeId);
-        return switch (selector) {
-            case EntitySelector.Instance(EntityRef ref) -> typeId.equals(ref.typeIdOrEnvironment()) ? selector : null;
-            case EntitySelector.Type(ResourceLocation existingType) -> typeId.equals(existingType) ? selector : null;
-        };
+        if(selector instanceof EntitySelector.Instance instance) {
+            return typeId.equals(instance.ref().typeIdOrEnvironment()) ? selector : null;
+        }
+        if(selector instanceof EntitySelector.Type type) {
+            return typeId.equals(type.typeId()) ? selector : null;
+        }
+        return null;
     }
 
     private static ChartCursor findChartCursor(DamageEventJournal journal, String cursor, ServerPlayer player,
@@ -320,12 +328,13 @@ public final class StatsViewBuilder {
     }
 
     private static @Nullable StatsEntry entryFor(DamageTracker tracker, EntitySelector selector, boolean outgoing) {
-        return switch (selector) {
-            case EntitySelector.Instance(EntityRef ref) ->
-                    outgoing ? tracker.outgoing(ref) : tracker.incoming(ref);
-            case EntitySelector.Type(ResourceLocation typeId) ->
-                    outgoing ? tracker.outgoingByType(typeId) : tracker.incomingByType(typeId);
-        };
+        if(selector instanceof EntitySelector.Instance instance) {
+            return outgoing ? tracker.outgoing(instance.ref()) : tracker.incoming(instance.ref());
+        }
+        if(selector instanceof EntitySelector.Type type) {
+            return outgoing ? tracker.outgoingByType(type.typeId()) : tracker.incomingByType(type.typeId());
+        }
+        return null;
     }
 
     /** 从完整原始事件历史现聚合。对手维度取「另一边」：筛了目标就看来源，否则看目标 */
@@ -573,19 +582,19 @@ public final class StatsViewBuilder {
     }
 
     private static boolean canOpenInstances(DamageTracker tracker, FilterKey key) {
-        EntitySelector selector = switch (key) {
-            case FilterKey.Source(EntitySelector value) -> value;
-            case FilterKey.Target(EntitySelector value) -> value;
-            case FilterKey.Direct(EntitySelector value) -> value;
-            case FilterKey.Type ignored -> null;
-        };
-        if(selector == null) return false;
-        return switch (selector) {
-            case EntitySelector.Instance(EntityRef ref) -> EntityTypeHelper.isLivingType(ref.typeId())
-                    && tracker.instanceDirectory().contains(ref);
-            case EntitySelector.Type(ResourceLocation typeId) -> EntityTypeHelper.isLivingType(typeId)
-                    && tracker.instanceDirectory().containsType(typeId);
-        };
+        EntitySelector selector = null;
+        if(key instanceof FilterKey.Source source) selector = source.selector();
+        else if(key instanceof FilterKey.Target target) selector = target.selector();
+        else if(key instanceof FilterKey.Direct direct) selector = direct.selector();
+        if(selector instanceof EntitySelector.Instance instance) {
+            EntityRef ref = instance.ref();
+            return EntityTypeHelper.isLivingType(ref.typeId()) && tracker.instanceDirectory().contains(ref);
+        }
+        if(selector instanceof EntitySelector.Type type) {
+            return EntityTypeHelper.isLivingType(type.typeId())
+                    && tracker.instanceDirectory().containsType(type.typeId());
+        }
+        return false;
     }
 
     private static List<Component> labels(DamageTracker tracker, StatsFilter filter) {

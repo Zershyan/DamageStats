@@ -8,6 +8,7 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.Mth;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -31,8 +32,8 @@ public final class ConfirmStorageCleanupScreen extends Screen {
     protected void init() {
         if(minecraft == null) return;
         Layout layout = layout();
-        ScreenLayout.Bounds confirm = layout.buttons().getFirst();
-        ScreenLayout.Bounds cancel = layout.buttons().getLast();
+        ScreenLayout.Bounds confirm = layout.buttons().get(0);
+        ScreenLayout.Bounds cancel = layout.buttons().get(layout.buttons().size() - 1);
         addRenderableWidget(Button.builder(DSKeyLang.ScreenConfirm.copy(), button -> {
                     parent.cleanup(target);
                     minecraft.setScreen(parent);
@@ -44,7 +45,7 @@ public final class ConfirmStorageCleanupScreen extends Screen {
 
     @Override
     public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics, mouseX, mouseY, partialTick);
+        renderBackground(graphics);
         Layout layout = layout();
         graphics.flush();
         graphics.pose().pushPose();
@@ -53,29 +54,29 @@ public final class ConfirmStorageCleanupScreen extends Screen {
                 Math.min(height, layout.top() + layout.height()), 0xFF20262C);
         graphics.flush();
         graphics.drawCenteredString(font, truncate(title, layout.width() - 16), width / 2,
-                Math.clamp(layout.top() + 16, 0, Math.max(0, height - 1)), 0xFFFFFFFF);
+                Mth.clamp(layout.top() + 16, 0, Math.max(0, height - 1)), 0xFFFFFFFF);
         Component description = description(target);
         graphics.drawCenteredString(font, font.plainSubstrByWidth(description.getString(), Math.max(1, layout.width() - 16)),
-                width / 2, Math.clamp(layout.top() + 34, 0, Math.max(0, height - 1)), 0xFFACB8C2);
+                width / 2, Mth.clamp(layout.top() + 34, 0, Math.max(0, height - 1)), 0xFFACB8C2);
         renderables.forEach(renderable -> renderable.render(graphics, mouseX, mouseY, partialTick));
         graphics.flush();
         graphics.pose().popPose();
     }
 
     @Override
-    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+    public void renderBackground(GuiGraphics graphics) {
         graphics.fill(0, 0, width, height, BACKGROUND);
     }
 
     private Layout layout() {
-        int panelWidth = Math.clamp(width - 8, 1, 264);
+        int panelWidth = Mth.clamp(width - 8, 1, 264);
         int panelX = Math.max(0, (width - panelWidth) / 2);
-        int buttonWidth = Math.clamp((panelWidth - 6) / 2, 1, BUTTON_WIDTH);
+        int buttonWidth = Mth.clamp((panelWidth - 6) / 2, 1, BUTTON_WIDTH);
         boolean stacked = panelWidth < buttonWidth * 2 + 6;
         int rows = stacked ? 2 : 1;
         int panelHeight = Math.min(height, 108 + (stacked ? 24 : 0));
-        int buttonHeight = Math.clamp((panelHeight - 64 - (rows - 1) * 4) / rows, 1, 20);
-        int buttonTop = Math.clamp(panelHeight - (long) rows * buttonHeight - (rows - 1) * 4 - 2, 0, 54);
+        int buttonHeight = Mth.clamp((panelHeight - 64 - (rows - 1) * 4) / rows, 1, 20);
+        int buttonTop = Mth.clamp(panelHeight - rows * buttonHeight - (rows - 1) * 4 - 2, 0, 54);
         int panelTop = Math.max(0, (height - panelHeight) / 2);
         int buttonsWidth = stacked ? buttonWidth : buttonWidth * 2 + 6;
         int buttonsX = panelX + Math.max(0, (panelWidth - buttonsWidth) / 2);

@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import com.mojang.logging.LogUtils;
+import io.zershyan.damagestats.registry.DSPackets;
 import io.zershyan.damagestats.registry.packet.FocusSetPacket;
 import io.zershyan.damagestats.stats.EntityRef;
 import io.zershyan.damagestats.stats.filter.EntitySelector;
@@ -12,8 +13,7 @@ import io.zershyan.damagestats.stats.focus.FocusScopeView;
 import io.zershyan.damagestats.stats.view.FocusSummary;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceLocation;
-import net.neoforged.fml.loading.FMLPaths;
-import net.neoforged.neoforge.network.PacketDistributor;
+import net.minecraftforge.fml.loading.FMLPaths;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 
@@ -56,7 +56,7 @@ public final class ClientFocusPreferences {
                                     boolean sourceIsDirectSource) {
         int requestId = ++nextRequestId;
         pending = new PendingFocus(requestId);
-        PacketDistributor.sendToServer(new FocusSetPacket(source, target, sourceIsDirectSource, requestId));
+        DSPackets.sendToServer(new FocusSetPacket(source, target, sourceIsDirectSource, requestId));
     }
 
     /** 收到登录后的完整焦点摘要时，按服务器和世界标识恢复上次的类型焦点。 */
@@ -123,8 +123,8 @@ public final class ClientFocusPreferences {
     }
 
     private static Optional<String> typeId(Optional<EntitySelector> selector) {
-        return selector.flatMap(value -> value instanceof EntitySelector.Type(ResourceLocation typeId)
-                ? Optional.of(typeId.toString()) : Optional.empty());
+        return selector.flatMap(value -> value instanceof EntitySelector.Type type
+                ? Optional.of(type.typeId().toString()) : Optional.empty());
     }
 
     private static Optional<EntitySelector> selector(@Nullable String typeId) {

@@ -10,15 +10,15 @@ import io.zershyan.damagestats.stats.view.ContributionView;
 import io.zershyan.damagestats.stats.view.FocusMetricsView;
 import io.zershyan.damagestats.stats.view.FocusSummary;
 import io.zershyan.damagestats.stats.view.MetricsView;
-import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.LayeredDraw;
 import net.minecraft.client.gui.screens.ChatScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.EntityType;
+import net.minecraftforge.client.gui.overlay.ForgeGui;
+import net.minecraftforge.client.gui.overlay.IGuiOverlay;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.Optional;
 
 /** 按客户端字段偏好绘制服务端焦点摘要，不保存或推断统计数据。 */
-public final class StatsOverlay implements LayeredDraw.Layer {
+public final class StatsOverlay implements IGuiOverlay {
     private static final int MIN_WIDTH = 112;
     private static final int LINE_HEIGHT = 10;
     private static final int PADDING = 4;
@@ -47,7 +47,7 @@ public final class StatsOverlay implements LayeredDraw.Layer {
     }
 
     @Override
-    public void render(@NotNull GuiGraphics graphics, @NotNull DeltaTracker deltaTracker) {
+    public void render(ForgeGui gui, @NotNull GuiGraphics graphics, float partialTick, int screenWidth, int screenHeight) {
         if(!DSClientConfig.OverlayVisible.get()) return;
         Minecraft minecraft = Minecraft.getInstance();
         if(minecraft.options.hideGui) return;

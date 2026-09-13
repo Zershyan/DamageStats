@@ -2,24 +2,15 @@ package io.zershyan.damagestats.registry;
 
 import io.zershyan.damagestats.config.DSClientConfig;
 import io.zershyan.damagestats.config.DSConfig;
-import net.neoforged.fml.ModContainer;
-import net.neoforged.fml.config.ModConfig;
-import net.neoforged.fml.loading.FMLLoader;
-import net.neoforged.neoforge.client.gui.ConfigurationScreen;
-import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.fml.ModLoadingContext;
+import net.minecraftforge.fml.config.ModConfig;
 
 public final class DSConfigs {
-    public static void registerCommon(ModContainer container) {
-        container.registerConfig(ModConfig.Type.COMMON, DSConfig.SPEC);
-    }
-
-    public static void registerClient(ModContainer container) {
-        container.registerConfig(ModConfig.Type.CLIENT, DSClientConfig.SPEC);
-        container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
-    }
-
-    public static void doRegister(ModContainer container) {
-        if(FMLLoader.getDist().isClient()) registerClient(container);
-        registerCommon(container);
+    public static void doRegister(Dist dist) {
+        ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, DSConfig.SPEC);
+        if(dist.isClient()) {
+            ModLoadingContext.get().registerConfig(ModConfig.Type.CLIENT, DSClientConfig.SPEC);
+        }
     }
 }

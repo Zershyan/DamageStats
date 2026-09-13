@@ -2,16 +2,15 @@ package io.zershyan.damagestats.registry.packet;
 
 import io.zershyan.damagestats.DamageStats;
 import io.zershyan.damagestats.client.ClientExportManager;
+import io.zershyan.damagestats.network.ComponentSerialization;
+import io.zershyan.damagestats.network.CustomPacketPayload;
+import io.zershyan.damagestats.network.codec.ByteBufCodecs;
+import io.zershyan.damagestats.network.codec.StreamCodec;
 import io.zershyan.damagestats.stats.filter.StatsFilter;
 import io.zershyan.damagestats.stats.view.MetricsView;
 import io.zershyan.damagestats.stats.view.StatsSnapshot;
-import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.ComponentSerialization;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -28,10 +27,10 @@ public record ExportStartPacket(
         int chunkCount
 ) implements CustomPacketPayload {
     private static final int MAX_FILTER_LABELS = 8;
-    private static final StreamCodec<RegistryFriendlyByteBuf, List<Component>> LABELS_CODEC =
+    private static final StreamCodec<FriendlyByteBuf, List<Component>> LABELS_CODEC =
             ComponentSerialization.STREAM_CODEC.apply(ByteBufCodecs.list(MAX_FILTER_LABELS));
     public static final Type<ExportStartPacket> TYPE = new Type<>(DamageStats.id("export_start"));
-    public static final StreamCodec<RegistryFriendlyByteBuf, ExportStartPacket> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, ExportStartPacket> STREAM_CODEC =
             StreamCodec.of(ExportStartPacket::encode, ExportStartPacket::decode);
 
     public static ExportStartPacket accepted(int requestId, StatsSnapshot snapshot, int chunkCount) {
@@ -53,7 +52,7 @@ public record ExportStartPacket(
         context.enqueueWork(() -> ClientExportManager.acceptStart(this));
     }
 
-    private static void encode(RegistryFriendlyByteBuf buf, ExportStartPacket packet) {
+    private static void encode(FriendlyByteBuf buf, ExportStartPacket packet) {
         buf.writeVarInt(packet.requestId);
         buf.writeBoolean(packet.accepted);
         ComponentSerialization.STREAM_CODEC.encode(buf, packet.subjectName);
@@ -64,7 +63,7 @@ public record ExportStartPacket(
         buf.writeVarInt(packet.chunkCount);
     }
 
-    private static ExportStartPacket decode(RegistryFriendlyByteBuf buf) {
+    private static ExportStartPacket decode(FriendlyByteBuf buf) {
         return new ExportStartPacket(
                 buf.readVarInt(),
                 buf.readBoolean(),

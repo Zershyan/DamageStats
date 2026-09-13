@@ -2,6 +2,7 @@ package io.zershyan.damagestats.client.screen;
 
 import io.zershyan.damagestats.client.ClientStats;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
+import io.zershyan.damagestats.registry.DSPackets;
 import io.zershyan.damagestats.registry.packet.EntityChoiceRequestPacket;
 import io.zershyan.damagestats.stats.filter.EntitySelector;
 import io.zershyan.damagestats.stats.filter.StatsFilter;
@@ -16,7 +17,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
-import net.neoforged.neoforge.network.PacketDistributor;
+import net.minecraft.util.Mth;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -134,20 +135,20 @@ public class FocusEntitySelectorScreen extends Screen {
         if(searchTop >= 0) {
             int controlsLeft = left;
             if(typeFilter == null && available >= 2) {
-                int controlGap = Math.clamp(available - 2, 0, 4);
-                int reservedSearchWidth = Math.clamp((available - controlGap) / 2, 1, 64);
-                int preferredRecentWidth = Math.clamp(available / 3, 64, 120);
-                int recentWidth = Math.clamp(preferredRecentWidth, 1,
+                int controlGap = Mth.clamp(available - 2, 0, 4);
+                int reservedSearchWidth = Mth.clamp((available - controlGap) / 2, 1, 64);
+                int preferredRecentWidth = Mth.clamp(available / 3, 64, 120);
+                int recentWidth = Mth.clamp(preferredRecentWidth, 1,
                         Math.max(1, available - controlGap - reservedSearchWidth));
                 recentButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenRecent.copy(), button ->
                                 toggleRecentMenu())
                         .bounds(controlsLeft, searchTop, recentWidth, 18).build());
                 controlsLeft += recentWidth + controlGap;
             } else if(typeFilter != null && available >= 2) {
-                int controlGap = Math.clamp(available - 2, 0, 4);
-                int reservedSearchWidth = Math.clamp((available - controlGap) / 2, 1, 64);
-                int preferredSortWidth = Math.clamp(available / 3, 72, 132);
-                int sortWidth = Math.clamp(preferredSortWidth, 1,
+                int controlGap = Mth.clamp(available - 2, 0, 4);
+                int reservedSearchWidth = Mth.clamp((available - controlGap) / 2, 1, 64);
+                int preferredSortWidth = Mth.clamp(available / 3, 72, 132);
+                int sortWidth = Mth.clamp(preferredSortWidth, 1,
                         Math.max(1, available - controlGap - reservedSearchWidth));
                 sortButton = addRenderableWidget(Button.builder(sortLabel(), button -> cycleSort())
                         .bounds(controlsLeft, searchTop, sortWidth, 18).build());
@@ -155,7 +156,7 @@ public class FocusEntitySelectorScreen extends Screen {
             }
             int remaining = Math.max(1, contentRight() - controlsLeft);
             boolean showSearchButton = remaining >= 92;
-            int searchButtonWidth = showSearchButton ? Math.clamp(remaining / 3, 40, 52) : 0;
+            int searchButtonWidth = showSearchButton ? Mth.clamp(remaining / 3, 40, 52) : 0;
             int searchWidth = Math.max(1, remaining - (showSearchButton ? searchButtonWidth + 4 : 0));
             searchBox = addRenderableWidget(new EditBox(font, controlsLeft, searchTop, searchWidth, 18,
                     DSKeyLang.ScreenSearch.copy()));
@@ -184,7 +185,7 @@ public class FocusEntitySelectorScreen extends Screen {
 
     @Override
     public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics, mouseX, mouseY, partialTick);
+        renderBackground(graphics);
         EntityChoicePage page = ClientStats.entityChoices();
         if(page != null && page != adopted && page.requestId() == requestId
                 && page.slot() == slot && page.typeFilter().equals(Optional.ofNullable(typeFilter))
@@ -215,10 +216,10 @@ public class FocusEntitySelectorScreen extends Screen {
         if(page != null && (page.requestId() != requestId || page.slot() != slot
                 || !page.typeFilter().equals(Optional.ofNullable(typeFilter)) || page.sort() != sort)) page = null;
         updateRowActions(page);
-        int titleY = Math.clamp(footerFlow().top() - 1, 0, 10);
+        int titleY = Mth.clamp(footerFlow().top() - 1, 0, 10);
         if(footerFlow().top() >= 12) {
             graphics.drawCenteredString(font, title, width / 2,
-                    Math.clamp(titleY, 0, Math.max(0, height - 1)), 0xFFFFFFFF);
+                    Mth.clamp(titleY, 0, Math.max(0, height - 1)), 0xFFFFFFFF);
         }
         rowTooltip = List.of();
         if(page == null || !page.allowed()) {
@@ -285,12 +286,12 @@ public class FocusEntitySelectorScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollY) {
         if(recentMenuOpen) return true;
         EntityChoicePage page = adopted;
-        if(page == null || mouseY < listTop() || mouseY >= listBottom()) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+        if(page == null || mouseY < listTop() || mouseY >= listBottom()) return super.mouseScrolled(mouseX, mouseY, scrollY);
         int max = Math.max(0, page.entries().size() - visibleRows());
-        rowOffset = Math.clamp(rowOffset - (int) Math.signum(scrollY), 0, max);
+        rowOffset = Mth.clamp(rowOffset - (int) Math.signum(scrollY), 0, max);
         return true;
     }
 
@@ -344,7 +345,7 @@ public class FocusEntitySelectorScreen extends Screen {
 
     private void previousPage() {
         if(cursorHistory.isEmpty()) return;
-        request(cursorHistory.removeLast());
+        request(cursorHistory.remove(cursorHistory.size() - 1));
     }
 
     private int request(String newCursor) {
@@ -353,7 +354,7 @@ public class FocusEntitySelectorScreen extends Screen {
         rowOffset = 0;
         recentRequestId = -1;
         requestId = ClientStats.nextEntityChoiceRequestId();
-        PacketDistributor.sendToServer(new EntityChoiceRequestPacket(slot, Optional.ofNullable(typeFilter), searchValue(),
+        DSPackets.sendToServer(new EntityChoiceRequestPacket(slot, Optional.ofNullable(typeFilter), searchValue(),
                 cursor, requestId, sort, contextFilter));
         refreshActions();
         return requestId;
@@ -374,7 +375,8 @@ public class FocusEntitySelectorScreen extends Screen {
     private void openInstancesRow(int row) {
         if(minecraft == null) return;
         EntityChoiceView entry = entryAtRow(row);
-        if(!(entry != null && entry.selector() instanceof EntitySelector.Type(ResourceLocation typeId))) return;
+        if(entry == null || !(entry.selector() instanceof EntitySelector.Type type)) return;
+        ResourceLocation typeId = type.typeId();
         minecraft.setScreen(new FocusEntitySelectorScreen(this, selectionReturnScreen, slot, typeId,
                 contextFilter, selectionConsumer));
     }
@@ -404,7 +406,7 @@ public class FocusEntitySelectorScreen extends Screen {
 
     private void updateRowActions(@Nullable EntityChoicePage page) {
         RowActionLayout actions = rowActionLayout();
-        int rows = Math.clamp(page == null || !page.allowed() ? 0 : page.entries().size() - rowOffset,
+        int rows = Mth.clamp(page == null || !page.allowed() ? 0 : page.entries().size() - rowOffset,
                 0, rowSelectButtons.size());
         for(int row = 0; row < rowSelectButtons.size(); row++) {
             Button select = rowSelectButtons.get(row);
@@ -451,7 +453,7 @@ public class FocusEntitySelectorScreen extends Screen {
             int y = top + index * ROW_HEIGHT;
             boolean hovered = mouseX >= left && mouseX < right && mouseY >= y && mouseY < y + ROW_HEIGHT;
             if(hovered) graphics.fill(left, y, right, y + ROW_HEIGHT, ROW_HOVER);
-            int horizontalPadding = Math.clamp((layout.width() - 1) / 2, 0, 3);
+            int horizontalPadding = Mth.clamp((layout.width() - 1) / 2, 0, 3);
             int textWidth = Math.max(0, layout.width() - horizontalPadding * 2);
             if(textWidth > 0) {
                 graphics.drawString(font, font.plainSubstrByWidth(entry.name().getString(), textWidth),
@@ -490,7 +492,7 @@ public class FocusEntitySelectorScreen extends Screen {
     }
 
     @Override
-    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+    public void renderBackground(GuiGraphics graphics) {
         graphics.fill(0, 0, width, height, BACKGROUND);
     }
 
@@ -498,7 +500,7 @@ public class FocusEntitySelectorScreen extends Screen {
         int availableWidth = Math.max(1, contentRight() - contentLeft());
         int menuWidth = Math.min(RECENT_MENU_WIDTH, availableWidth);
         int preferredLeft = recentButton == null ? contentLeft() : recentButton.getX();
-        int menuLeft = Math.clamp(preferredLeft, contentLeft(), contentRight() - menuWidth);
+        int menuLeft = Mth.clamp(preferredLeft, contentLeft(), contentRight() - menuWidth);
         if(recentButton == null || typeFilter != null || recentChoices.isEmpty()) {
             return new RecentMenuLayout(menuLeft, 0, menuWidth, 0);
         }
@@ -506,7 +508,7 @@ public class FocusEntitySelectorScreen extends Screen {
         int buttonTop = recentButton.getY();
         int belowTop = buttonTop + recentButton.getHeight() + 2;
         int aboveBottom = Math.max(0, buttonTop - 2);
-        int belowRows = Math.clamp(desiredRows, 0, Math.max(0, height - belowTop) / ROW_HEIGHT);
+        int belowRows = Mth.clamp(desiredRows, 0, Math.max(0, height - belowTop) / ROW_HEIGHT);
         int aboveRows = Math.min(desiredRows, aboveBottom / ROW_HEIGHT);
         if(belowRows >= aboveRows) return new RecentMenuLayout(menuLeft, belowTop, menuWidth, belowRows);
         return new RecentMenuLayout(menuLeft, aboveBottom - aboveRows * ROW_HEIGHT, menuWidth, aboveRows);
@@ -526,7 +528,7 @@ public class FocusEntitySelectorScreen extends Screen {
         int preferredTop = searchTop >= 0 ? searchTop + 28 : 24;
         int bottom = listBottom();
         if(bottom - preferredTop < ROW_HEIGHT + 6) return bottom;
-        return Math.clamp(preferredTop, 0, Math.max(0, bottom - 1));
+        return Mth.clamp(preferredTop, 0, Math.max(0, bottom - 1));
     }
 
     private int listBottom() {
@@ -535,11 +537,11 @@ public class FocusEntitySelectorScreen extends Screen {
 
     private int searchTop() {
         int bottom = footerFlow().top();
-        return bottom >= 48 ? Math.clamp(bottom - 22, 0, TOP - 28) : -1;
+        return bottom >= 48 ? Mth.clamp(bottom - 22, 0, TOP - 28) : -1;
     }
 
     private int contentLeft() {
-        return Math.clamp((width - 1) / 2, 0, SIDE);
+        return Mth.clamp((width - 1) / 2, 0, SIDE);
     }
 
     private int contentRight() {
@@ -554,11 +556,11 @@ public class FocusEntitySelectorScreen extends Screen {
         int left = contentLeft();
         int right = contentRight();
         int available = Math.max(1, right - left);
-        int selectWidth = Math.clamp(available / 4, 1, 56);
-        int preferredInstancesWidth = Math.clamp(available / 3, 1, 76);
+        int selectWidth = Mth.clamp(available / 4, 1, 56);
+        int preferredInstancesWidth = Mth.clamp(available / 3, 1, 76);
         int instancesWidth = typeFilter == null && preferredInstancesWidth >= INSTANCES_MIN_WIDTH
                 ? preferredInstancesWidth : 1;
-        int gap = Math.clamp(available - selectWidth - instancesWidth, 0, ACTION_GAP);
+        int gap = Mth.clamp(available - selectWidth - instancesWidth, 0, ACTION_GAP);
         int selectLeft = Math.max(left, right - selectWidth);
         int instancesLeft = Math.max(left, selectLeft - gap - instancesWidth);
         int textRight = Math.max(left + 1,

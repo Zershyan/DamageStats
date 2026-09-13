@@ -1,7 +1,7 @@
 package io.zershyan.damagestats.stats.view;
 
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.StreamCodec;
+import io.zershyan.damagestats.network.codec.StreamCodec;
+import net.minecraft.network.FriendlyByteBuf;
 
 import java.util.List;
 
@@ -12,7 +12,7 @@ public record StatsView(
         List<GroupView> bySource,
         List<GroupView> byOpponent
 ) {
-    public static final StreamCodec<RegistryFriendlyByteBuf, StatsView> STREAM_CODEC = StreamCodec.composite(
+    public static final StreamCodec<FriendlyByteBuf, StatsView> STREAM_CODEC = StreamCodec.composite(
             MetricsView.STREAM_CODEC, StatsView::metrics,
             GroupView.LIST_STREAM_CODEC, StatsView::byType,
             GroupView.LIST_STREAM_CODEC, StatsView::bySource,

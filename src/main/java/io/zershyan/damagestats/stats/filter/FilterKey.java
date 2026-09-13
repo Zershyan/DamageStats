@@ -1,7 +1,7 @@
 package io.zershyan.damagestats.stats.filter;
 
-import io.netty.buffer.ByteBuf;
-import net.minecraft.network.codec.StreamCodec;
+import io.zershyan.damagestats.network.codec.StreamCodec;
+import net.minecraft.network.FriendlyByteBuf;
 
 /**
  * 点某一行时往筛选条件里补的那一项。把「填哪个槽」一起带上，
@@ -16,25 +16,22 @@ public sealed interface FilterKey {
 
     record Type(DamageTypeSelector selector) implements FilterKey {}
 
-    StreamCodec<ByteBuf, FilterKey> STREAM_CODEC = StreamCodec.of(
+    StreamCodec<FriendlyByteBuf, FilterKey> STREAM_CODEC = StreamCodec.of(
             (buf, key) -> {
-                switch (key) {
-                    case Source(EntitySelector selector) -> {
-                        buf.writeByte(0);
-                        EntitySelector.STREAM_CODEC.encode(buf, selector);
-                    }
-                    case Target(EntitySelector selector) -> {
-                        buf.writeByte(1);
-                        EntitySelector.STREAM_CODEC.encode(buf, selector);
-                    }
-                    case Direct(EntitySelector selector) -> {
-                        buf.writeByte(2);
-                        EntitySelector.STREAM_CODEC.encode(buf, selector);
-                    }
-                    case Type(DamageTypeSelector selector) -> {
-                        buf.writeByte(3);
-                        DamageTypeSelector.STREAM_CODEC.encode(buf, selector);
-                    }
+                if(key instanceof Source source) {
+                    buf.writeByte(0);
+                    EntitySelector.STREAM_CODEC.encode(buf, source.selector());
+                } else if(key instanceof Target target) {
+                    buf.writeByte(1);
+                    EntitySelector.STREAM_CODEC.encode(buf, target.selector());
+                } else if(key instanceof Direct direct) {
+                    buf.writeByte(2);
+                    EntitySelector.STREAM_CODEC.encode(buf, direct.selector());
+                } else if(key instanceof Type type) {
+                    buf.writeByte(3);
+                    DamageTypeSelector.STREAM_CODEC.encode(buf, type.selector());
+                } else {
+                    throw new IllegalArgumentException("?????????" + key);
                 }
             },
             buf -> switch (buf.readByte()) {

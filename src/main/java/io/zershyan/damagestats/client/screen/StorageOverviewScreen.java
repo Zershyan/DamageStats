@@ -2,6 +2,7 @@ package io.zershyan.damagestats.client.screen;
 
 import io.zershyan.damagestats.client.ClientStorageOverview;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
+import io.zershyan.damagestats.registry.DSPackets;
 import io.zershyan.damagestats.registry.packet.StorageCleanupPacket;
 import io.zershyan.damagestats.registry.packet.StorageOverviewRequestPacket;
 import io.zershyan.damagestats.stats.save.StorageCleanupTarget;
@@ -13,7 +14,6 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
-import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -57,8 +57,8 @@ public final class StorageOverviewScreen extends Screen {
                     .bounds(all.x(), all.y(), all.width(), all.height()).build());
         }
         ScreenLayout.Flow footer = footerFlow();
-        ScreenLayout.Bounds refresh = footer.bounds().getFirst();
-        ScreenLayout.Bounds done = footer.bounds().getLast();
+        ScreenLayout.Bounds refresh = footer.bounds().get(0);
+        ScreenLayout.Bounds done = footer.bounds().get(footer.bounds().size() - 1);
         addRenderableWidget(Button.builder(DSKeyLang.ScreenStorageRefresh.copy(), button -> refresh())
                 .bounds(refresh.x(), refresh.y(), refresh.width(), refresh.height()).build());
         addRenderableWidget(Button.builder(CommonComponents.GUI_DONE, button -> onClose())
@@ -67,7 +67,7 @@ public final class StorageOverviewScreen extends Screen {
 
     @Override
     public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics, mouseX, mouseY, partialTick);
+        renderBackground(graphics);
         int headerHeight = headerHeight();
         ScreenLayout.Flow footer = footerFlow();
         ActionLayout actions = actionLayout();
@@ -79,7 +79,7 @@ public final class StorageOverviewScreen extends Screen {
         if(footerTop < height) graphics.fill(0, footerTop, width, Math.min(height, footerTop + 1), BORDER);
         if(headerHeight >= 10) {
             graphics.drawCenteredString(font, title, width / 2,
-                    Math.clamp(11, 0, Math.max(0, headerHeight - 1)), TEXT);
+                    Mth.clamp(11, 0, Math.max(0, headerHeight - 1)), TEXT);
         }
 
         StorageOverview overview = ClientStorageOverview.overview();
@@ -113,10 +113,10 @@ public final class StorageOverviewScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollY) {
         int headerHeight = headerHeight();
         int actionTop = actionLayout().top();
-        if(mouseY < headerHeight || mouseY >= actionTop) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+        if(mouseY < headerHeight || mouseY >= actionTop) return super.mouseScrolled(mouseX, mouseY, scrollY);
         int visible = Math.max(0, (actionTop - 8 - (headerHeight + 8)) / LINE_HEIGHT);
         int maxOffset = Math.max(0, displayedLines.size() - visible);
         scrollOffset = Mth.clamp(scrollOffset - (int) Math.signum(scrollY), 0, maxOffset);
@@ -124,7 +124,7 @@ public final class StorageOverviewScreen extends Screen {
     }
 
     void cleanup(StorageCleanupTarget target) {
-        PacketDistributor.sendToServer(new StorageCleanupPacket(target));
+        DSPackets.sendToServer(new StorageCleanupPacket(target));
     }
 
     private void confirm(StorageCleanupTarget target) {
@@ -133,11 +133,11 @@ public final class StorageOverviewScreen extends Screen {
     }
 
     private void refresh() {
-        PacketDistributor.sendToServer(StorageOverviewRequestPacket.INSTANCE);
+        DSPackets.sendToServer(StorageOverviewRequestPacket.INSTANCE);
     }
 
     private int headerHeight() {
-        return Math.clamp(Math.min(height / 3, footerFlow().top()), 0, PREFERRED_HEADER_HEIGHT);
+        return Mth.clamp(Math.min(height / 3, footerFlow().top()), 0, PREFERRED_HEADER_HEIGHT);
     }
 
     private ScreenLayout.Flow footerFlow() {
@@ -153,8 +153,8 @@ public final class StorageOverviewScreen extends Screen {
         List<ScreenLayout.Bounds> preferred = ScreenLayout.flow(width, SIDE, 0, 20, 4, preferredWidths);
         int rows = preferred.stream().map(ScreenLayout.Bounds::y).distinct().mapToInt(ignored -> 1).sum();
         if(available < rows) return new ActionLayout(bottom, 0, 0, List.of());
-        int gap = rows <= 1 ? 0 : Math.clamp((available - rows) / (rows - 1), 0, 4);
-        int buttonHeight = Math.clamp((available - (long) gap * (rows - 1)) / rows, 1, 20);
+        int gap = rows <= 1 ? 0 : Mth.clamp((available - rows) / (rows - 1), 0, 4);
+        int buttonHeight = Mth.clamp((available - gap * (rows - 1)) / rows, 1, 20);
         int used = rows * buttonHeight + gap * (rows - 1);
         int actionTop = bottom - used;
         return new ActionLayout(actionTop, buttonHeight, gap,

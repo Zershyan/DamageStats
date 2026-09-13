@@ -1,8 +1,8 @@
 package io.zershyan.damagestats.stats.focus;
 
-import io.netty.buffer.ByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
+import io.zershyan.damagestats.network.codec.ByteBufCodecs;
+import io.zershyan.damagestats.network.codec.StreamCodec;
+import net.minecraft.network.FriendlyByteBuf;
 
 /** 焦点选择器操作的槽位。 */
 public enum FocusSelectionSlot {
@@ -10,7 +10,7 @@ public enum FocusSelectionSlot {
     TARGET,
     DIRECT_SOURCE;
 
-    public static final StreamCodec<ByteBuf, FocusSelectionSlot> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, FocusSelectionSlot> STREAM_CODEC =
             ByteBufCodecs.VAR_INT.map(FocusSelectionSlot::fromOrdinal, FocusSelectionSlot::ordinal);
 
     private static FocusSelectionSlot fromOrdinal(int ordinal) {

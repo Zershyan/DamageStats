@@ -7,8 +7,8 @@ import io.zershyan.damagestats.command.StorageCommand;
 import io.zershyan.damagestats.command.ToggleCommand;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
-import net.neoforged.bus.api.IEventBus;
-import net.neoforged.neoforge.event.RegisterCommandsEvent;
+import net.minecraftforge.event.RegisterCommandsEvent;
+import net.minecraftforge.eventbus.api.IEventBus;
 
 /** 注册 /damagestats 管理命令及其子命令。 */
 public final class DSCommands {

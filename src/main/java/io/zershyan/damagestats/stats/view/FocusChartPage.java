@@ -1,12 +1,12 @@
 package io.zershyan.damagestats.stats.view;
 
+import io.zershyan.damagestats.network.codec.ByteBufCodecs;
+import io.zershyan.damagestats.network.codec.StreamCodec;
 import io.zershyan.damagestats.stats.filter.DamageTypeGrouping;
 import io.zershyan.damagestats.stats.focus.EntityGrouping;
 import io.zershyan.damagestats.stats.focus.FocusChartDimension;
 import io.zershyan.damagestats.stats.focus.FocusChartScope;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.FriendlyByteBuf;
 
 import java.util.List;
 
@@ -26,13 +26,13 @@ public record FocusChartPage(
         boolean hasNext
 ) {
     public static final int PAGE_SIZE = 50;
-    private static final StreamCodec<RegistryFriendlyByteBuf, List<GroupView>> ROWS_CODEC =
+    private static final StreamCodec<FriendlyByteBuf, List<GroupView>> ROWS_CODEC =
             GroupView.STREAM_CODEC.apply(ByteBufCodecs.list(PAGE_SIZE));
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, FocusChartPage> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, FocusChartPage> STREAM_CODEC =
             StreamCodec.of(FocusChartPage::encode, FocusChartPage::decode);
 
-    private static void encode(RegistryFriendlyByteBuf buf, FocusChartPage page) {
+    private static void encode(FriendlyByteBuf buf, FocusChartPage page) {
         buf.writeVarLong(page.focusVersion);
         buf.writeVarInt(page.requestId);
         buf.writeVarLong(page.snapshotId);
@@ -47,7 +47,7 @@ public record FocusChartPage(
         buf.writeBoolean(page.hasNext);
     }
 
-    private static FocusChartPage decode(RegistryFriendlyByteBuf buf) {
+    private static FocusChartPage decode(FriendlyByteBuf buf) {
         return new FocusChartPage(buf.readVarLong(), buf.readVarInt(), buf.readVarLong(), buf.readUtf(128),
                 buf.readUtf(128), buf.readBoolean(),
                 FocusChartDimension.STREAM_CODEC.decode(buf), FocusChartScope.STREAM_CODEC.decode(buf),

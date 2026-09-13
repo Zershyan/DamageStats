@@ -1,19 +1,18 @@
 package io.zershyan.damagestats.registry.packet;
 
 import io.zershyan.damagestats.DamageStats;
+import io.zershyan.damagestats.network.CustomPacketPayload;
+import io.zershyan.damagestats.network.codec.ByteBufCodecs;
+import io.zershyan.damagestats.network.codec.StreamCodec;
+import io.zershyan.damagestats.registry.DSPackets;
 import io.zershyan.damagestats.stats.DamageTracker;
 import io.zershyan.damagestats.stats.ServerStats;
 import io.zershyan.damagestats.stats.filter.StatsFilter;
 import io.zershyan.damagestats.stats.focus.StatsFocusManager;
 import io.zershyan.damagestats.stats.view.HistoryPage;
 import io.zershyan.damagestats.stats.view.StatsViewBuilder;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
-import net.neoforged.neoforge.network.PacketDistributor;
-import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -21,7 +20,7 @@ import java.util.List;
 /** 历史会话使用当前浏览筛选，并由服务端重新执行权限校验。 */
 public record HistoryRequestPacket(StatsFilter filter, int requestId) implements CustomPacketPayload {
     public static final Type<HistoryRequestPacket> TYPE = new Type<>(DamageStats.id("history_request"));
-    public static final StreamCodec<RegistryFriendlyByteBuf, HistoryRequestPacket> STREAM_CODEC = StreamCodec.composite(
+    public static final StreamCodec<FriendlyByteBuf, HistoryRequestPacket> STREAM_CODEC = StreamCodec.composite(
             StatsFilter.STREAM_CODEC, HistoryRequestPacket::filter,
             ByteBufCodecs.VAR_INT, HistoryRequestPacket::requestId,
             HistoryRequestPacket::new
@@ -39,14 +38,14 @@ public record HistoryRequestPacket(StatsFilter filter, int requestId) implements
             StatsFocusManager manager = ServerStats.focusManager();
             if(tracker == null || manager == null) return;
             if(!manager.canBrowse(player, filter(), tracker)) {
-                PacketDistributor.sendToPlayer(player, new HistoryPagePacket(
+                DSPackets.sendToPlayer(player, new HistoryPagePacket(
                         new HistoryPage(requestId(), false, List.of(), List.of())));
                 return;
             }
             List<io.zershyan.damagestats.stats.view.SessionView> history =
                     StatsViewBuilder.historyFromJournal(filter(), player.level().getGameTime());
             boolean incoming = filter().source().isEmpty() && filter().target().isPresent();
-            PacketDistributor.sendToPlayer(player, new HistoryPagePacket(new HistoryPage(requestId(), true,
+            DSPackets.sendToPlayer(player, new HistoryPagePacket(new HistoryPage(requestId(), true,
                     incoming ? List.of() : history, incoming ? history : List.of())));
         });
     }

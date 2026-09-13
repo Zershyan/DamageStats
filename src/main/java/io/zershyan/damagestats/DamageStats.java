@@ -3,27 +3,29 @@ package io.zershyan.damagestats;
 import io.zershyan.damagestats.config.DamageTypeCategories;
 import io.zershyan.damagestats.registry.*;
 import net.minecraft.resources.ResourceLocation;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.IEventBus;
-import net.neoforged.fml.ModContainer;
-import net.neoforged.fml.common.Mod;
-import net.neoforged.neoforge.common.NeoForge;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.eventbus.api.IEventBus;
+import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
+import net.minecraftforge.fml.loading.FMLEnvironment;
 
 @Mod(DamageStats.MODID)
 public class DamageStats {
     public static final String MODID = "damagestats";
 
     public static ResourceLocation id(String path) {
-        return ResourceLocation.fromNamespaceAndPath(MODID, path);
+        return new ResourceLocation(MODID, path);
     }
 
-    public DamageStats(IEventBus modEventBus, Dist dist, ModContainer modContainer) {
-        IEventBus neoEventBus = NeoForge.EVENT_BUS;
+    public DamageStats() {
+        IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
+        Dist dist = FMLEnvironment.dist;
 
         DamageTypeCategories.load();
-        DSConfigs.doRegister(modContainer);
-        DSPackets.doRegister(modEventBus);
-        DSCommands.doRegister(neoEventBus);
+        DSConfigs.doRegister(dist);
+        DSPackets.doRegister();
+        DSCommands.doRegister(MinecraftForge.EVENT_BUS);
 
         if(dist.isClient()) {
             DSKeyMappings.doRegister(modEventBus);

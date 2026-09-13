@@ -1,8 +1,8 @@
 package io.zershyan.damagestats.stats.view;
 
-import io.netty.buffer.ByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
+import io.zershyan.damagestats.network.codec.ByteBufCodecs;
+import io.zershyan.damagestats.network.codec.StreamCodec;
+import net.minecraft.network.FriendlyByteBuf;
 
 /** 实例候选列表的服务端排序方式。 */
 public enum EntityChoiceSort {
@@ -10,7 +10,7 @@ public enum EntityChoiceSort {
     DAMAGE,
     HITS;
 
-    public static final StreamCodec<ByteBuf, EntityChoiceSort> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, EntityChoiceSort> STREAM_CODEC =
             ByteBufCodecs.VAR_INT.map(EntityChoiceSort::fromOrdinal, EntityChoiceSort::ordinal);
 
     private static EntityChoiceSort fromOrdinal(int ordinal) {

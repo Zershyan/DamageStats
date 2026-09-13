@@ -1,8 +1,8 @@
 package io.zershyan.damagestats.stats.view;
 
+import io.zershyan.damagestats.network.codec.StreamCodec;
 import io.zershyan.damagestats.stats.focus.FocusScopeView;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.FriendlyByteBuf;
 
 /** 同 tick 内合并后的焦点摘要增量，只编码与上一份不同的字段。 */
 public record FocusSummaryDelta(
@@ -16,7 +16,7 @@ public record FocusSummaryDelta(
     private static final int WORLD = 1 << 4;
     private static final int ALL_FIELDS = SCOPE | SESSION | LIFETIME | ACTIVE | WORLD;
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, FocusSummaryDelta> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, FocusSummaryDelta> STREAM_CODEC =
             StreamCodec.of(FocusSummaryDelta::encode, FocusSummaryDelta::decode);
 
     public static FocusSummaryDelta between(FocusSummary previous, FocusSummary current) {
@@ -48,7 +48,7 @@ public record FocusSummaryDelta(
         return (changedFields & field) != 0;
     }
 
-    private static void encode(RegistryFriendlyByteBuf buf, FocusSummaryDelta delta) {
+    private static void encode(FriendlyByteBuf buf, FocusSummaryDelta delta) {
         buf.writeVarLong(delta.summary.revision());
         buf.writeVarInt(delta.changedFields);
         if(delta.changed(SCOPE)) FocusScopeView.STREAM_CODEC.encode(buf, delta.summary.scope());
@@ -58,7 +58,7 @@ public record FocusSummaryDelta(
         if(delta.changed(WORLD)) buf.writeUtf(delta.summary.worldId(), 128);
     }
 
-    private static FocusSummaryDelta decode(RegistryFriendlyByteBuf buf) {
+    private static FocusSummaryDelta decode(FriendlyByteBuf buf) {
         long revision = buf.readVarLong();
         int fields = buf.readVarInt();
         FocusScopeView scope = (fields & SCOPE) == 0 ? FocusSummary.empty().scope()

@@ -1,9 +1,9 @@
 package io.zershyan.damagestats.stats.view;
 
+import io.zershyan.damagestats.network.codec.ByteBufCodecs;
+import io.zershyan.damagestats.network.codec.StreamCodec;
 import io.zershyan.damagestats.stats.focus.FocusScopeView;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.FriendlyByteBuf;
 
 /** 焦点页头与 Overlay 共用的摘要，页间图表不随它自动刷新。 */
 public record FocusSummary(
@@ -14,7 +14,7 @@ public record FocusSummary(
         boolean active,
         String worldId
 ) {
-    public static final StreamCodec<RegistryFriendlyByteBuf, FocusSummary> STREAM_CODEC = StreamCodec.composite(
+    public static final StreamCodec<FriendlyByteBuf, FocusSummary> STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.VAR_LONG, FocusSummary::revision,
             FocusScopeView.STREAM_CODEC, FocusSummary::scope,
             FocusMetricsView.STREAM_CODEC, FocusSummary::session,

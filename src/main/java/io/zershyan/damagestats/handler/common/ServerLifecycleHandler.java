@@ -10,13 +10,14 @@ import io.zershyan.damagestats.stats.focus.FocusChangeResult;
 import io.zershyan.damagestats.stats.focus.StatsFocusManager;
 import io.zershyan.damagestats.stats.save.DamageEventJournal;
 import io.zershyan.damagestats.stats.save.StatsStorage;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.event.entity.player.PlayerEvent;
-import net.neoforged.neoforge.event.server.ServerStartedEvent;
-import net.neoforged.neoforge.event.server.ServerStoppedEvent;
-import net.neoforged.neoforge.event.server.ServerStoppingEvent;
-import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.TickEvent.ServerTickEvent;
+import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.server.ServerStartedEvent;
+import net.minecraftforge.event.server.ServerStoppedEvent;
+import net.minecraftforge.event.server.ServerStoppingEvent;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 
@@ -99,7 +100,8 @@ public final class ServerLifecycleHandler {
     }
 
     @SubscribeEvent
-    public static void onServerTick(ServerTickEvent.Post event) {
+    public static void onServerTick(ServerTickEvent event) {
+        if(event.phase != TickEvent.Phase.END) return;
         long gameTime = event.getServer().overworld().getGameTime();
         if(gameTime % INSTANCE_PRUNE_INTERVAL_TICKS == 0) {
             DamageTracker tracker = ServerStats.tracker();

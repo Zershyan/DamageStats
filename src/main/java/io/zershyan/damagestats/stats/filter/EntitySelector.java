@@ -1,8 +1,9 @@
 package io.zershyan.damagestats.stats.filter;
 
-import io.netty.buffer.ByteBuf;
+import io.zershyan.damagestats.network.codec.ByteBufCodecs;
+import io.zershyan.damagestats.network.codec.StreamCodec;
 import io.zershyan.damagestats.stats.EntityRef;
-import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 
 /**
@@ -28,21 +29,20 @@ public sealed interface EntitySelector {
 
     boolean matches(EntityRef candidate);
 
-    StreamCodec<ByteBuf, EntitySelector> STREAM_CODEC = StreamCodec.of(
+    StreamCodec<FriendlyByteBuf, EntitySelector> STREAM_CODEC = StreamCodec.of(
             (buf, selector) -> {
-                switch (selector) {
-                    case Instance instance -> {
-                        buf.writeBoolean(true);
-                        EntityRef.STREAM_CODEC.encode(buf, instance.ref());
-                    }
-                    case Type type -> {
-                        buf.writeBoolean(false);
-                        ResourceLocation.STREAM_CODEC.encode(buf, type.typeId());
-                    }
+                if(selector instanceof Instance instance) {
+                    buf.writeBoolean(true);
+                    EntityRef.STREAM_CODEC.encode(buf, instance.ref());
+                } else if(selector instanceof Type type) {
+                    buf.writeBoolean(false);
+                    ByteBufCodecs.RESOURCE_LOCATION.encode(buf, type.typeId());
+                } else {
+                    throw new IllegalArgumentException("???????????" + selector);
                 }
             },
             buf -> buf.readBoolean()
                     ? new Instance(EntityRef.STREAM_CODEC.decode(buf))
-                    : new Type(ResourceLocation.STREAM_CODEC.decode(buf))
+                    : new Type(ByteBufCodecs.RESOURCE_LOCATION.decode(buf))
     );
 }

@@ -89,7 +89,7 @@ public final class FocusSummaryCache {
         for (int i = 1; i < records.size(); i++) {
             if(records.get(i).gameTime() - records.get(i - 1).gameTime() > timeout) start = i;
         }
-        DamageRecord latest = records.getLast();
+        DamageRecord latest = records.get(records.size() - 1);
         if(latest.gameTime() + timeout < gameTime) return;
         DamageSession current = new DamageSession(records.get(start).gameTime());
         for (int i = start; i < records.size(); i++) current.accept(records.get(i), records.get(i).target());

@@ -1,9 +1,9 @@
 package io.zershyan.damagestats.stats.view;
 
+import io.zershyan.damagestats.network.codec.ByteBufCodecs;
+import io.zershyan.damagestats.network.codec.StreamCodec;
 import io.zershyan.damagestats.stats.focus.FocusSelectionSlot;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 
 import java.util.List;
@@ -24,13 +24,13 @@ public record EntityChoicePage(
         boolean hasNext
 ) {
     public static final int PAGE_SIZE = 50;
-    private static final StreamCodec<RegistryFriendlyByteBuf, List<EntityChoiceView>> LIST_CODEC =
+    private static final StreamCodec<FriendlyByteBuf, List<EntityChoiceView>> LIST_CODEC =
             EntityChoiceView.STREAM_CODEC.apply(ByteBufCodecs.list(PAGE_SIZE));
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, EntityChoicePage> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, EntityChoicePage> STREAM_CODEC =
             StreamCodec.of(EntityChoicePage::encode, EntityChoicePage::decode);
 
-    private static void encode(RegistryFriendlyByteBuf buf, EntityChoicePage page) {
+    private static void encode(FriendlyByteBuf buf, EntityChoicePage page) {
         FocusSelectionSlot.STREAM_CODEC.encode(buf, page.slot);
         buf.writeVarLong(page.focusVersion);
         buf.writeVarInt(page.requestId);
@@ -39,12 +39,12 @@ public record EntityChoicePage(
         buf.writeUtf(page.cursor, 128);
         buf.writeUtf(page.nextCursor, 128);
         buf.writeBoolean(page.allowed);
-        ByteBufCodecs.optional(ResourceLocation.STREAM_CODEC).encode(buf, page.typeFilter);
+        ByteBufCodecs.optional(ByteBufCodecs.RESOURCE_LOCATION).encode(buf, page.typeFilter);
         LIST_CODEC.encode(buf, page.entries);
         buf.writeBoolean(page.hasNext);
     }
 
-    private static EntityChoicePage decode(RegistryFriendlyByteBuf buf) {
+    private static EntityChoicePage decode(FriendlyByteBuf buf) {
         return new EntityChoicePage(
                 FocusSelectionSlot.STREAM_CODEC.decode(buf),
                 buf.readVarLong(),
@@ -54,7 +54,7 @@ public record EntityChoicePage(
                 buf.readUtf(128),
                 buf.readUtf(128),
                 buf.readBoolean(),
-                ByteBufCodecs.optional(ResourceLocation.STREAM_CODEC).decode(buf),
+                ByteBufCodecs.optional(ByteBufCodecs.RESOURCE_LOCATION).decode(buf),
                 LIST_CODEC.decode(buf),
                 buf.readBoolean());
     }

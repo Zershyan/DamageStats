@@ -3,6 +3,10 @@ package io.zershyan.damagestats.registry.packet;
 import com.mojang.logging.LogUtils;
 import io.zershyan.damagestats.DamageStats;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
+import io.zershyan.damagestats.network.CustomPacketPayload;
+import io.zershyan.damagestats.network.codec.ByteBufCodecs;
+import io.zershyan.damagestats.network.codec.StreamCodec;
+import io.zershyan.damagestats.registry.DSPackets;
 import io.zershyan.damagestats.stats.DamageTracker;
 import io.zershyan.damagestats.stats.InstanceMetadata;
 import io.zershyan.damagestats.stats.ServerStats;
@@ -17,17 +21,13 @@ import io.zershyan.damagestats.stats.view.EntityChoiceView;
 import io.zershyan.damagestats.util.EntityTypeHelper;
 import io.zershyan.damagestats.util.StatsNames;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.neoforged.neoforge.network.PacketDistributor;
-import net.neoforged.neoforge.network.handling.IPayloadContext;
+import net.minecraft.util.Mth;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -48,7 +48,7 @@ public record EntityChoiceRequestPacket(
     private static final int MAX_SEARCH_LENGTH = 64;
     private static final int MAX_CURSOR_LENGTH = 128;
     private static final int MAX_CURSORS = 64;
-    private static final ResourceLocation PLAYER_TYPE = ResourceLocation.withDefaultNamespace("player");
+    private static final ResourceLocation PLAYER_TYPE = new ResourceLocation("minecraft", "player");
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Map<DamageEventJournal,
             LinkedHashMap<String, ChoiceCursor>> CHOICE_CURSORS =
@@ -80,12 +80,12 @@ public record EntityChoiceRequestPacket(
     private record ChoiceSnapshot(List<InstanceMetadata> instances, Map<UUID, String> names) {}
 
     public static final Type<EntityChoiceRequestPacket> TYPE = new Type<>(DamageStats.id("entity_choices"));
-    public static final StreamCodec<RegistryFriendlyByteBuf, EntityChoiceRequestPacket> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, EntityChoiceRequestPacket> STREAM_CODEC =
             StreamCodec.of(EntityChoiceRequestPacket::encode, EntityChoiceRequestPacket::decode);
 
-    private static void encode(RegistryFriendlyByteBuf buf, EntityChoiceRequestPacket packet) {
+    private static void encode(FriendlyByteBuf buf, EntityChoiceRequestPacket packet) {
         FocusSelectionSlot.STREAM_CODEC.encode(buf, packet.slot);
-        ByteBufCodecs.optional(ResourceLocation.STREAM_CODEC).encode(buf, packet.typeFilter);
+        ByteBufCodecs.optional(ByteBufCodecs.RESOURCE_LOCATION).encode(buf, packet.typeFilter);
         buf.writeUtf(packet.search);
         buf.writeUtf(packet.cursor);
         buf.writeVarInt(packet.requestId);
@@ -93,10 +93,10 @@ public record EntityChoiceRequestPacket(
         StatsFilter.STREAM_CODEC.encode(buf, packet.contextFilter);
     }
 
-    private static EntityChoiceRequestPacket decode(RegistryFriendlyByteBuf buf) {
+    private static EntityChoiceRequestPacket decode(FriendlyByteBuf buf) {
         return new EntityChoiceRequestPacket(
                 FocusSelectionSlot.STREAM_CODEC.decode(buf),
-                ByteBufCodecs.optional(ResourceLocation.STREAM_CODEC).decode(buf),
+                ByteBufCodecs.optional(ByteBufCodecs.RESOURCE_LOCATION).decode(buf),
                 buf.readUtf(), buf.readUtf(), buf.readVarInt(), EntityChoiceSort.STREAM_CODEC.decode(buf),
                 StatsFilter.STREAM_CODEC.decode(buf));
     }
@@ -159,7 +159,7 @@ public record EntityChoiceRequestPacket(
     }
 
     private static void sendDenied(ServerPlayer player, EntityChoiceRequestPacket payload, long focusVersion) {
-        PacketDistributor.sendToPlayer(player, new EntityChoicePagePacket(new EntityChoicePage(
+        DSPackets.sendToPlayer(player, new EntityChoicePagePacket(new EntityChoicePage(
                 payload.slot(), focusVersion, payload.requestId(), payload.sort(), 0, "", "", false,
                 payload.typeFilter(), List.of(), false)));
     }
@@ -191,20 +191,20 @@ public record EntityChoiceRequestPacket(
     private static void sendPage(ServerPlayer player, EntityChoiceRequestPacket payload, long focusVersion,
                                  @Nullable ChoiceCursor page, String currentCursor) {
         if(page == null) {
-            PacketDistributor.sendToPlayer(player, new EntityChoicePagePacket(new EntityChoicePage(
+            DSPackets.sendToPlayer(player, new EntityChoicePagePacket(new EntityChoicePage(
                     payload.slot(), focusVersion, payload.requestId(), payload.sort(), 0, "", "", true,
                     payload.typeFilter(), List.of(), false)));
             return;
         }
         List<EntityChoiceView> entries = page.entries();
-        int start = Math.clamp(page.start(), 0, entries.size());
+        int start = Mth.clamp(page.start(), 0, entries.size());
         int end = Math.min(entries.size(), start + EntityChoicePage.PAGE_SIZE);
         String nextCursor = "";
         if(end < entries.size() && page.journal() != null) {
             nextCursor = UUID.randomUUID().toString();
             storeCursor(nextCursor, page.at(end));
         }
-        PacketDistributor.sendToPlayer(player, new EntityChoicePagePacket(new EntityChoicePage(
+        DSPackets.sendToPlayer(player, new EntityChoicePagePacket(new EntityChoicePage(
                 page.slot(), focusVersion, payload.requestId(), page.sort(), page.snapshotId(), currentCursor, nextCursor, true,
                 page.typeFilter(), entries.subList(start, end), !nextCursor.isEmpty())));
     }

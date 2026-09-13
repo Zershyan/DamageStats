@@ -18,7 +18,7 @@ import net.minecraft.client.gui.components.Checkbox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
-import net.neoforged.neoforge.common.ModConfigSpec;
+import net.minecraftforge.common.ForgeConfigSpec;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -43,8 +43,8 @@ public class OverlayPositionScreen extends Screen {
 
     private record OverlayField(
             DSConfigLang.ConfigEntry label,
-            ModConfigSpec.BooleanValue visible,
-            @Nullable ModConfigSpec.EnumValue<OverlayMetricScope> scope
+            ForgeConfigSpec.BooleanValue visible,
+            @Nullable ForgeConfigSpec.EnumValue<OverlayMetricScope> scope
     ) {}
 
     private static final List<OverlayField> FIELDS = List.of(
@@ -136,7 +136,7 @@ public class OverlayPositionScreen extends Screen {
         });
         List<ScreenLayout.Bounds> targetBounds = layout.targetBounds();
         if(!targetBounds.isEmpty()) {
-            ScreenLayout.Bounds target = targetBounds.getFirst();
+            ScreenLayout.Bounds target = targetBounds.get(0);
             targetButton = addRenderableWidget(Button.builder(Component.empty(), button -> openTargetSelector())
                     .bounds(target.x(), target.y(), target.width(), target.height()).build());
             if(targetBounds.size() > 1) {
@@ -148,8 +148,8 @@ public class OverlayPositionScreen extends Screen {
         }
         addFields(layout);
         ScreenLayout.Flow footer = layout.footer();
-        ScreenLayout.Bounds done = footer.bounds().getFirst();
-        ScreenLayout.Bounds reset = footer.bounds().getLast();
+        ScreenLayout.Bounds done = footer.bounds().get(0);
+        ScreenLayout.Bounds reset = footer.bounds().get(footer.bounds().size() - 1);
         addRenderableWidget(Button.builder(DSKeyLang.EditPositionDone.copy(), button -> onClose())
                 .bounds(done.x(), done.y(), done.width(), done.height()).build());
         addRenderableWidget(Button.builder(DSKeyLang.EditPositionReset.copy(), button -> resetPosition())
@@ -165,14 +165,16 @@ public class OverlayPositionScreen extends Screen {
             int row = index - fieldScroll;
             int x = (width - fieldWidth) / 2;
             int y = layout.fieldTop() + row * FIELD_HEIGHT;
-            int scopeWidth = field.scope() == null ? 0 : Math.clamp(fieldWidth / 3, 1, SCOPE_WIDTH);
+            int scopeWidth = field.scope() == null ? 0 : Mth.clamp(fieldWidth / 3, 1, SCOPE_WIDTH);
             int checkboxWidth = field.scope() == null ? fieldWidth : Math.max(1, fieldWidth - scopeWidth - 2);
-            Checkbox fieldCheckbox = Checkbox.builder(Component.translatable(field.label().getKey()), font)
-                    .pos(x, y)
-                    .selected(field.visible().get())
-                    .onValueChange((ignored, selected) -> field.visible().set(selected))
-                    .build();
-            fieldCheckbox.setWidth(checkboxWidth);
+            Checkbox fieldCheckbox = new Checkbox(x, y, checkboxWidth, 18,
+                    Component.translatable(field.label().getKey()), field.visible().get()) {
+                @Override
+                public void onPress() {
+                    super.onPress();
+                    field.visible().set(selected());
+                }
+            };
             addRenderableWidget(fieldCheckbox);
             var scope = field.scope();
             if(scope == null) continue;
@@ -189,10 +191,10 @@ public class OverlayPositionScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollY) {
         Layout layout = layout();
         if(mouseY < layout.fieldTop() || mouseY >= layout.fieldBottom()) {
-            return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+            return super.mouseScrolled(mouseX, mouseY, scrollY);
         }
         int next = Mth.clamp(fieldScroll - (int) Math.signum(scrollY), 0,
                 maxFieldScroll(visibleRows(layout)));
@@ -204,13 +206,13 @@ public class OverlayPositionScreen extends Screen {
     }
 
     @Override
-    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+    public void renderBackground(GuiGraphics graphics) {
         graphics.fill(0, 0, width, height, DIM_BACKGROUND);
     }
 
     @Override
     public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics, mouseX, mouseY, partialTick);
+        renderBackground(graphics);
         int previewX = originX();
         int previewY = originY();
         graphics.flush();
@@ -223,7 +225,7 @@ public class OverlayPositionScreen extends Screen {
         graphics.pose().pushPose();
         graphics.pose().translate(0, 0, CONTROLS_Z);
         graphics.drawCenteredString(font, title, width / 2,
-                Math.clamp(TITLE_Y, 0, Math.max(0, height - 1)), 0xFFFFFFFF);
+                Mth.clamp(TITLE_Y, 0, Math.max(0, height - 1)), 0xFFFFFFFF);
         if(targetButton != null) targetButton.setMessage(DSKeyLang.FilterTarget.get(ClientStats.summary().scope().targetName()));
         renderables.forEach(renderable -> renderable.render(graphics, mouseX, mouseY, partialTick));
         graphics.flush();
@@ -343,9 +345,9 @@ public class OverlayPositionScreen extends Screen {
         ScreenLayout.Flow footer = ScreenLayout.bottomFlow(width, height, 8, BUTTON_HEIGHT, 4, 6,
                 BUTTON_WIDTH, BUTTON_WIDTH);
         int controlWidth = ScreenLayout.width(width, 8);
-        int sliderWidth = Math.clamp(controlWidth, 1, 220);
+        int sliderWidth = Mth.clamp(controlWidth, 1, 220);
         int controlLeft = ScreenLayout.left(width, 8) + Math.max(0, (controlWidth - sliderWidth) / 2);
-        int scaleY = Math.clamp(footer.top() - 48, 0, 44);
+        int scaleY = Mth.clamp(footer.top() - 48, 0, 44);
         int opacityY = scaleY + 24;
         int targetY = opacityY + 24;
         List<ScreenLayout.Bounds> targetBounds = ScreenLayout.flow(width, 8, targetY, BUTTON_HEIGHT, 4,
@@ -355,7 +357,7 @@ public class OverlayPositionScreen extends Screen {
                 : ScreenLayout.bottom(targetBounds, targetY);
         int fieldTop = controlsBottom + 6;
         int fieldBottom = Math.max(fieldTop, footer.top() - 6);
-        int fieldWidth = Math.clamp(ScreenLayout.width(width, 8), 1, FIELD_WIDTH);
+        int fieldWidth = Mth.clamp(ScreenLayout.width(width, 8), 1, FIELD_WIDTH);
         return new Layout(controlLeft, sliderWidth, scaleY, opacityY, targetBounds,
                 fieldTop, fieldBottom, fieldWidth, footer);
     }

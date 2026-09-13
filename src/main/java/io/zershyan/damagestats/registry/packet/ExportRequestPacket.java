@@ -1,6 +1,10 @@
 package io.zershyan.damagestats.registry.packet;
 
 import io.zershyan.damagestats.DamageStats;
+import io.zershyan.damagestats.network.CustomPacketPayload;
+import io.zershyan.damagestats.network.codec.ByteBufCodecs;
+import io.zershyan.damagestats.network.codec.StreamCodec;
+import io.zershyan.damagestats.registry.DSPackets;
 import io.zershyan.damagestats.stats.DamageTracker;
 import io.zershyan.damagestats.stats.ServerStats;
 import io.zershyan.damagestats.stats.filter.DamageTypeGrouping;
@@ -8,13 +12,8 @@ import io.zershyan.damagestats.stats.filter.StatsFilter;
 import io.zershyan.damagestats.stats.filter.StatsSubjectSlot;
 import io.zershyan.damagestats.stats.focus.StatsFocusManager;
 import io.zershyan.damagestats.stats.view.*;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
-import net.neoforged.neoforge.network.PacketDistributor;
-import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -24,7 +23,7 @@ import java.util.List;
 public record ExportRequestPacket(StatsFilter filter, DamageTypeGrouping typeGrouping, int requestId) implements CustomPacketPayload {
     private static final int CHUNK_SIZE = 50;
     public static final Type<ExportRequestPacket> TYPE = new Type<>(DamageStats.id("export_request"));
-    public static final StreamCodec<RegistryFriendlyByteBuf, ExportRequestPacket> STREAM_CODEC = StreamCodec.composite(
+    public static final StreamCodec<FriendlyByteBuf, ExportRequestPacket> STREAM_CODEC = StreamCodec.composite(
             StatsFilter.STREAM_CODEC, ExportRequestPacket::filter,
             DamageTypeGrouping.STREAM_CODEC, ExportRequestPacket::typeGrouping,
             ByteBufCodecs.VAR_INT, ExportRequestPacket::requestId,
@@ -43,15 +42,15 @@ public record ExportRequestPacket(StatsFilter filter, DamageTypeGrouping typeGro
             StatsFocusManager manager = ServerStats.focusManager();
             if(tracker == null || manager == null) return;
             if(!manager.canBrowse(player, filter(), tracker)) {
-                PacketDistributor.sendToPlayer(player, ExportStartPacket.denied(requestId()));
+                DSPackets.sendToPlayer(player, ExportStartPacket.denied(requestId()));
                 return;
             }
             StatsSnapshot snapshot = StatsViewBuilder.snapshotFor(tracker, player, filter(),
                     StatsSubjectSlot.SOURCE.resolve(filter()),
                     typeGrouping());
             List<ExportChunkPacket> chunks = chunks(requestId(), snapshot);
-            PacketDistributor.sendToPlayer(player, ExportStartPacket.accepted(requestId(), snapshot, chunks.size()));
-            chunks.forEach(chunk -> PacketDistributor.sendToPlayer(player, chunk));
+            DSPackets.sendToPlayer(player, ExportStartPacket.accepted(requestId(), snapshot, chunks.size()));
+            chunks.forEach(chunk -> DSPackets.sendToPlayer(player, chunk));
         });
     }
 

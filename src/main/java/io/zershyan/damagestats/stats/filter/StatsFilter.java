@@ -1,10 +1,10 @@
 package io.zershyan.damagestats.stats.filter;
 
-import io.netty.buffer.ByteBuf;
+import io.zershyan.damagestats.network.codec.ByteBufCodecs;
+import io.zershyan.damagestats.network.codec.StreamCodec;
 import io.zershyan.damagestats.stats.DamageRecord;
 import io.zershyan.damagestats.stats.EntityRef;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.FriendlyByteBuf;
 
 import java.util.Optional;
 
@@ -33,7 +33,7 @@ public record StatsFilter(
         return new StatsFilter(Optional.of(selector), Optional.empty(), Optional.empty(), Optional.empty(), false);
     }
 
-    public static final StreamCodec<ByteBuf, StatsFilter> STREAM_CODEC = StreamCodec.composite(
+    public static final StreamCodec<FriendlyByteBuf, StatsFilter> STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.optional(EntitySelector.STREAM_CODEC), StatsFilter::source,
             ByteBufCodecs.optional(EntitySelector.STREAM_CODEC), StatsFilter::target,
             ByteBufCodecs.optional(EntitySelector.STREAM_CODEC), StatsFilter::directSource,
@@ -51,16 +51,22 @@ public record StatsFilter(
 
     /** 再点一次同一行就把这个槽清空，所以「点击隐藏其他伤害」和「取消隐藏」是同一个操作 */
     public StatsFilter toggle(FilterKey key) {
-        return switch (key) {
-            case FilterKey.Source(EntitySelector selector) ->
-                    new StatsFilter(toggled(source, selector), target, directSource, damageType, false);
-            case FilterKey.Target(EntitySelector selector) ->
-                    new StatsFilter(source, toggled(target, selector), directSource, damageType, sourceIsDirectSource);
-            case FilterKey.Direct(EntitySelector selector) ->
-                    new StatsFilter(source, target, toggled(directSource, selector), damageType, sourceIsDirectSource);
-            case FilterKey.Type(DamageTypeSelector selector) ->
-                    new StatsFilter(source, target, directSource, toggled(damageType, selector), sourceIsDirectSource);
-        };
+        if(key instanceof FilterKey.Source sourceKey) {
+            return new StatsFilter(toggled(source, sourceKey.selector()), target, directSource, damageType, false);
+        }
+        if(key instanceof FilterKey.Target targetKey) {
+            return new StatsFilter(source, toggled(target, targetKey.selector()), directSource, damageType,
+                    sourceIsDirectSource);
+        }
+        if(key instanceof FilterKey.Direct directKey) {
+            return new StatsFilter(source, target, toggled(directSource, directKey.selector()), damageType,
+                    sourceIsDirectSource);
+        }
+        if(key instanceof FilterKey.Type typeKey) {
+            return new StatsFilter(source, target, directSource, toggled(damageType, typeKey.selector()),
+                    sourceIsDirectSource);
+        }
+        throw new IllegalArgumentException("?????????" + key);
     }
 
     public StatsFilter withSource(Optional<EntitySelector> newSource) {

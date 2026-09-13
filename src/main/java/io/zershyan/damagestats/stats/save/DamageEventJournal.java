@@ -11,6 +11,7 @@ import io.zershyan.damagestats.stats.filter.DamageTypeSelector;
 import io.zershyan.damagestats.stats.filter.EntitySelector;
 import io.zershyan.damagestats.stats.filter.StatsFilter;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.Mth;
 import org.slf4j.Logger;
 
 import java.io.*;
@@ -143,8 +144,8 @@ public final class DamageEventJournal {
         private DamageAccumulator aggregate(DamageAccumulator.OpponentGrouping grouping,
                                              boolean opponentIsSource, int start, int end) {
             DamageAccumulator result = new DamageAccumulator(grouping);
-            int from = Math.clamp(start, 0, records.size());
-            int to = Math.clamp(end, from, records.size());
+            int from = Mth.clamp(start, 0, records.size());
+            int to = Mth.clamp(end, from, records.size());
             for(int index = from; index < to; index++) {
                 DamageRecord record = records.get(index);
                 result.accept(record, opponentIsSource ? record.source() : record.target());
@@ -319,18 +320,24 @@ public final class DamageEventJournal {
         }
 
         private boolean mayMatch(Optional<EntitySelector> selector, Set<UUID> ids, Set<ResourceLocation> types) {
-            return selector.map(value -> switch (value) {
-                case EntitySelector.Instance(EntityRef ref) -> ids.contains(ref.id());
-                case EntitySelector.Type(ResourceLocation typeId) -> types.contains(typeId);
+            return selector.map(value -> {
+                if(value instanceof EntitySelector.Instance instance) {
+                    return ids.contains(instance.ref().id());
+                }
+                if(value instanceof EntitySelector.Type type) {
+                    return types.contains(type.typeId());
+                }
+                return false;
             }).orElse(true);
         }
 
         /** 分类由可热重载 JSON 决定，索引不能安全地假定分类内容，因此只优化精确 ID。 */
         @SuppressWarnings("PatternVariableHidesField")
         private boolean mayMatch(Optional<DamageTypeSelector> selector) {
-            return selector.map(value -> switch (value) {
-                case DamageTypeSelector.Category ignored -> true;
-                case DamageTypeSelector.Exact(ResourceLocation id) -> damageTypes.contains(id);
+            return selector.map(value -> {
+                if(value instanceof DamageTypeSelector.Category) return true;
+                if(value instanceof DamageTypeSelector.Exact exact) return damageTypes.contains(exact.id());
+                return false;
             }).orElse(true);
         }
     }
@@ -777,11 +784,10 @@ public final class DamageEventJournal {
         addCandidates(candidates, filter.target(), targetIdIndex, targetTypeIndex);
         addCandidates(candidates, filter.directSource(), directSourceIdIndex, directSourceTypeIndex);
         filter.damageType().ifPresent(selector -> {
-            switch (selector) {
-                case DamageTypeSelector.Category(String name) -> candidates.add(
-                        damageCategoryIndex.getOrDefault(name, List.of()));
-                case DamageTypeSelector.Exact(ResourceLocation id) -> candidates.add(
-                        damageTypeIndex.getOrDefault(id, List.of()));
+            if(selector instanceof DamageTypeSelector.Category category) {
+                candidates.add(damageCategoryIndex.getOrDefault(category.name(), List.of()));
+            } else if(selector instanceof DamageTypeSelector.Exact exact) {
+                candidates.add(damageTypeIndex.getOrDefault(exact.id(), List.of()));
             }
         });
         return candidates.stream()
@@ -793,10 +799,13 @@ public final class DamageEventJournal {
                                       Optional<EntitySelector> selector,
                                       Map<UUID, List<JournalEntry>> instanceIndex,
                                       Map<ResourceLocation, List<JournalEntry>> typeIndex) {
-        selector.ifPresent(value -> candidates.add(switch (value) {
-            case EntitySelector.Instance(EntityRef ref) -> instanceIndex.getOrDefault(ref.id(), List.of());
-            case EntitySelector.Type(ResourceLocation typeId) -> typeIndex.getOrDefault(typeId, List.of());
-        }));
+        selector.ifPresent(value -> {
+            if(value instanceof EntitySelector.Instance instance) {
+                candidates.add(instanceIndex.getOrDefault(instance.ref().id(), List.of()));
+            } else if(value instanceof EntitySelector.Type type) {
+                candidates.add(typeIndex.getOrDefault(type.typeId(), List.of()));
+            }
+        });
     }
 
     private void initialize() {
@@ -1052,8 +1061,9 @@ public final class DamageEventJournal {
     }
 
     private boolean clearedBefore(JournalEntry entry, Optional<EntitySelector> selector, EntityRef candidate) {
-        if(!(selector.orElse(null) instanceof EntitySelector.Instance(EntityRef ref))) return false;
-        if(!ref.id().equals(candidate.id())) return false;
+        EntitySelector value = selector.orElse(null);
+        if(!(value instanceof EntitySelector.Instance instance)) return false;
+        if(!instance.ref().id().equals(candidate.id())) return false;
         Long resetSequence = resetSequences.get(candidate.id());
         return resetSequence != null && entry.sequence() < resetSequence;
     }

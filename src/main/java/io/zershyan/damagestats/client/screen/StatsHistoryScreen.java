@@ -2,6 +2,7 @@ package io.zershyan.damagestats.client.screen;
 
 import io.zershyan.damagestats.client.ClientStats;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
+import io.zershyan.damagestats.registry.DSPackets;
 import io.zershyan.damagestats.registry.packet.HistoryRequestPacket;
 import io.zershyan.damagestats.stats.view.HistoryPage;
 import io.zershyan.damagestats.stats.view.SessionView;
@@ -11,7 +12,6 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
-import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -45,8 +45,8 @@ public final class StatsHistoryScreen extends Screen {
     protected void init() {
         if(minecraft == null) return;
         ScreenLayout.Flow footer = footerFlow();
-        ScreenLayout.Bounds refresh = footer.bounds().getFirst();
-        ScreenLayout.Bounds done = footer.bounds().getLast();
+        ScreenLayout.Bounds refresh = footer.bounds().get(0);
+        ScreenLayout.Bounds done = footer.bounds().get(footer.bounds().size() - 1);
         addRenderableWidget(Button.builder(DSKeyLang.ScreenRefresh.copy(), button -> request())
                 .bounds(refresh.x(), refresh.y(), refresh.width(), refresh.height()).build());
         addRenderableWidget(Button.builder(CommonComponents.GUI_DONE, button -> minecraft.setScreen(parent))
@@ -56,7 +56,7 @@ public final class StatsHistoryScreen extends Screen {
 
     @Override
     public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics, mouseX, mouseY, partialTick);
+        renderBackground(graphics);
         int headerHeight = headerHeight();
         ScreenLayout.Flow footer = footerFlow();
         int footerTop = footer.top();
@@ -73,7 +73,7 @@ public final class StatsHistoryScreen extends Screen {
         if(footerTop < height) graphics.fill(0, footerTop, width, Math.min(height, footerTop + 1), BORDER);
         if(headerHeight >= 10) {
             graphics.drawCenteredString(font, title, width / 2,
-                    Math.clamp(11, 0, Math.max(0, headerHeight - 1)), TEXT);
+                    Mth.clamp(11, 0, Math.max(0, headerHeight - 1)), TEXT);
         }
 
         List<HistoryLine> lines = displayedLines;
@@ -101,10 +101,10 @@ public final class StatsHistoryScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollY) {
         int headerHeight = headerHeight();
         int footerTop = footerFlow().top();
-        if(mouseY < headerHeight || mouseY >= footerTop) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+        if(mouseY < headerHeight || mouseY >= footerTop) return super.mouseScrolled(mouseX, mouseY, scrollY);
         int visible = Math.max(0, (footerTop - 6 - (headerHeight + 6)) / ROW_HEIGHT);
         int maxOffset = Math.max(0, displayedLines.size() - visible);
         scrollOffset = Mth.clamp(scrollOffset - (int) Math.signum(scrollY), 0, maxOffset);
@@ -112,7 +112,7 @@ public final class StatsHistoryScreen extends Screen {
     }
 
     private int headerHeight() {
-        return Math.clamp(Math.min(height / 3, footerFlow().top()), 0, PREFERRED_HEADER_HEIGHT);
+        return Mth.clamp(Math.min(height / 3, footerFlow().top()), 0, PREFERRED_HEADER_HEIGHT);
     }
 
     private ScreenLayout.Flow footerFlow() {
@@ -124,7 +124,7 @@ public final class StatsHistoryScreen extends Screen {
         adopted = null;
         displayedLines = lines(null);
         scrollOffset = 0;
-        PacketDistributor.sendToServer(new HistoryRequestPacket(parent.browsingFilter(), requestId));
+        DSPackets.sendToServer(new HistoryRequestPacket(parent.browsingFilter(), requestId));
     }
 
     private static List<HistoryLine> lines(@Nullable HistoryPage page) {

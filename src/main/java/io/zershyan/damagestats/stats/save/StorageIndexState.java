@@ -1,8 +1,8 @@
 package io.zershyan.damagestats.stats.save;
 
-import io.netty.buffer.ByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
+import io.zershyan.damagestats.network.codec.ByteBufCodecs;
+import io.zershyan.damagestats.network.codec.StreamCodec;
+import net.minecraft.network.FriendlyByteBuf;
 
 /** 事件段索引在当前服务周期内的恢复状态。 */
 public enum StorageIndexState {
@@ -11,7 +11,7 @@ public enum StorageIndexState {
     REBUILT,
     FAILED;
 
-    public static final StreamCodec<ByteBuf, StorageIndexState> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, StorageIndexState> STREAM_CODEC =
             ByteBufCodecs.VAR_INT.map(StorageIndexState::fromOrdinal, StorageIndexState::ordinal);
 
     private static StorageIndexState fromOrdinal(int ordinal) {

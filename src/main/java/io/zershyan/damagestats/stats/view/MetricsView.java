@@ -1,13 +1,13 @@
 package io.zershyan.damagestats.stats.view;
 
+import io.zershyan.damagestats.network.ComponentSerialization;
+import io.zershyan.damagestats.network.codec.ByteBufCodecs;
+import io.zershyan.damagestats.network.codec.StreamCodec;
 import io.zershyan.damagestats.stats.DamageAccumulator;
 import io.zershyan.damagestats.stats.DamageReduction;
 import io.zershyan.damagestats.stats.EntityRef;
-import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.ComponentSerialization;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.resources.ResourceLocation;
 import org.jetbrains.annotations.Nullable;
 
@@ -39,7 +39,7 @@ public record MetricsView(
         float realtimeOriginalDps
 ) {
     /** 字段数超过 StreamCodec.composite 的六个上限，只能手写 */
-    public static final StreamCodec<RegistryFriendlyByteBuf, MetricsView> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, MetricsView> STREAM_CODEC =
             StreamCodec.of(MetricsView::encode, MetricsView::decode);
 
     /** 没有活跃会话时用它占位，客户端看 hitCount 是否为 0 就知道有没有数据 */
@@ -112,7 +112,7 @@ public record MetricsView(
         return hitCount == 0 ? 0 : hitCount / seconds;
     }
 
-    private static void encode(RegistryFriendlyByteBuf buf, MetricsView view) {
+    private static void encode(FriendlyByteBuf buf, MetricsView view) {
         buf.writeFloat(view.totalActual);
         buf.writeFloat(view.totalOriginal);
         buf.writeFloat(view.totalBlocked);
@@ -120,7 +120,7 @@ public record MetricsView(
         buf.writeVarInt(view.hitCount);
         buf.writeVarInt(view.killCount);
         buf.writeFloat(view.maxSingle);
-        ByteBufCodecs.optional(ResourceLocation.STREAM_CODEC)
+        ByteBufCodecs.optional(ByteBufCodecs.RESOURCE_LOCATION)
                 .encode(buf, Optional.ofNullable(view.maxSingleDamageTypeId));
         ComponentSerialization.STREAM_CODEC.encode(buf, view.maxSingleTypeName);
         ByteBufCodecs.optional(EntityRef.STREAM_CODEC)
@@ -135,7 +135,7 @@ public record MetricsView(
         buf.writeFloat(view.realtimeOriginalDps);
     }
 
-    private static MetricsView decode(RegistryFriendlyByteBuf buf) {
+    private static MetricsView decode(FriendlyByteBuf buf) {
         return new MetricsView(
                 buf.readFloat(),
                 buf.readFloat(),
@@ -144,7 +144,7 @@ public record MetricsView(
                 buf.readVarInt(),
                 buf.readVarInt(),
                 buf.readFloat(),
-                ByteBufCodecs.optional(ResourceLocation.STREAM_CODEC).decode(buf).orElse(null),
+                ByteBufCodecs.optional(ByteBufCodecs.RESOURCE_LOCATION).decode(buf).orElse(null),
                 ComponentSerialization.STREAM_CODEC.decode(buf),
                 ByteBufCodecs.optional(EntityRef.STREAM_CODEC).decode(buf).orElse(null),
                 ComponentSerialization.STREAM_CODEC.decode(buf),

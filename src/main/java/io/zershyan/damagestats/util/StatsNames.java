@@ -40,16 +40,22 @@ public final class StatsNames {
     }
 
     public static Component entitySelector(DamageTracker tracker, EntitySelector selector) {
-        return switch (selector) {
-            case EntitySelector.Instance(EntityRef ref) -> opponent(tracker, ref);
-            case EntitySelector.Type(ResourceLocation typeId) -> entityType(typeId);
-        };
+        if(selector instanceof EntitySelector.Instance instance) {
+            return opponent(tracker, instance.ref());
+        }
+        if(selector instanceof EntitySelector.Type type) {
+            return entityType(type.typeId());
+        }
+        throw new IllegalArgumentException("???????????" + selector);
     }
 
     public static Component damageTypeSelector(DamageTypeSelector selector) {
-        return switch (selector) {
-            case DamageTypeSelector.Category(String name) -> DamageTypeCategories.categoryName(name);
-            case DamageTypeSelector.Exact(ResourceLocation id) -> Component.literal(id.toString());
-        };
+        if(selector instanceof DamageTypeSelector.Category category) {
+            return DamageTypeCategories.categoryName(category.name());
+        }
+        if(selector instanceof DamageTypeSelector.Exact exact) {
+            return Component.literal(exact.id().toString());
+        }
+        throw new IllegalArgumentException("???????????" + selector);
     }
 }

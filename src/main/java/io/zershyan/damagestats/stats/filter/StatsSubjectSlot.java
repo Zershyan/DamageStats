@@ -1,7 +1,7 @@
 package io.zershyan.damagestats.stats.filter;
 
-import io.netty.buffer.ByteBuf;
-import net.minecraft.network.codec.StreamCodec;
+import io.zershyan.damagestats.network.codec.StreamCodec;
+import net.minecraft.network.FriendlyByteBuf;
 
 /**
  * 统计视图的主体来自哪个实体槽位。双槽筛选时它决定标题、会话和对手列表的方向，
@@ -12,7 +12,7 @@ public enum StatsSubjectSlot {
     TARGET,
     GLOBAL;
 
-    public static final StreamCodec<ByteBuf, StatsSubjectSlot> STREAM_CODEC = StreamCodec.of(
+    public static final StreamCodec<FriendlyByteBuf, StatsSubjectSlot> STREAM_CODEC = StreamCodec.of(
             (buf, slot) -> buf.writeByte(slot.ordinal()),
             buf -> switch (buf.readByte()) {
                 case 0 -> SOURCE;

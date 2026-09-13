@@ -3,10 +3,10 @@ package io.zershyan.damagestats.registry;
 import com.mojang.blaze3d.platform.InputConstants;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
 import net.minecraft.client.KeyMapping;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.api.distmarker.OnlyIn;
-import net.neoforged.bus.api.IEventBus;
-import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.api.distmarker.OnlyIn;
+import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
+import net.minecraftforge.eventbus.api.IEventBus;
 import org.lwjgl.glfw.GLFW;
 
 /** 两个按键都归到统一的 DamageStats 分类下，玩家能在原版按键设置里改 */

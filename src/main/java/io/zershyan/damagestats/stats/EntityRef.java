@@ -2,12 +2,12 @@ package io.zershyan.damagestats.stats;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
-import io.netty.buffer.ByteBuf;
 import io.zershyan.damagestats.DamageStats;
+import io.zershyan.damagestats.network.codec.ByteBufCodecs;
+import io.zershyan.damagestats.network.codec.StreamCodec;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
 import org.jetbrains.annotations.Nullable;
@@ -26,9 +26,9 @@ public record EntityRef(UUID id, @Nullable ResourceLocation typeId) {
             ResourceLocation.CODEC.optionalFieldOf("type").forGetter(ref -> Optional.ofNullable(ref.typeId()))
     ).apply(instance, (id, type) -> new EntityRef(id, type.orElse(null))));
 
-    public static final StreamCodec<ByteBuf, EntityRef> STREAM_CODEC = StreamCodec.composite(
-            UUIDUtil.STREAM_CODEC, EntityRef::id,
-            ByteBufCodecs.optional(ResourceLocation.STREAM_CODEC), ref -> Optional.ofNullable(ref.typeId()),
+    public static final StreamCodec<FriendlyByteBuf, EntityRef> STREAM_CODEC = StreamCodec.composite(
+            ByteBufCodecs.UUID, EntityRef::id,
+            ByteBufCodecs.optional(ByteBufCodecs.RESOURCE_LOCATION), ref -> Optional.ofNullable(ref.typeId()),
             (id, type) -> new EntityRef(id, type.orElse(null))
     );
 

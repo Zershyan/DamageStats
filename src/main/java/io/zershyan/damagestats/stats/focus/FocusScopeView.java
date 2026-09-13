@@ -1,11 +1,11 @@
 package io.zershyan.damagestats.stats.focus;
 
+import io.zershyan.damagestats.network.ComponentSerialization;
+import io.zershyan.damagestats.network.codec.ByteBufCodecs;
+import io.zershyan.damagestats.network.codec.StreamCodec;
 import io.zershyan.damagestats.stats.filter.EntitySelector;
-import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.ComponentSerialization;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
 
 import java.util.Optional;
 
@@ -18,7 +18,7 @@ public record FocusScopeView(
         Component sourceName,
         Component targetName
 ) {
-    public static final StreamCodec<RegistryFriendlyByteBuf, FocusScopeView> STREAM_CODEC = StreamCodec.composite(
+    public static final StreamCodec<FriendlyByteBuf, FocusScopeView> STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.VAR_LONG, FocusScopeView::version,
             ByteBufCodecs.optional(EntitySelector.STREAM_CODEC), FocusScopeView::source,
             ByteBufCodecs.optional(EntitySelector.STREAM_CODEC), FocusScopeView::target,

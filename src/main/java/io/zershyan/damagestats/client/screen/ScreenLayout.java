@@ -1,12 +1,13 @@
 package io.zershyan.damagestats.client.screen;
 
+import net.minecraft.util.Mth;
 import java.util.ArrayList;
 import java.util.List;
 
 /** 小窗口下统一收缩边距并计算控件位置，避免各页面各自计算后发生重叠。 */
 final class ScreenLayout {
     static int side(int screenWidth, int preferred) {
-        return Math.clamp(preferred, 0, Math.max(0, (screenWidth - 1) / 2));
+        return Mth.clamp(preferred, 0, Math.max(0, (screenWidth - 1) / 2));
     }
 
     static int left(int screenWidth, int preferredSide) {
@@ -30,7 +31,7 @@ final class ScreenLayout {
         int y = Math.max(0, top);
         List<Bounds> bounds = new ArrayList<>(preferredWidths.length);
         for(int preferredWidth : preferredWidths) {
-            int buttonWidth = Math.clamp(preferredWidth, 1, available);
+            int buttonWidth = Mth.clamp(preferredWidth, 1, available);
             if(x > left && x + buttonWidth > right) {
                 x = left;
                 y += height + gap;
@@ -51,7 +52,7 @@ final class ScreenLayout {
         int itemCount = preferredWidths.length;
         int requestedGap = Math.max(0, gap);
         int effectiveGap = itemCount <= 1 ? 0
-                : Math.clamp((available - itemCount) / (itemCount - 1), 0, requestedGap);
+                : Mth.clamp((available - itemCount) / (itemCount - 1), 0, requestedGap);
         int gaps = (itemCount - 1) * effectiveGap;
         int content = Math.max(itemCount, available - gaps);
         int preferredTotal = 0;
@@ -66,7 +67,7 @@ final class ScreenLayout {
             } else {
                 buttonWidth = Math.max(1, Math.round((float) Math.max(1, preferredWidths[index])
                         * content / Math.max(1, preferredTotal)));
-                buttonWidth = Math.clamp(buttonWidth, 1, Math.max(1, content - used -
+                buttonWidth = Mth.clamp(buttonWidth, 1, Math.max(1, content - used -
                         (preferredWidths.length - index - 1)));
             }
             bounds.add(new Bounds(x, Math.max(0, top), buttonWidth, Math.max(1, height)));
@@ -79,8 +80,8 @@ final class ScreenLayout {
     static Flow bottomSingleRow(int screenWidth, int screenHeight, int preferredSide,
                                 int preferredButtonHeight, int preferredGap, int padding,
                                 int... preferredWidths) {
-        int safePadding = Math.clamp(padding, 0, Math.max(0, (screenHeight - 1) / 2));
-        int buttonHeight = Math.clamp(preferredButtonHeight, 1,
+        int safePadding = Mth.clamp(padding, 0, Math.max(0, (screenHeight - 1) / 2));
+        int buttonHeight = Mth.clamp(preferredButtonHeight, 1,
                 Math.max(1, screenHeight - safePadding * 2));
         int totalHeight = safePadding * 2 + buttonHeight;
         int top = Math.max(0, screenHeight - totalHeight);
@@ -98,7 +99,7 @@ final class ScreenLayout {
 
     static int bottom(List<Bounds> bounds, int fallback) {
         if(bounds.isEmpty()) return fallback;
-        Bounds last = bounds.getLast();
+        Bounds last = bounds.get(bounds.size() - 1);
         return last.y() + last.height();
     }
 
@@ -107,15 +108,15 @@ final class ScreenLayout {
     }
 
     static Bounds centered(int screenWidth, int screenHeight, int preferredWidth, int preferredHeight) {
-        int panelWidth = Math.clamp(preferredWidth, 1, Math.max(1, screenWidth));
-        int panelHeight = Math.clamp(preferredHeight, 1, Math.max(1, screenHeight));
+        int panelWidth = Mth.clamp(preferredWidth, 1, Math.max(1, screenWidth));
+        int panelHeight = Mth.clamp(preferredHeight, 1, Math.max(1, screenHeight));
         return new Bounds(Math.max(0, (screenWidth - panelWidth) / 2),
                 Math.max(0, (screenHeight - panelHeight) / 2), panelWidth, panelHeight);
     }
 
     static int clampTop(int preferredTop, int elementHeight, int screenHeight, int margin) {
         int maxTop = Math.max(0, screenHeight - Math.max(1, elementHeight) - Math.max(0, margin));
-        return Math.clamp(preferredTop, Math.max(0, margin), maxTop);
+        return Mth.clamp(preferredTop, Math.max(0, margin), maxTop);
     }
 
     static int availableHeight(int screenHeight, int top, int bottom, int gap) {

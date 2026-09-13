@@ -4,6 +4,7 @@ import io.zershyan.damagestats.client.ClientExportManager;
 import io.zershyan.damagestats.client.ClientFocusPreferences;
 import io.zershyan.damagestats.client.ClientStats;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
+import io.zershyan.damagestats.registry.DSPackets;
 import io.zershyan.damagestats.registry.packet.*;
 import io.zershyan.damagestats.stats.filter.*;
 import io.zershyan.damagestats.stats.focus.EntityGrouping;
@@ -21,7 +22,6 @@ import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.util.Mth;
-import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -88,6 +88,12 @@ public class StatsScreen extends Screen {
         super(DSKeyLang.ScreenTitle.copy());
     }
 
+    /** 每次打开统计界面时重新请求焦点摘要，并让当前图表在新摘要到达后重新加载。 */
+    public void refreshOnOpen() {
+        resetDisplayedData();
+        requestFocusState();
+    }
+
     @Override
     protected void init() {
         if(!browsingInitialized) ClientStats.expectFocusState();
@@ -95,8 +101,7 @@ public class StatsScreen extends Screen {
         addHeaderButtons(layout);
         addFooterButtons(layout);
         if(!focusStateRequested) {
-            focusStateRequested = true;
-            PacketDistributor.sendToServer(new FocusStateRequestPacket(FOCUS_STATE_REQUEST_ID));
+            requestFocusState();
         }
         refreshButtons();
     }
@@ -189,7 +194,11 @@ public class StatsScreen extends Screen {
 
     @Override
     public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics, mouseX, mouseY, partialTick);
+        renderBackground(graphics);
+        if(ClientStats.consumeSnapshotInvalidation()) {
+            resetDisplayedData();
+            requestFocusState();
+        }
         FocusSummary summary = ClientStats.summary();
         boolean dataReady = prepareData(summary);
         if(dataReady && summary.scope().version() != chartFocusVersion) {
@@ -216,8 +225,8 @@ public class StatsScreen extends Screen {
     }
 
     private boolean prepareData(FocusSummary summary) {
+        if(!ClientStats.hasFocusState()) return false;
         if(!browsingInitialized) {
-            if(!ClientStats.hasFocusState()) return false;
             initializeBrowsing(summary);
             chartFocusVersion = summary.scope().version();
         }
@@ -318,7 +327,7 @@ public class StatsScreen extends Screen {
         int contentWidth = Math.max(1, right - left);
         int maxLabelWidth = Math.max(1, contentWidth - 24);
         int labelWidth = maxLabelWidth < 36 ? maxLabelWidth
-                : Math.clamp(contentWidth / 3, 36, maxLabelWidth);
+                : Mth.clamp(contentWidth / 3, 36, maxLabelWidth);
         int barLeft = Math.min(right - 1, left + labelWidth + 8);
         int barWidth = Math.max(1, right - barLeft);
         float maxDamage = 1f;
@@ -363,10 +372,10 @@ public class StatsScreen extends Screen {
 
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollY) {
         PageLayout layout = layout();
         if(mouseY < contentTop(layout) || mouseY >= contentBottom(layout)) {
-            return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+            return super.mouseScrolled(mouseX, mouseY, scrollY);
         }
         int totalHeight = contentHeight(adopted);
         int viewportHeight = Math.max(1, contentBottom(layout) - contentTop(layout));
@@ -408,7 +417,7 @@ public class StatsScreen extends Screen {
 
     @Override
     public void onClose() {
-        PacketDistributor.sendToServer(FocusGuiClosedPacket.INSTANCE);
+        DSPackets.sendToServer(FocusGuiClosedPacket.INSTANCE);
         super.onClose();
     }
 
@@ -426,8 +435,26 @@ public class StatsScreen extends Screen {
         ClientStats.clearChartInstances();
         contentScrollOffset = 0;
         chartRequestId = ClientStats.nextChartRequestId();
-        PacketDistributor.sendToServer(new FocusChartRequestPacket(browsingFilter(), dimension, chartScope,
+        DSPackets.sendToServer(new FocusChartRequestPacket(browsingFilter(), dimension, chartScope,
                 typeGrouping, EntityGrouping.TYPE, chartCursor, chartRequestId));
+    }
+
+    private void resetDisplayedData() {
+        dataRequestsStarted = false;
+        adopted = null;
+        chartFocusVersion = -1;
+        chartCursorHistory.clear();
+        expandedChartParents.clear();
+        ClientStats.clearChartInstances();
+        contentScrollOffset = 0;
+        chartTooltip = List.of();
+        headerTooltip = List.of();
+    }
+
+    private void requestFocusState() {
+        ClientStats.expectFocusState();
+        focusStateRequested = true;
+        DSPackets.sendToServer(new FocusStateRequestPacket(FOCUS_STATE_REQUEST_ID));
     }
 
     private void nextChartPage() {
@@ -439,7 +466,7 @@ public class StatsScreen extends Screen {
 
     private void previousChartPage() {
         if(chartCursorHistory.isEmpty()) return;
-        requestChart(chartCursorHistory.removeLast());
+        requestChart(chartCursorHistory.remove(chartCursorHistory.size() - 1));
     }
 
     private void clearSource() {
@@ -554,33 +581,39 @@ public class StatsScreen extends Screen {
     }
 
     private void applyChartFilter(GroupView group) {
-        switch (group.key()) {
-            case FilterKey.Source(EntitySelector selector) -> {
-                if(selector instanceof EntitySelector.Type && group.canOpenInstances()) {
-                    toggleChartInstances(group);
-                } else {
-                    setBrowsingSource(selector, group.name());
-                }
+        FilterKey key = group.key();
+        if(key instanceof FilterKey.Source sourceKey) {
+            EntitySelector selector = sourceKey.selector();
+            if(selector instanceof EntitySelector.Type && group.canOpenInstances()) {
+                toggleChartInstances(group);
+            } else {
+                setBrowsingSource(selector, group.name());
             }
-            case FilterKey.Target(EntitySelector selector) -> {
-                if(selector instanceof EntitySelector.Type && group.canOpenInstances()) {
-                    toggleChartInstances(group);
-                } else {
-                    setBrowsingTarget(selector, group.name());
-                }
+        } else if(key instanceof FilterKey.Target targetKey) {
+            EntitySelector selector = targetKey.selector();
+            if(selector instanceof EntitySelector.Type && group.canOpenInstances()) {
+                toggleChartInstances(group);
+            } else {
+                setBrowsingTarget(selector, group.name());
             }
-            case FilterKey.Direct(EntitySelector.Type selector) -> {
+        } else if(key instanceof FilterKey.Direct directKey) {
+            EntitySelector selector = directKey.selector();
+            if(selector instanceof EntitySelector.Type type) {
                 if(group.canOpenInstances()) {
                     toggleChartInstances(group);
                 } else {
-                    toggleDirectFilter(selector, group.name());
+                    toggleDirectFilter(type, group.name());
                 }
+            } else if(selector instanceof EntitySelector.Instance instance) {
+                setBrowsingDirectSource(instance, group.name());
             }
-            case FilterKey.Direct(EntitySelector.Instance selector) -> setBrowsingDirectSource(selector, group.name());
-            case FilterKey.Type(DamageTypeSelector.Category selector) ->
-                    drillDamageTypeCategory(selector, group.name());
-            case FilterKey.Type(DamageTypeSelector.Exact selector) ->
-                    toggleDamageTypeFilter(selector, group.name());
+        } else if(key instanceof FilterKey.Type typeKey) {
+            DamageTypeSelector selector = typeKey.selector();
+            if(selector instanceof DamageTypeSelector.Category category) {
+                drillDamageTypeCategory(category, group.name());
+            } else if(selector instanceof DamageTypeSelector.Exact exact) {
+                toggleDamageTypeFilter(exact, group.name());
+            }
         }
     }
 
@@ -598,7 +631,7 @@ public class StatsScreen extends Screen {
     private void requestChartInstances(FilterKey parentKey, String cursor) {
         if(!browsingInitialized) return;
         int requestId = ClientStats.nextChartInstancesRequestId(parentKey);
-        PacketDistributor.sendToServer(new FocusChartInstancesRequestPacket(browsingFilter(), dimension,
+        DSPackets.sendToServer(new FocusChartInstancesRequestPacket(browsingFilter(), dimension,
                 chartScope, typeGrouping, parentKey, cursor == null ? "" : cursor, requestId));
     }
 
@@ -663,7 +696,7 @@ public class StatsScreen extends Screen {
     }
 
     void confirmReset(boolean global) {
-        PacketDistributor.sendToServer(global ? ResetStatsPacket.GLOBAL : ResetStatsPacket.INSTANCE);
+        DSPackets.sendToServer(global ? ResetStatsPacket.GLOBAL : ResetStatsPacket.INSTANCE);
     }
 
     void openResetConfirmation() {
@@ -701,7 +734,7 @@ public class StatsScreen extends Screen {
     void requestExport() {
         if(ClientExportManager.isBusy()) return;
         int requestId = ClientExportManager.nextRequestId();
-        PacketDistributor.sendToServer(new ExportRequestPacket(browsingFilter(), typeGrouping, requestId));
+        DSPackets.sendToServer(new ExportRequestPacket(browsingFilter(), typeGrouping, requestId));
     }
 
     private boolean isCurrentFocus(FocusSummary summary) {
@@ -811,12 +844,11 @@ public class StatsScreen extends Screen {
 
     private static boolean expandable(GroupView group) {
         if(!group.canOpenInstances()) return false;
-        return switch (group.key()) {
-            case FilterKey.Source(EntitySelector.Type ignored) -> true;
-            case FilterKey.Target(EntitySelector.Type ignored) -> true;
-            case FilterKey.Direct(EntitySelector.Type ignored) -> true;
-            default -> false;
-        };
+        FilterKey key = group.key();
+        if(key instanceof FilterKey.Source source) return source.selector() instanceof EntitySelector.Type;
+        if(key instanceof FilterKey.Target target) return target.selector() instanceof EntitySelector.Type;
+        if(key instanceof FilterKey.Direct direct) return direct.selector() instanceof EntitySelector.Type;
+        return false;
     }
 
     private boolean insideContent(double mouseX, double mouseY, PageLayout layout) {
@@ -839,7 +871,7 @@ public class StatsScreen extends Screen {
         int titleHeight = Math.min(14, maximumHeader);
         int rowGap = 3;
         int availableRows = Math.max(3, maximumHeader - titleHeight - rowGap * 2 - 4);
-        int rowHeight = Math.clamp(availableRows / 3, 1, 20);
+        int rowHeight = Mth.clamp(availableRows / 3, 1, 20);
         int top = titleHeight;
         List<ScreenLayout.Bounds> topRow = ScreenLayout.singleRow(width, SIDE, top, rowHeight, 4,
                 140, 140, 92, 92);
@@ -859,7 +891,7 @@ public class StatsScreen extends Screen {
         List<ScreenLayout.Bounds> bounds = flow.bounds();
         int footerTop = flow.top();
         if(canResetAll()) return new FooterLayout(footerTop, bounds.get(0), bounds.get(1), bounds.get(2));
-        return new FooterLayout(footerTop, bounds.getFirst(), null, bounds.getLast());
+        return new FooterLayout(footerTop, bounds.get(0), null, bounds.get(bounds.size() - 1));
     }
 
     private void appendButtonTooltip(Button button, int mouseX, int mouseY) {

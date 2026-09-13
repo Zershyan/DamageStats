@@ -44,14 +44,14 @@ public final class StatsDetailsScreen extends Screen {
     protected void init() {
         if(minecraft == null) return;
         ScreenLayout.Flow footer = footerFlow();
-        ScreenLayout.Bounds done = footer.bounds().getFirst();
+        ScreenLayout.Bounds done = footer.bounds().get(0);
         addRenderableWidget(Button.builder(CommonComponents.GUI_DONE, button -> minecraft.setScreen(parent))
                 .bounds(done.x(), done.y(), done.width(), done.height()).build());
     }
 
     @Override
     public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics, mouseX, mouseY, partialTick);
+        renderBackground(graphics);
         int headerHeight = headerHeight();
         ScreenLayout.Flow footer = footerFlow();
         int footerTop = footer.top();
@@ -62,7 +62,7 @@ public final class StatsDetailsScreen extends Screen {
         if(footerTop < height) graphics.fill(0, footerTop, width, Math.min(height, footerTop + 1), BORDER);
         if(headerHeight >= 10) {
             graphics.drawCenteredString(font, title, width / 2,
-                    Math.clamp(11, 0, Math.max(0, headerHeight - 1)), TEXT);
+                    Mth.clamp(11, 0, Math.max(0, headerHeight - 1)), TEXT);
         }
 
         List<DetailLine> lines = detailLines(ClientStats.summary());
@@ -91,10 +91,10 @@ public final class StatsDetailsScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollY) {
         int headerHeight = headerHeight();
         int footerTop = footerFlow().top();
-        if(mouseY < headerHeight || mouseY >= footerTop) return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+        if(mouseY < headerHeight || mouseY >= footerTop) return super.mouseScrolled(mouseX, mouseY, scrollY);
         int visible = Math.max(0, (footerTop - 6 - (headerHeight + 6)) / LINE_HEIGHT);
         int maxOffset = Math.max(0, detailLines(ClientStats.summary()).size() - visible);
         scrollOffset = Mth.clamp(scrollOffset - (int) Math.signum(scrollY), 0, maxOffset);
@@ -102,7 +102,7 @@ public final class StatsDetailsScreen extends Screen {
     }
 
     private int headerHeight() {
-        return Math.clamp(Math.min(height / 3, footerFlow().top()), 0, PREFERRED_HEADER_HEIGHT);
+        return Mth.clamp(Math.min(height / 3, footerFlow().top()), 0, PREFERRED_HEADER_HEIGHT);
     }
 
     private ScreenLayout.Flow footerFlow() {

@@ -9,6 +9,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.Mth;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -59,7 +60,8 @@ public final class ChartEntityActionScreen extends Screen {
                         minecraft.setScreen(parent);
                     })
                     .bounds(bounds.x(), bounds.y(), bounds.width(), bounds.height()).build());
-        } else if(selector instanceof EntitySelector.Type(ResourceLocation typeId)) {
+        } else if(selector instanceof EntitySelector.Type type) {
+            ResourceLocation typeId = type.typeId();
             if(key instanceof FilterKey.Source) {
                 if(parent.canChooseAnySource()) {
                     addSetAsSourceButton(layout.buttons().get(buttonIndex++), false);
@@ -83,7 +85,7 @@ public final class ChartEntityActionScreen extends Screen {
 
     @Override
     public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics, mouseX, mouseY, partialTick);
+        renderBackground(graphics);
         Layout layout = layout();
         int x = Math.max(0, layout.x() - 8);
         int y = layout.top();
@@ -95,7 +97,7 @@ public final class ChartEntityActionScreen extends Screen {
         graphics.flush();
         Component displayTitle = truncate(title, Math.max(1, layout.width() - 12));
         graphics.drawCenteredString(font, displayTitle, width / 2,
-                Math.clamp(y + 10, 0, Math.max(0, height - 1)), 0xFFFFFFFF);
+                Mth.clamp(y + 10, 0, Math.max(0, height - 1)), 0xFFFFFFFF);
         List<Component> tooltip = font.width(title) > layout.width() - 12
                 && mouseX >= x && mouseX <= x + layout.width() + 16
                 && mouseY >= y && mouseY < y + layout.titleHeight()
@@ -107,7 +109,7 @@ public final class ChartEntityActionScreen extends Screen {
     }
 
     @Override
-    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+    public void renderBackground(GuiGraphics graphics) {
         graphics.fill(0, 0, width, height, BACKGROUND);
     }
 
@@ -149,12 +151,12 @@ public final class ChartEntityActionScreen extends Screen {
 
     private Layout layout() {
         int count = buttonCount();
-        int panelWidth = Math.clamp(width - 8, 1, PANEL_WIDTH);
-        int titleHeight = Math.clamp(height / 5, 1, 28);
-        int padding = Math.clamp(height / 12, 0, 8);
+        int panelWidth = Mth.clamp(width - 8, 1, PANEL_WIDTH);
+        int titleHeight = Mth.clamp(height / 5, 1, 28);
+        int padding = Mth.clamp(height / 12, 0, 8);
         int available = Math.max(1, height - titleHeight - padding * 2);
-        int gap = count <= 1 ? 0 : Math.clamp((available - count) / (count - 1), 0, 4);
-        int buttonHeight = Math.clamp((available - gap * (count - 1)) / count, 1, BUTTON_HEIGHT);
+        int gap = count <= 1 ? 0 : Mth.clamp((available - count) / (count - 1), 0, 4);
+        int buttonHeight = Mth.clamp((available - gap * (count - 1)) / count, 1, BUTTON_HEIGHT);
         int panelHeight = titleHeight + padding * 2 + count * buttonHeight + gap * (count - 1);
         int top = Math.max(0, (height - panelHeight) / 2);
         int panelX = Math.max(0, (width - panelWidth) / 2);
@@ -172,11 +174,9 @@ public final class ChartEntityActionScreen extends Screen {
     }
 
     private static EntitySelector selector(FilterKey key) {
-        return switch (key) {
-            case FilterKey.Source(EntitySelector selector) -> selector;
-            case FilterKey.Target(EntitySelector selector) -> selector;
-            case FilterKey.Direct(EntitySelector selector) -> selector;
-            case FilterKey.Type ignored -> throw new IllegalArgumentException("实体操作菜单不能处理伤害类型");
-        };
+        if(key instanceof FilterKey.Source source) return source.selector();
+        if(key instanceof FilterKey.Target target) return target.selector();
+        if(key instanceof FilterKey.Direct direct) return direct.selector();
+        throw new IllegalArgumentException("??????????????");
     }
 }

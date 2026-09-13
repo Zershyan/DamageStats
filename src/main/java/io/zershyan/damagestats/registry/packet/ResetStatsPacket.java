@@ -5,19 +5,18 @@ import io.zershyan.damagestats.datagen.init.DSKeyLang;
 import io.zershyan.damagestats.handler.common.ServerLifecycleHandler;
 import io.zershyan.damagestats.handler.common.StatsResetService;
 import io.zershyan.damagestats.handler.common.StatsSyncHandler;
+import io.zershyan.damagestats.network.CustomPacketPayload;
+import io.zershyan.damagestats.network.codec.ByteBufCodecs;
+import io.zershyan.damagestats.network.codec.StreamCodec;
+import io.zershyan.damagestats.registry.DSPackets;
 import io.zershyan.damagestats.stats.DamageTracker;
 import io.zershyan.damagestats.stats.EntityRef;
 import io.zershyan.damagestats.stats.ServerStats;
 import io.zershyan.damagestats.stats.focus.FocusChangeResult;
 import io.zershyan.damagestats.stats.focus.StatsFocusManager;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.neoforged.neoforge.network.PacketDistributor;
-import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -27,7 +26,7 @@ public record ResetStatsPacket(boolean global) implements CustomPacketPayload {
     public static final ResetStatsPacket INSTANCE = new ResetStatsPacket(false);
     public static final ResetStatsPacket GLOBAL = new ResetStatsPacket(true);
     public static final Type<ResetStatsPacket> TYPE = new Type<>(DamageStats.id("reset_stats"));
-    public static final StreamCodec<RegistryFriendlyByteBuf, ResetStatsPacket> STREAM_CODEC = StreamCodec.composite(
+    public static final StreamCodec<FriendlyByteBuf, ResetStatsPacket> STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.BOOL, ResetStatsPacket::global,
             ResetStatsPacket::new
     );
@@ -56,7 +55,7 @@ public record ResetStatsPacket(boolean global) implements CustomPacketPayload {
                 if(persisted) manager.resetSummaryCache(player, tracker, self);
                 else manager.invalidateSummaryCache(player);
             }
-            PacketDistributor.sendToPlayer(player, StatsInvalidatedPacket.INSTANCE);
+            DSPackets.sendToPlayer(player, StatsInvalidatedPacket.INSTANCE);
             StatsSyncHandler.pushFocusState(tracker, player, FocusChangeResult.ACCEPTED);
             if(!persisted) player.displayClientMessage(DSKeyLang.ResetFailed.copy(), false);
         });

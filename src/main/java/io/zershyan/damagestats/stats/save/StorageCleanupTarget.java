@@ -1,8 +1,8 @@
 package io.zershyan.damagestats.stats.save;
 
-import io.netty.buffer.ByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
+import io.zershyan.damagestats.network.codec.ByteBufCodecs;
+import io.zershyan.damagestats.network.codec.StreamCodec;
+import net.minecraft.network.FriendlyByteBuf;
 
 /** 管理员在存储概览中可主动执行的清理范围。 */
 public enum StorageCleanupTarget {
@@ -11,7 +11,7 @@ public enum StorageCleanupTarget {
     EXPORTS,
     ALL_RECORDS;
 
-    public static final StreamCodec<ByteBuf, StorageCleanupTarget> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, StorageCleanupTarget> STREAM_CODEC =
             ByteBufCodecs.VAR_INT.map(StorageCleanupTarget::fromOrdinal, StorageCleanupTarget::ordinal);
 
     private static StorageCleanupTarget fromOrdinal(int ordinal) {

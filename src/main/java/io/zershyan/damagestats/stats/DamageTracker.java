@@ -19,7 +19,7 @@ import java.util.*;
 @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
 public class DamageTracker {
     /** 玩家条目永不淘汰：玩家是最主要的统计对象，被一群小怪挤掉会让数据莫名消失 */
-    private static final ResourceLocation PLAYER_TYPE = ResourceLocation.withDefaultNamespace("player");
+    private static final ResourceLocation PLAYER_TYPE = new ResourceLocation("minecraft", "player");
 
     /** 实例条目的 key 是个对象，当不了 JSON 的键，只能存成列表 */
     private record InstanceEntry(EntityRef owner, StatsEntry stats) {

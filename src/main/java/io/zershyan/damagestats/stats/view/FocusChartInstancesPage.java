@@ -1,13 +1,13 @@
 package io.zershyan.damagestats.stats.view;
 
+import io.zershyan.damagestats.network.codec.ByteBufCodecs;
+import io.zershyan.damagestats.network.codec.StreamCodec;
 import io.zershyan.damagestats.stats.filter.DamageTypeGrouping;
 import io.zershyan.damagestats.stats.filter.FilterKey;
 import io.zershyan.damagestats.stats.filter.StatsFilter;
 import io.zershyan.damagestats.stats.focus.FocusChartDimension;
 import io.zershyan.damagestats.stats.focus.FocusChartScope;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.FriendlyByteBuf;
 
 import java.util.List;
 
@@ -27,13 +27,13 @@ public record FocusChartInstancesPage(
         List<GroupView> rows,
         boolean hasNext
 ) {
-    private static final StreamCodec<RegistryFriendlyByteBuf, List<GroupView>> ROWS_CODEC =
+    private static final StreamCodec<FriendlyByteBuf, List<GroupView>> ROWS_CODEC =
             GroupView.STREAM_CODEC.apply(ByteBufCodecs.list(FocusChartPage.PAGE_SIZE));
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, FocusChartInstancesPage> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, FocusChartInstancesPage> STREAM_CODEC =
             StreamCodec.of(FocusChartInstancesPage::encode, FocusChartInstancesPage::decode);
 
-    private static void encode(RegistryFriendlyByteBuf buf, FocusChartInstancesPage page) {
+    private static void encode(FriendlyByteBuf buf, FocusChartInstancesPage page) {
         buf.writeVarLong(page.focusVersion);
         buf.writeVarInt(page.requestId);
         buf.writeVarLong(page.snapshotId);
@@ -49,7 +49,7 @@ public record FocusChartInstancesPage(
         buf.writeBoolean(page.hasNext);
     }
 
-    private static FocusChartInstancesPage decode(RegistryFriendlyByteBuf buf) {
+    private static FocusChartInstancesPage decode(FriendlyByteBuf buf) {
         return new FocusChartInstancesPage(
                 buf.readVarLong(), buf.readVarInt(), buf.readVarLong(), buf.readUtf(128), buf.readUtf(128),
                 buf.readBoolean(), FocusChartDimension.STREAM_CODEC.decode(buf),

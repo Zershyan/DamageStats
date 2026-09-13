@@ -2,13 +2,12 @@ package io.zershyan.damagestats.stats;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
-import io.netty.buffer.ByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.neoforged.neoforge.common.damagesource.DamageContainer.Reduction;
-import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
+import io.zershyan.damagestats.network.codec.ByteBufCodecs;
+import io.zershyan.damagestats.network.codec.StreamCodec;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraftforge.event.entity.living.LivingDamageEvent;
 
-/** 一次伤害被各个环节吃掉的量，对应 NeoForge 的六种 {@link Reduction} */
+/** 一次伤害的各类减免量。Forge 1.20.1 无 NeoForge 的分项 Reduction 数据，因此兼容实现缺失项按 0 记录。 */
 public record DamageReduction(
         float armor,
         float enchantments,
@@ -28,7 +27,7 @@ public record DamageReduction(
             Codec.FLOAT.optionalFieldOf("invulnerability", 0f).forGetter(DamageReduction::invulnerability)
     ).apply(instance, DamageReduction::new));
 
-    public static final StreamCodec<ByteBuf, DamageReduction> STREAM_CODEC = StreamCodec.composite(
+    public static final StreamCodec<FriendlyByteBuf, DamageReduction> STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.FLOAT, DamageReduction::armor,
             ByteBufCodecs.FLOAT, DamageReduction::enchantments,
             ByteBufCodecs.FLOAT, DamageReduction::mobEffects,
@@ -38,15 +37,8 @@ public record DamageReduction(
             DamageReduction::new
     );
 
-    public static DamageReduction from(LivingDamageEvent.Post event) {
-        return new DamageReduction(
-                event.getReduction(Reduction.ARMOR),
-                event.getReduction(Reduction.ENCHANTMENTS),
-                event.getReduction(Reduction.MOB_EFFECTS),
-                event.getReduction(Reduction.ABSORPTION),
-                event.getReduction(Reduction.INNATE_RESISTANCE),
-                event.getReduction(Reduction.INVULNERABILITY)
-        );
+    public static DamageReduction from(LivingDamageEvent event) {
+        return NONE;
     }
 
     public float total() {

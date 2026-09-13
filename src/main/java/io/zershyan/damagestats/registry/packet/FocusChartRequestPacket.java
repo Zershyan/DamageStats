@@ -1,6 +1,9 @@
 package io.zershyan.damagestats.registry.packet;
 
 import io.zershyan.damagestats.DamageStats;
+import io.zershyan.damagestats.network.CustomPacketPayload;
+import io.zershyan.damagestats.network.codec.StreamCodec;
+import io.zershyan.damagestats.registry.DSPackets;
 import io.zershyan.damagestats.stats.DamageTracker;
 import io.zershyan.damagestats.stats.ServerStats;
 import io.zershyan.damagestats.stats.filter.DamageTypeGrouping;
@@ -11,12 +14,8 @@ import io.zershyan.damagestats.stats.focus.FocusChartScope;
 import io.zershyan.damagestats.stats.focus.StatsFocusManager;
 import io.zershyan.damagestats.stats.view.FocusChartPage;
 import io.zershyan.damagestats.stats.view.StatsViewBuilder;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
-import net.neoforged.neoforge.network.PacketDistributor;
-import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
 
 /** 只在打开、切换条件、翻页或手动刷新时请求焦点图表。 */
@@ -30,10 +29,10 @@ public record FocusChartRequestPacket(
         int requestId
 ) implements CustomPacketPayload {
     public static final Type<FocusChartRequestPacket> TYPE = new Type<>(DamageStats.id("focus_chart"));
-    public static final StreamCodec<RegistryFriendlyByteBuf, FocusChartRequestPacket> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, FocusChartRequestPacket> STREAM_CODEC =
             StreamCodec.of(FocusChartRequestPacket::encode, FocusChartRequestPacket::decode);
 
-    private static void encode(RegistryFriendlyByteBuf buf, FocusChartRequestPacket packet) {
+    private static void encode(FriendlyByteBuf buf, FocusChartRequestPacket packet) {
         StatsFilter.STREAM_CODEC.encode(buf, packet.filter);
         FocusChartDimension.STREAM_CODEC.encode(buf, packet.dimension);
         FocusChartScope.STREAM_CODEC.encode(buf, packet.scope);
@@ -43,7 +42,7 @@ public record FocusChartRequestPacket(
         buf.writeVarInt(packet.requestId);
     }
 
-    private static FocusChartRequestPacket decode(RegistryFriendlyByteBuf buf) {
+    private static FocusChartRequestPacket decode(FriendlyByteBuf buf) {
         return new FocusChartRequestPacket(
                 StatsFilter.STREAM_CODEC.decode(buf),
                 FocusChartDimension.STREAM_CODEC.decode(buf),
@@ -68,13 +67,13 @@ public record FocusChartRequestPacket(
             if(!manager.canBrowse(player, filter(), tracker)) {
                 FocusChartPage denied = StatsViewBuilder.deniedFocusChartPage(manager.focusFor(player),
                         dimension(), scope(), typeGrouping(), entityGrouping());
-                PacketDistributor.sendToPlayer(player, new FocusChartPagePacket(denied.withRequestId(requestId())));
+                DSPackets.sendToPlayer(player, new FocusChartPagePacket(denied.withRequestId(requestId())));
                 return;
             }
             FocusChartPage page = StatsViewBuilder.focusChartPage(tracker, player, manager.focusFor(player),
                     filter(), dimension(), scope(), typeGrouping(),
                     entityGrouping(), cursor());
-            PacketDistributor.sendToPlayer(player, new FocusChartPagePacket(page.withRequestId(requestId())));
+            DSPackets.sendToPlayer(player, new FocusChartPagePacket(page.withRequestId(requestId())));
         });
     }
 }

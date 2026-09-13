@@ -1,11 +1,11 @@
 package io.zershyan.damagestats.stats.view;
 
+import io.zershyan.damagestats.network.ComponentSerialization;
+import io.zershyan.damagestats.network.codec.ByteBufCodecs;
+import io.zershyan.damagestats.network.codec.StreamCodec;
 import io.zershyan.damagestats.stats.filter.FilterKey;
-import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.ComponentSerialization;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
 
 import java.util.List;
 
@@ -15,13 +15,13 @@ import java.util.List;
  */
 public record GroupView(Component name, float damage, float originalDamage, int hitCount, float share, FilterKey key,
                         boolean canOpenInstances) {
-    public static final StreamCodec<RegistryFriendlyByteBuf, GroupView> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, GroupView> STREAM_CODEC =
             StreamCodec.of(GroupView::encode, GroupView::decode);
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, List<GroupView>> LIST_STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, List<GroupView>> LIST_STREAM_CODEC =
             STREAM_CODEC.apply(ByteBufCodecs.list());
 
-    private static void encode(RegistryFriendlyByteBuf buf, GroupView view) {
+    private static void encode(FriendlyByteBuf buf, GroupView view) {
         ComponentSerialization.STREAM_CODEC.encode(buf, view.name);
         buf.writeFloat(view.damage);
         buf.writeFloat(view.originalDamage);
@@ -31,7 +31,7 @@ public record GroupView(Component name, float damage, float originalDamage, int 
         buf.writeBoolean(view.canOpenInstances);
     }
 
-    private static GroupView decode(RegistryFriendlyByteBuf buf) {
+    private static GroupView decode(FriendlyByteBuf buf) {
         return new GroupView(
                 ComponentSerialization.STREAM_CODEC.decode(buf),
                 buf.readFloat(),

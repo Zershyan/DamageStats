@@ -1,8 +1,8 @@
 package io.zershyan.damagestats.stats.focus;
 
-import io.netty.buffer.ByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
+import io.zershyan.damagestats.network.codec.ByteBufCodecs;
+import io.zershyan.damagestats.network.codec.StreamCodec;
+import net.minecraft.network.FriendlyByteBuf;
 
 /** 页间横向直方图的纵轴维度。 */
 public enum FocusChartDimension {
@@ -11,7 +11,7 @@ public enum FocusChartDimension {
     RESPONSIBLE_SOURCE,
     TARGET;
 
-    public static final StreamCodec<ByteBuf, FocusChartDimension> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, FocusChartDimension> STREAM_CODEC =
             ByteBufCodecs.VAR_INT.map(FocusChartDimension::valueOf, FocusChartDimension::ordinal);
 
     private static FocusChartDimension valueOf(int ordinal) {

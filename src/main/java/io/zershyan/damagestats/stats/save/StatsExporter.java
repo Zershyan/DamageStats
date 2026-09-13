@@ -182,12 +182,11 @@ public final class StatsExporter {
     }
 
     private static JsonObject filterKeyJson(FilterKey key) {
-        return switch (key) {
-            case FilterKey.Source(EntitySelector selector) -> keyJson("source", selectorJson(selector));
-            case FilterKey.Target(EntitySelector selector) -> keyJson("target", selectorJson(selector));
-            case FilterKey.Direct(EntitySelector selector) -> keyJson("directSource", selectorJson(selector));
-            case FilterKey.Type(DamageTypeSelector selector) -> keyJson("damageType", damageTypeSelectorJson(selector));
-        };
+        if(key instanceof FilterKey.Source source) return keyJson("source", selectorJson(source.selector()));
+        if(key instanceof FilterKey.Target target) return keyJson("target", selectorJson(target.selector()));
+        if(key instanceof FilterKey.Direct direct) return keyJson("directSource", selectorJson(direct.selector()));
+        if(key instanceof FilterKey.Type type) return keyJson("damageType", damageTypeSelectorJson(type.selector()));
+        throw new IllegalArgumentException("?????????" + key);
     }
 
     private static JsonObject keyJson(String slot, JsonObject selector) {
@@ -198,38 +197,37 @@ public final class StatsExporter {
     }
 
     private static JsonObject selectorJson(EntitySelector selector) {
-        return switch (selector) {
-            case EntitySelector.Instance(EntityRef ref) -> {
-                JsonObject object = new JsonObject();
-                object.addProperty("kind", "instance");
-                object.addProperty("uuid", ref.id().toString());
-                object.addProperty("type", ref.typeIdOrEnvironment().toString());
-                yield object;
-            }
-            case EntitySelector.Type(ResourceLocation typeId) -> {
-                JsonObject object = new JsonObject();
-                object.addProperty("kind", "type");
-                object.addProperty("type", typeId.toString());
-                yield object;
-            }
-        };
+        if(selector instanceof EntitySelector.Instance instance) {
+            EntityRef ref = instance.ref();
+            JsonObject object = new JsonObject();
+            object.addProperty("kind", "instance");
+            object.addProperty("uuid", ref.id().toString());
+            object.addProperty("type", ref.typeIdOrEnvironment().toString());
+            return object;
+        }
+        if(selector instanceof EntitySelector.Type type) {
+            JsonObject object = new JsonObject();
+            object.addProperty("kind", "type");
+            object.addProperty("type", type.typeId().toString());
+            return object;
+        }
+        throw new IllegalArgumentException("???????????" + selector);
     }
 
     private static JsonObject damageTypeSelectorJson(DamageTypeSelector selector) {
-        return switch (selector) {
-            case DamageTypeSelector.Category(String name) -> {
-                JsonObject object = new JsonObject();
-                object.addProperty("kind", "category");
-                object.addProperty("name", name);
-                yield object;
-            }
-            case DamageTypeSelector.Exact(ResourceLocation id) -> {
-                JsonObject object = new JsonObject();
-                object.addProperty("kind", "exact");
-                object.addProperty("id", id.toString());
-                yield object;
-            }
-        };
+        if(selector instanceof DamageTypeSelector.Category category) {
+            JsonObject object = new JsonObject();
+            object.addProperty("kind", "category");
+            object.addProperty("name", category.name());
+            return object;
+        }
+        if(selector instanceof DamageTypeSelector.Exact exact) {
+            JsonObject object = new JsonObject();
+            object.addProperty("kind", "exact");
+            object.addProperty("id", exact.id().toString());
+            return object;
+        }
+        throw new IllegalArgumentException("???????????" + selector);
     }
 
     private static JsonElement resourceLocationJson(@Nullable ResourceLocation location) {
