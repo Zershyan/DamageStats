@@ -2,6 +2,7 @@ package io.zershyan.damagestats.datagen;
 
 import io.zershyan.damagestats.DamageStats;
 import io.zershyan.damagestats.datagen.provider.DSLangProvider;
+import io.zershyan.damagestats.datagen.provider.PackMetadataProvider;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.data.event.GatherDataEvent;
@@ -12,5 +13,6 @@ public final class DataGeneratorHandler {
     public static void gatherData(GatherDataEvent event) {
         event.createProvider(DSLangProvider::runEnUs);
         event.createProvider(DSLangProvider::runZhCn);
+        event.createProvider(PackMetadataProvider::new);
     }
 }
