@@ -41,6 +41,7 @@
   "damagestats.configuration.publicStats": "统计数据对所有人公开",
   "damagestats.configuration.sessionTimeoutTicks": "战斗会话超时",
   "damagestats.configuration.trackingEnabled": "启用伤害采集",
+  "damagestats.resources": "DamageStats资源",
   "key.categories.damagestats": "伤害统计",
   "key.damagestats.open_gui": "打开伤害统计",
   "key.damagestats.toggle_overlay": "开关常显浮层",

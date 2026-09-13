@@ -41,6 +41,7 @@
   "damagestats.configuration.publicStats": "Public Statistics",
   "damagestats.configuration.sessionTimeoutTicks": "Combat Session Timeout",
   "damagestats.configuration.trackingEnabled": "Enable Damage Tracking",
+  "damagestats.resources": "Resources for DamageStats",
   "key.categories.damagestats": "DamageStats",
   "key.damagestats.open_gui": "Open Damage Stats",
   "key.damagestats.toggle_overlay": "Toggle Overlay",

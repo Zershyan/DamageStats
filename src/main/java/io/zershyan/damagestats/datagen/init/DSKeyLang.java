@@ -12,12 +12,13 @@ import java.util.Locale;
 /** 声明一条翻译 = 写一个 public static final，登记多语言和拿到 Component 一步完成 */
 public class DSKeyLang extends DSLang {
     private static final List<FinalEntry<String>> TranslatableLang = new ArrayList<>();
-    private static final String Modid = DamageStats.MODID;
-    private static final String MessagePrefix = "message." + Modid + ".";
-    private static final String StatsPrefix = "stats." + Modid + ".";
+    private static final String ModId = DamageStats.MODID;
+    private static final String ModName = DamageStats.class.getSimpleName();
+    private static final String MessagePrefix = "message." + ModId + ".";
+    private static final String StatsPrefix = "stats." + ModId + ".";
     private static final String CategoryPrefix = StatsPrefix + "category.";
-    private static final String ScreenPrefix = "screen." + Modid + ".";
-    private static final String KeyPrefix = "key." + Modid + ".";
+    private static final String ScreenPrefix = "screen." + ModId + ".";
+    private static final String KeyPrefix = "key." + ModId + ".";
 
     private static String entryString(String key, String enUs, String zhCn) {
         TranslatableLang.add(new FinalEntry<>(key, enUs, zhCn));
@@ -31,6 +32,8 @@ public class DSKeyLang extends DSLang {
     private static LazyComponent entryLazy(String key, String enUs, String zhCn) {
         return new LazyComponent(entryString(key, enUs, zhCn));
     }
+
+    public static final MutableComponent Resource = entry(ModId + ".resources", "Resources for " + ModName, ModName + "资源");
 
     // 指令提示
     public static final MutableComponent NoData = entry(MessagePrefix + "no_data",
@@ -121,7 +124,7 @@ public class DSKeyLang extends DSLang {
             "Invulnerability: %s", "无敌帧减免：%s");
 
     // 按键。entryString 一步完成「登记翻译」和「拿到键名」，KeyMapping 直接用这些常量，不必再抄一遍字符串
-    public static final String KeyCategoryId = entryString("key.categories." + Modid,
+    public static final String KeyCategoryId = entryString("key.categories." + ModId,
             "DamageStats", "伤害统计");
     public static final String OpenGuiKeyId = entryString(KeyPrefix + "open_gui",
             "Open Damage Stats", "打开伤害统计");
