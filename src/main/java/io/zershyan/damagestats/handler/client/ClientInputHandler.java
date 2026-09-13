@@ -30,6 +30,7 @@ public final class ClientInputHandler {
     /** 打开仪表盘后仅请求当前可见图表页，避免旧版全量快照占用网络。 */
     private static void openStats(Minecraft minecraft) {
         if(statsScreen == null) statsScreen = new StatsScreen();
+        else statsScreen.refreshOnOpen();
         minecraft.setScreen(statsScreen);
     }
 

@@ -32,6 +32,7 @@ public record FocusStateRequestPacket(int requestId) implements CustomPacketPayl
             DamageTracker tracker = ServerStats.tracker();
             StatsFocusManager manager = ServerStats.focusManager();
             if(tracker == null || manager == null) return;
+            manager.refreshSummary(tracker, player);
             StatsSyncHandler.pushFocusState(tracker, player, FocusChangeResult.ACCEPTED, requestId());
         });
     }

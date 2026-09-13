@@ -5,6 +5,7 @@ import io.zershyan.damagestats.client.ClientFocusPreferences;
 import io.zershyan.damagestats.client.ClientStats;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
 import io.zershyan.damagestats.registry.packet.*;
+import io.zershyan.damagestats.stats.EntityRef;
 import io.zershyan.damagestats.stats.filter.*;
 import io.zershyan.damagestats.stats.focus.EntityGrouping;
 import io.zershyan.damagestats.stats.focus.FocusChartDimension;
@@ -20,6 +21,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.NotNull;
@@ -44,6 +46,7 @@ public class StatsScreen extends Screen {
     private static final int MUTED = 0xFFACB8C2;
     private static final int TEXT = 0xFFFFFFFF;
     private static final int ACCENT = 0xFF55D6E8;
+    private static final ResourceLocation PLAYER_TYPE = ResourceLocation.withDefaultNamespace("player");
 
     private FocusChartDimension dimension = FocusChartDimension.DAMAGE_TYPE;
     private FocusChartScope chartScope = FocusChartScope.LIFETIME;
@@ -88,6 +91,40 @@ public class StatsScreen extends Screen {
         super(DSKeyLang.ScreenTitle.copy());
     }
 
+    public void refreshOnOpen() {
+        resetForServerRefresh();
+    }
+
+    private void resetForServerRefresh() {
+        ClientStats.expectFocusState();
+        browsingInitialized = false;
+        focusStateRequested = false;
+        dataRequestsStarted = false;
+        chartFocusVersion = -1;
+        chartCursor = new String();
+        chartCursorHistory.clear();
+        expandedChartParents.clear();
+        contentScrollOffset = 0;
+        adopted = null;
+        browsingSource = Optional.empty();
+        browsingTarget = Optional.empty();
+        browsingDirectSource = Optional.empty();
+        browsingDamageType = Optional.empty();
+        browsingSourceIsDirectSource = false;
+        browsingSourceName = Component.empty();
+        browsingTargetName = Component.empty();
+        browsingDirectSourceName = Component.empty();
+        browsingDamageTypeName = Component.empty();
+        ClientStats.clearChartInstances();
+        requestFocusState();
+    }
+
+    private void requestFocusState() {
+        if(focusStateRequested) return;
+        focusStateRequested = true;
+        PacketDistributor.sendToServer(new FocusStateRequestPacket(FOCUS_STATE_REQUEST_ID));
+    }
+
     @Override
     protected void init() {
         if(!browsingInitialized) ClientStats.expectFocusState();
@@ -95,8 +132,7 @@ public class StatsScreen extends Screen {
         addHeaderButtons(layout);
         addFooterButtons(layout);
         if(!focusStateRequested) {
-            focusStateRequested = true;
-            PacketDistributor.sendToServer(new FocusStateRequestPacket(FOCUS_STATE_REQUEST_ID));
+            requestFocusState();
         }
         refreshButtons();
     }
@@ -189,6 +225,7 @@ public class StatsScreen extends Screen {
 
     @Override
     public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        if(ClientStats.consumeSnapshotInvalidation()) resetForServerRefresh();
         renderBackground(graphics, mouseX, mouseY, partialTick);
         FocusSummary summary = ClientStats.summary();
         boolean dataReady = prepareData(summary);
@@ -543,6 +580,12 @@ public class StatsScreen extends Screen {
     }
 
     private void setBrowsingDirectSource(EntitySelector selector, Component name) {
+        if(isPlayerSelector(selector)) {
+            browsingDirectSource = Optional.empty();
+            browsingDirectSourceName = Component.empty();
+            setBrowsingSource(selector, name);
+            return;
+        }
         browsingSource = Optional.of(selector);
         browsingSourceName = name;
         browsingSourceIsDirectSource = true;
@@ -708,6 +751,13 @@ public class StatsScreen extends Screen {
         return summary.scope().source().equals(browsingSource)
                 && summary.scope().target().equals(browsingTarget)
                 && summary.scope().sourceIsDirectSource() == browsingSourceIsDirectSource;
+    }
+
+    private static boolean isPlayerSelector(EntitySelector selector) {
+        return switch (selector) {
+            case EntitySelector.Instance(EntityRef ref) -> PLAYER_TYPE.equals(ref.typeId());
+            case EntitySelector.Type(ResourceLocation typeId) -> PLAYER_TYPE.equals(typeId);
+        };
     }
 
     private void renderChartFilters(GuiGraphics graphics, int y) {

@@ -5,6 +5,7 @@ import io.zershyan.damagestats.stats.DamageRecord;
 import io.zershyan.damagestats.stats.EntityRef;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.resources.ResourceLocation;
 
 import java.util.Optional;
 
@@ -20,6 +21,14 @@ public record StatsFilter(
         Optional<DamageTypeSelector> damageType,
         boolean sourceIsDirectSource
 ) {
+    private static final ResourceLocation PLAYER_TYPE = ResourceLocation.withDefaultNamespace("player");
+
+    public StatsFilter {
+        if(sourceIsDirectSource && source.filter(StatsFilter::isPlayerSelector).isPresent()) {
+            sourceIsDirectSource = false;
+        }
+    }
+
     public static final StatsFilter NONE =
             new StatsFilter(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), false);
 
@@ -73,6 +82,13 @@ public record StatsFilter(
 
     private static boolean matchesEntity(Optional<EntitySelector> selector, EntityRef candidate) {
         return selector.map(value -> value.matches(candidate)).orElse(true);
+    }
+
+    private static boolean isPlayerSelector(EntitySelector selector) {
+        return switch (selector) {
+            case EntitySelector.Instance(EntityRef ref) -> PLAYER_TYPE.equals(ref.typeId());
+            case EntitySelector.Type(ResourceLocation typeId) -> PLAYER_TYPE.equals(typeId);
+        };
     }
 
     private static <T> Optional<T> toggled(Optional<T> current, T clicked) {
