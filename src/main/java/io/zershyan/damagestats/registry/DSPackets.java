@@ -2,6 +2,7 @@ package io.zershyan.damagestats.registry;
 
 import io.zershyan.damagestats.DamageStats;
 import io.zershyan.damagestats.network.CustomPacketPayload;
+import io.zershyan.damagestats.network.CustomPacketPayload.IPayloadContext;
 import io.zershyan.damagestats.network.codec.StreamCodec;
 import io.zershyan.damagestats.registry.packet.*;
 import net.minecraft.network.FriendlyByteBuf;
