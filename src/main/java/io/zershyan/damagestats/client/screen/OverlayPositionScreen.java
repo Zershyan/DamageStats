@@ -3,6 +3,7 @@ package io.zershyan.damagestats.client.screen;
 import io.zershyan.damagestats.client.ClientFocusPreferences;
 import io.zershyan.damagestats.client.ClientStats;
 import io.zershyan.damagestats.client.overlay.StatsOverlay;
+import io.zershyan.damagestats.client.ui.*;
 import io.zershyan.damagestats.config.DSClientConfig;
 import io.zershyan.damagestats.config.OverlayMetricScope;
 import io.zershyan.damagestats.datagen.init.DSConfigLang;
@@ -12,34 +13,39 @@ import io.zershyan.damagestats.stats.filter.EntitySelector;
 import io.zershyan.damagestats.stats.filter.StatsFilter;
 import io.zershyan.damagestats.stats.focus.FocusSelectionSlot;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.AbstractSliderButton;
-import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.Checkbox;
+import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.neoforged.neoforge.common.ModConfigSpec;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-/** Overlay 的位置、外观和字段设置页；每个指标可独立选择本场或累计范围。 */
+/**
+ * Overlay 的位置、外观和字段设置页；每个指标可独立选择本场或累计范围。
+ * 控制面板靠右，把左侧整块留成拖拽画布——浮层默认就在左侧，两者不会互相遮挡。
+ */
 @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
-public class OverlayPositionScreen extends Screen {
-    private static final int BUTTON_WIDTH = 100;
-    private static final int BUTTON_HEIGHT = 20;
-    private static final int TITLE_Y = 20;
-    private static final int DIM_BACKGROUND = 0xFF15181C;
-
-    private final @Nullable Screen returnScreen;
+public class OverlayPositionScreen extends UiScreen {
+    private static final int PANEL_WIDTH = 190;
+    private static final int PANEL_MIN_SCREEN_WIDTH = 300;
+    private static final int SLIDER_HEIGHT = 20;
+    private static final int FIELD_ROW_HEIGHT = 20;
+    private static final int SCOPE_WIDTH = 46;
+    private static final int PANEL_PADDING = 10;
+    private static final int SLIDER_GAP = 5;
+    private static final int ROW_GAP = 7;
+    private static final int SECTION_GAP = 9;
+    private static final int SECTION_LABEL_HEIGHT = 11;
+    /** 字段区上方留给分隔线与分组标题的高度，两个偏移必须和 computeLayout 里的累加一致。 */
+    private static final int DIVIDER_OFFSET = 18;
+    private static final int LABEL_OFFSET = 14;
     private static final int PREVIEW_BORDER = 0xFFFFD700;
-    private static final int PREVIEW_Z = 1000;
-    private static final int CONTROLS_Z = 2000;
-    private static final int FIELD_HEIGHT = 22;
-    private static final int FIELD_WIDTH = 280;
-    private static final int SCOPE_WIDTH = 44;
 
     private record OverlayField(
             DSConfigLang.ConfigEntry label,
@@ -77,25 +83,24 @@ public class OverlayPositionScreen extends Screen {
             new OverlayField(DSConfigLang.OverlayShowSessionStatus, DSClientConfig.OverlayShowSessionStatus, null)
     );
 
+    private final @Nullable Screen returnScreen;
+
     private double ratioX;
     private double ratioY;
     private boolean dragging;
     private int grabOffsetX;
     private int grabOffsetY;
-    private int fieldScroll;
-    private @Nullable Button targetButton;
+    private final UiScroll fieldScroll = new UiScroll();
+    /** 字段控件已经搬到的偏移，用来算这一帧还要再挪多少 */
+    private int fieldAppliedOffset;
+    private final List<AbstractWidget> fieldWidgets = new ArrayList<>();
+    private @Nullable UiButton targetButton;
 
-    private record Layout(
-            int controlLeft,
-            int sliderWidth,
-            int scaleY,
-            int opacityY,
-            List<ScreenLayout.Bounds> targetBounds,
-            int fieldTop,
-            int fieldBottom,
-            int fieldWidth,
-            ScreenLayout.Flow footer
-    ) {}
+    private UiLayout.Rect panel = new UiLayout.Rect(0, 0, 0, 0);
+    private UiLayout.Rect fieldViewport = new UiLayout.Rect(0, 0, 0, 0);
+    private UiLayout.Rect closeSlot = new UiLayout.Rect(0, 0, 0, 0);
+    private UiLayout.Rect resetSlot = new UiLayout.Rect(0, 0, 0, 0);
+    private UiLayout.Rect doneSlot = new UiLayout.Rect(0, 0, 0, 0);
 
     public OverlayPositionScreen(@Nullable Screen returnScreen) {
         super(DSKeyLang.EditPositionTitle.copy());
@@ -106,132 +111,128 @@ public class OverlayPositionScreen extends Screen {
 
     @Override
     protected void init() {
-        Layout layout = layout();
+        if(minecraft == null) return;
+        computeLayout();
         targetButton = null;
-        addRenderableWidget(new AbstractSliderButton(layout.controlLeft(), layout.scaleY(), layout.sliderWidth(),
-                BUTTON_HEIGHT, scaleMessage(DSClientConfig.OverlayScale.get()),
-                (DSClientConfig.OverlayScale.get() - 0.5) / 1.5) {
-            @Override
-            protected void updateMessage() {
-                setMessage(scaleMessage(0.5 + value * 1.5));
-            }
+        fieldWidgets.clear();
+        fieldAppliedOffset = 0;
+        addRenderableWidget(new UiSlider(panelRow(0), DSClientConfig.OverlayScale.get(), 0.5D, 2.0D,
+                OverlayPositionScreen::scaleMessage, DSClientConfig.OverlayScale::set));
+        addRenderableWidget(new UiSlider(panelRow(1), DSClientConfig.OverlayBackgroundOpacity.get(), 0.0D, 1.0D,
+                OverlayPositionScreen::opacityMessage, DSClientConfig.OverlayBackgroundOpacity::set));
 
-            @Override
-            protected void applyValue() {
-                DSClientConfig.OverlayScale.set(0.5 + value * 1.5);
-            }
-        });
-        addRenderableWidget(new AbstractSliderButton(layout.controlLeft(), layout.opacityY(), layout.sliderWidth(),
-                BUTTON_HEIGHT, opacityMessage(DSClientConfig.OverlayBackgroundOpacity.get()),
-                DSClientConfig.OverlayBackgroundOpacity.get()) {
-            @Override
-            protected void updateMessage() {
-                setMessage(opacityMessage(value));
-            }
+        List<UiLayout.Rect> targetRow = UiLayout.row(panelRow(2), 4, UiLayout.FILL, 62);
+        targetButton = addRenderableWidget(UiButton.builder(Component.empty(), button -> openTargetSelector())
+                .bounds(targetRow.getFirst()).variant(UiButton.Variant.SECONDARY)
+                .align(UiButton.Align.LEFT).icon(UiDraw::target).build());
+        addRenderableWidget(UiButton.builder(DSKeyLang.OverlayAllTargets.copy(), button -> setOverlayTarget(Optional.empty()))
+                .bounds(targetRow.get(1)).variant(UiButton.Variant.GHOST).build());
 
-            @Override
-            protected void applyValue() {
-                DSClientConfig.OverlayBackgroundOpacity.set(value);
-            }
-        });
-        List<ScreenLayout.Bounds> targetBounds = layout.targetBounds();
-        if(!targetBounds.isEmpty()) {
-            ScreenLayout.Bounds target = targetBounds.getFirst();
-            targetButton = addRenderableWidget(Button.builder(Component.empty(), button -> openTargetSelector())
-                    .bounds(target.x(), target.y(), target.width(), target.height()).build());
-            if(targetBounds.size() > 1) {
-                ScreenLayout.Bounds allTargets = targetBounds.get(1);
-                addRenderableWidget(Button.builder(DSKeyLang.OverlayAllTargets.copy(), button ->
-                                setOverlayTarget(Optional.empty()))
-                        .bounds(allTargets.x(), allTargets.y(), allTargets.width(), allTargets.height()).build());
-            }
-        }
-        addFields(layout);
-        ScreenLayout.Flow footer = layout.footer();
-        ScreenLayout.Bounds done = footer.bounds().getFirst();
-        ScreenLayout.Bounds reset = footer.bounds().getLast();
-        addRenderableWidget(Button.builder(DSKeyLang.EditPositionDone.copy(), button -> onClose())
-                .bounds(done.x(), done.y(), done.width(), done.height()).build());
-        addRenderableWidget(Button.builder(DSKeyLang.EditPositionReset.copy(), button -> resetPosition())
-                .bounds(reset.x(), reset.y(), reset.width(), reset.height()).build());
+        addFields();
+        addRenderableWidget(UiButton.builder(CommonComponents.GUI_DONE, button -> onClose())
+                .bounds(doneSlot).variant(UiButton.Variant.PRIMARY).build());
+        addRenderableWidget(UiButton.builder(DSKeyLang.EditPositionReset.copy(), button -> resetPosition())
+                .bounds(resetSlot).variant(UiButton.Variant.GHOST).icon(UiDraw::move).build());
+        addRenderableWidget(UiButton.builder(Component.empty(), button -> onClose())
+                .bounds(closeSlot).variant(UiButton.Variant.GHOST).icon(UiDraw::cross).build());
     }
 
-    private void addFields(Layout layout) {
-        int rows = visibleRows(layout);
-        fieldScroll = Mth.clamp(fieldScroll, 0, maxFieldScroll(rows));
-        int fieldWidth = layout.fieldWidth();
-        for (int index = fieldScroll; index < FIELDS.size() && index < fieldScroll + rows; index++) {
+    /** 字段行全部创建在「未滚动」的位置，每帧由 {@link #syncFieldScroll} 按平滑偏移搬移。 */
+    private void addFields() {
+        for(int index = 0; index < FIELDS.size(); index++) {
             OverlayField field = FIELDS.get(index);
-            int row = index - fieldScroll;
-            int x = (width - fieldWidth) / 2;
-            int y = layout.fieldTop() + row * FIELD_HEIGHT;
-            int scopeWidth = field.scope() == null ? 0 : Math.clamp(fieldWidth / 3, 1, SCOPE_WIDTH);
-            int checkboxWidth = field.scope() == null ? fieldWidth : Math.max(1, fieldWidth - scopeWidth - 2);
-            Checkbox fieldCheckbox = Checkbox.builder(Component.translatable(field.label().getKey()), font)
-                    .pos(x, y)
-                    .selected(field.visible().get())
-                    .onValueChange((ignored, selected) -> field.visible().set(selected))
-                    .build();
-            fieldCheckbox.setWidth(checkboxWidth);
-            addRenderableWidget(fieldCheckbox);
+            UiLayout.Rect row = fieldRow(index);
             var scope = field.scope();
+            List<UiLayout.Rect> split = scope == null ? List.of(row)
+                    : UiLayout.row(row, 4, UiLayout.FILL, Math.min(SCOPE_WIDTH, Math.max(1, row.width() - 40)));
+            UiCheckbox checkbox = new UiCheckbox(split.getFirst(),
+                    Component.translatable(field.label().getKey()), field.visible().get(),
+                    value -> field.visible().set(value));
+            fieldWidgets.add(addClippedWidget(checkbox));
             if(scope == null) continue;
-            addRenderableWidget(Button.builder(scopeLabel(scope.get()), button -> {
-                        OverlayMetricScope next = scope.get() == OverlayMetricScope.SESSION
-                                ? OverlayMetricScope.LIFETIME
-                                : OverlayMetricScope.SESSION;
+            UiSegmented scopeBox = new UiSegmented(split.get(1), List.of(
+                    new UiSegmented.Option(DSKeyLang.OverlayScopeSession.copy()),
+                    new UiSegmented.Option(DSKeyLang.OverlayScopeLifetime.copy())),
+                    scope.get() == OverlayMetricScope.SESSION ? 0 : 1, true,
+                    selection -> {
+                        OverlayMetricScope next = selection == 0
+                                ? OverlayMetricScope.SESSION : OverlayMetricScope.LIFETIME;
+                        if(scope.get() == next) return;
                         scope.set(next);
-                        button.setMessage(scopeLabel(next));
-                    })
-                    .bounds(x + checkboxWidth + 2, y, scopeWidth, 18)
-                    .build());
+                    });
+            fieldWidgets.add(addClippedWidget(scopeBox));
         }
+    }
+
+    /** 平滑滚动字段列表：先搬位置，再按可视范围把行外的控件藏掉。 */
+    private void syncFieldScroll() {
+        fieldScroll.measure(FIELDS.size() * FIELD_ROW_HEIGHT, fieldViewport.height());
+        fieldScroll.tick();
+        int offset = fieldScroll.offset();
+        int delta = offset - fieldAppliedOffset;
+        if(delta != 0) {
+            fieldAppliedOffset = offset;
+            for(AbstractWidget widget : fieldWidgets) {
+                widget.setY(widget.getY() - delta);
+            }
+        }
+        for(AbstractWidget widget : fieldWidgets) {
+            widget.visible = widget.getY() + widget.getHeight() > fieldViewport.y()
+                    && widget.getY() < fieldViewport.bottom();
+        }
+    }
+
+    @Override
+    protected void renderContent(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        renderTopBar(graphics, title, null, null, false, 34);
+        renderCard(graphics, panel, false);
+        UiDraw.rectGradient(graphics, fieldViewport.x(), fieldViewport.y() - DIVIDER_OFFSET,
+                fieldViewport.width(), 1F, UiTheme.alpha(UiTheme.BORDER, 0.9F),
+                UiTheme.alpha(UiTheme.BORDER, 0.2F));
+        renderSectionLabel(graphics, new UiLayout.Rect(fieldViewport.x(), fieldViewport.y() - LABEL_OFFSET,
+                fieldViewport.width(), SECTION_LABEL_HEIGHT), DSKeyLang.ScreenOverlayFields.copy());
+        if(targetButton != null) {
+            targetButton.setMessage(DSKeyLang.FilterTarget.get(ClientStats.summary().scope().targetName()));
+        }
+        syncFieldScroll();
+        clipWidgetsTo(fieldViewport);
+        fieldScroll.renderIndicator(graphics, new UiLayout.Rect(panel.right() - 4, fieldViewport.y(), 3,
+                fieldViewport.height()));
+        renderPreview(graphics);
+    }
+
+    /** 浮层预览。画在面板之后、控件之前，所以既能盖住面板，又不会挡住可点的按钮。 */
+    private void renderPreview(GuiGraphics graphics) {
+        int previewX = originX();
+        int previewY = originY();
+        int previewWidth = StatsOverlay.width();
+        int previewHeight = StatsOverlay.height();
+        graphics.flush();
+        UiDraw.shadow(graphics, previewX, previewY, previewWidth, previewHeight, UiTheme.RADIUS_MD, 7F, 2F,
+                UiTheme.SHADOW);
+        StatsOverlay.renderBox(graphics, font, StatsOverlay.previewSummary(), previewX, previewY);
+        graphics.flush();
+        UiDraw.roundedBorder(graphics, previewX - 0.5F, previewY - 0.5F, previewWidth + 1F, previewHeight + 1F,
+                UiTheme.RADIUS_MD, 1F, PREVIEW_BORDER);
+        // 左上角一个拖拽手柄，明确这块东西可以拖
+        UiDraw.roundedRect(graphics, previewX + 3F, previewY + 3F, 12F, 12F, 3F,
+                UiTheme.alpha(UiTheme.BACKDROP, 0.75F));
+        UiDraw.move(graphics, previewX + 9F, previewY + 9F, 7F, 1F, PREVIEW_BORDER);
+        graphics.flush();
     }
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
-        Layout layout = layout();
-        if(mouseY < layout.fieldTop() || mouseY >= layout.fieldBottom()) {
+        if(!fieldViewport.contains(mouseX, mouseY)) {
             return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
         }
-        int next = Mth.clamp(fieldScroll - (int) Math.signum(scrollY), 0,
-                maxFieldScroll(visibleRows(layout)));
-        if(next == fieldScroll) return true;
-        fieldScroll = next;
-        clearWidgets();
-        init();
+        fieldScroll.scrollBy(Math.signum(scrollY), FIELD_ROW_HEIGHT);
         return true;
     }
 
     @Override
-    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        graphics.fill(0, 0, width, height, DIM_BACKGROUND);
-    }
-
-    @Override
-    public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics, mouseX, mouseY, partialTick);
-        int previewX = originX();
-        int previewY = originY();
-        graphics.flush();
-        graphics.pose().pushPose();
-        graphics.pose().translate(0, 0, PREVIEW_Z);
-        StatsOverlay.renderBox(graphics, font, StatsOverlay.previewSummary(), previewX, previewY);
-        graphics.renderOutline(previewX, previewY, StatsOverlay.width(), StatsOverlay.height(), PREVIEW_BORDER);
-        graphics.pose().popPose();
-        graphics.flush();
-        graphics.pose().pushPose();
-        graphics.pose().translate(0, 0, CONTROLS_Z);
-        graphics.drawCenteredString(font, title, width / 2,
-                Math.clamp(TITLE_Y, 0, Math.max(0, height - 1)), 0xFFFFFFFF);
-        if(targetButton != null) targetButton.setMessage(DSKeyLang.FilterTarget.get(ClientStats.summary().scope().targetName()));
-        renderables.forEach(renderable -> renderable.render(graphics, mouseX, mouseY, partialTick));
-        graphics.flush();
-        graphics.pose().popPose();
-    }
-
-    @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        // 拖拽优先于控件：预览和面板重叠时，点击落在预览上就是拖它
         if(button == 0 && isInsidePreview(mouseX, mouseY)) {
             dragging = true;
             grabOffsetX = (int) (mouseX - originX());
@@ -310,20 +311,6 @@ public class OverlayPositionScreen extends Screen {
         return (int) (height * clampRatio(ratioY, StatsOverlay.height(), height));
     }
 
-    private int visibleRows(Layout layout) {
-        return Math.max(0, (layout.fieldBottom() - layout.fieldTop()) / FIELD_HEIGHT);
-    }
-
-    private static int maxFieldScroll(int rows) {
-        return Math.max(0, FIELDS.size() - rows);
-    }
-
-    private static Component scopeLabel(OverlayMetricScope scope) {
-        return scope == OverlayMetricScope.SESSION
-                ? DSKeyLang.OverlayScopeSession.copy()
-                : DSKeyLang.OverlayScopeLifetime.copy();
-    }
-
     private static Component scaleMessage(double scale) {
         return DSKeyLang.EditPositionScale.copy().append(Component.literal(": "
                 + Math.round(scale * 100) + "%"));
@@ -339,24 +326,45 @@ public class OverlayPositionScreen extends Screen {
         return Mth.clamp(ratio, 0, 1.0 - (double) elementSize / screenSize);
     }
 
-    private Layout layout() {
-        ScreenLayout.Flow footer = ScreenLayout.bottomFlow(width, height, 8, BUTTON_HEIGHT, 4, 6,
-                BUTTON_WIDTH, BUTTON_WIDTH);
-        int controlWidth = ScreenLayout.width(width, 8);
-        int sliderWidth = Math.clamp(controlWidth, 1, 220);
-        int controlLeft = ScreenLayout.left(width, 8) + Math.max(0, (controlWidth - sliderWidth) / 2);
-        int scaleY = Math.clamp(footer.top() - 48, 0, 44);
-        int opacityY = scaleY + 24;
-        int targetY = opacityY + 24;
-        List<ScreenLayout.Bounds> targetBounds = ScreenLayout.flow(width, 8, targetY, BUTTON_HEIGHT, 4,
-                142, 74);
-        if(ScreenLayout.bottom(targetBounds, targetY) > footer.top() - 4) targetBounds = List.of();
-        int controlsBottom = targetBounds.isEmpty() ? opacityY + BUTTON_HEIGHT
-                : ScreenLayout.bottom(targetBounds, targetY);
-        int fieldTop = controlsBottom + 6;
-        int fieldBottom = Math.max(fieldTop, footer.top() - 6);
-        int fieldWidth = Math.clamp(ScreenLayout.width(width, 8), 1, FIELD_WIDTH);
-        return new Layout(controlLeft, sliderWidth, scaleY, opacityY, targetBounds,
-                fieldTop, fieldBottom, fieldWidth, footer);
+    // ------------------------------------------------------------------ 布局
+
+    private void computeLayout() {
+        int footerHeight = 26;
+        UiLayout.Rect page = new UiLayout.Rect(PAGE_PADDING, topBar().bottom() + 6,
+                Math.max(0, width - PAGE_PADDING * 2),
+                Math.max(0, height - topBar().bottom() - footerHeight - 12));
+        int panelWidth = Math.min(PANEL_WIDTH, Math.max(0, page.width()));
+        if(width < PANEL_MIN_SCREEN_WIDTH) panelWidth = page.width();
+        panel = new UiLayout.Rect(page.right() - panelWidth, page.y(), panelWidth, page.height());
+
+        int fieldsTop = panel.y() + PANEL_PADDING + SLIDER_HEIGHT + SLIDER_GAP + SLIDER_HEIGHT
+                + ROW_GAP + SLIDER_HEIGHT + SECTION_GAP + SECTION_LABEL_HEIGHT + 3;
+        fieldViewport = new UiLayout.Rect(panel.x() + PANEL_PADDING, fieldsTop,
+                Math.max(0, panel.width() - PANEL_PADDING * 2), Math.max(0, panel.bottom() - 12 - fieldsTop));
+
+        UiLayout.Rect footer = new UiLayout.Rect(PAGE_PADDING, height - footerHeight + 4,
+                Math.max(0, width - PAGE_PADDING * 2), footerHeight - 8);
+        List<UiLayout.Rect> rightSlots = UiLayout.rowRight(footer, 5, 60, 92);
+        resetSlot = new UiLayout.Rect(footer.x(), footer.y(), Math.min(96, footer.width()), footer.height());
+        doneSlot = rightSlots.get(1);
+        closeSlot = new UiLayout.Rect(topBar().right() - PAGE_PADDING - 18, topBar().y() + 4, 18,
+                Math.max(1, topBar().height() - 8));
+    }
+
+    /** 面板内第 index 行的位置：0 缩放、1 透明度、2 目标。三段高度一致，间隔由常量统一决定。 */
+    private UiLayout.Rect panelRow(int index) {
+        int top = panel.y() + PANEL_PADDING;
+        int y = switch(index) {
+            case 0 -> top;
+            case 1 -> top + SLIDER_HEIGHT + SLIDER_GAP;
+            default -> top + SLIDER_HEIGHT * 2 + SLIDER_GAP + ROW_GAP;
+        };
+        return new UiLayout.Rect(panel.x() + PANEL_PADDING, y,
+                Math.max(0, panel.width() - PANEL_PADDING * 2), SLIDER_HEIGHT);
+    }
+
+    private UiLayout.Rect fieldRow(int row) {
+        return new UiLayout.Rect(fieldViewport.x(), fieldViewport.y() + row * FIELD_ROW_HEIGHT,
+                fieldViewport.width(), FIELD_ROW_HEIGHT - 2);
     }
 }

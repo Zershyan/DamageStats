@@ -1,0 +1,61 @@
+package io.zershyan.damagestats.client.ui;
+
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.network.chat.Component;
+
+/**
+ * 圆角搜索框。控件本体只占中间那一条文字区域，外框由自己向外扩张绘制——
+ * 原版 {@code EditBox} 关闭 bordered 后文字固定画在控件左上角，把控件本身缩到文字行才能居中。
+ */
+public class UiTextField extends EditBox {
+    private static final int PADDING_X = 6;
+    private static final int TEXT_HEIGHT = 8;
+
+    private final UiLayout.Rect visual;
+    private float focusAmount;
+
+    public UiTextField(Font font, UiLayout.Rect bounds, Component hint) {
+        super(font, bounds.x() + PADDING_X, bounds.y() + (bounds.height() - TEXT_HEIGHT) / 2,
+                Math.max(1, bounds.width() - PADDING_X * 2), TEXT_HEIGHT, hint);
+        this.visual = bounds;
+        setBordered(false);
+        setHint(hint);
+        setTextColor(UiTheme.TEXT);
+        setTextColorUneditable(UiTheme.TEXT_MUTED);
+    }
+
+    @Override
+    public void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        focusAmount = UiTheme.approach(focusAmount, isFocused() ? 1F : 0F, UiTheme.ANIM_FAST, UiTheme.delta());
+        float focus = UiTheme.easeOut(focusAmount);
+        float radius = UiTheme.RADIUS_MD;
+        int top = UiTheme.mix(UiTheme.BACKDROP, UiTheme.SURFACE, 0.35F);
+        int bottom = UiTheme.BACKDROP;
+        UiDraw.roundedRect(graphics, visual.x(), visual.y(), visual.width(), visual.height(), radius, top, bottom);
+        UiDraw.roundedBorder(graphics, visual.x() + 0.5F, visual.y() + 0.5F, visual.width() - 1F,
+                visual.height() - 1F, Math.max(1F, radius - 0.5F), 1F,
+                UiTheme.mix(UiTheme.BORDER, UiTheme.ACCENT, focus));
+        if(focus > 0.02F) {
+            UiDraw.roundedBorder(graphics, visual.x() - 0.5F, visual.y() - 0.5F, visual.width() + 1F,
+                    visual.height() + 1F, radius + 0.5F, 1F, UiTheme.alpha(UiTheme.ACCENT, 0.28F * focus));
+        }
+        if(getValue().isEmpty() && !isFocused()) {
+            UiDraw.funnel(graphics, visual.x() + PADDING_X + 3.5F, visual.centerY(), 8F, 1F,
+                    UiTheme.TEXT_DISABLED);
+        }
+        super.renderWidget(graphics, mouseX, mouseY, partialTick);
+        graphics.flush();
+    }
+
+    @Override
+    public boolean isMouseOver(double mouseX, double mouseY) {
+        return visual.contains(mouseX, mouseY);
+    }
+
+    @Override
+    public boolean clicked(double mouseX, double mouseY) {
+        return this.active && this.visible && visual.contains(mouseX, mouseY);
+    }
+}

@@ -22,6 +22,11 @@ public record LazyComponent(String key) {
         return get(formatNumbers(args, "#.#"));
     }
 
+    /** 与 getNumber1f 共用同一套格式化规则，供不需要整句翻译的地方单独取数字文本 */
+    public static String number1f(double value) {
+        return formatOptimized("#.#", value);
+    }
+
     private static Object[] formatNumbers(Object[] args, String format) {
         for (int i = 0; i < args.length; i++) {
             if(args[i] instanceof Float || args[i] instanceof Double) {

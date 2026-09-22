@@ -200,6 +200,8 @@ public class DSKeyLang extends DSLang {
             "DPS", "DPS");
     public static final MutableComponent EditPositionHits = entry(ScreenPrefix + "edit_position.hits",
             "Hits", "命中次数");
+    public static final MutableComponent ScreenOverlayFields = entry(ScreenPrefix + "overlay.fields",
+            "Overlay Fields", "浮层字段");
 
     // 统计界面
     public static final MutableComponent ScreenTitle = entry(ScreenPrefix + "title",
@@ -226,6 +228,8 @@ public class DSKeyLang extends DSLang {
             "Sources", "直接来源");
     public static final MutableComponent DimensionOpponents = entry(ScreenPrefix + "dimension.opponents",
             "Opponents", "对手");
+    public static final MutableComponent DimensionAllSources = entry(ScreenPrefix + "dimension.all_sources",
+            "All Sources", "全部来源");
     public static final MutableComponent ScreenGroupingCategory = entry(ScreenPrefix + "grouping.category",
             "Categories", "分类");
     public static final MutableComponent ScreenGroupingRegistry = entry(ScreenPrefix + "grouping.registry",
@@ -302,6 +306,17 @@ public class DSKeyLang extends DSLang {
             "Confirm", "确认");
     public static final MutableComponent ScreenActions = entry(ScreenPrefix + "actions",
             "More Actions", "更多操作");
+    public static final MutableComponent ScreenSectionChart = entry(ScreenPrefix + "section.chart",
+            "Chart", "图表");
+    public static final MutableComponent ScreenClose = entry(ScreenPrefix + "close",
+            "Close", "关闭");
+    public static final MutableComponent ScreenRightClickHint = entry(ScreenPrefix + "right_click_hint",
+            "Right-click for actions", "右键打开操作菜单");
+    public static final MutableComponent ScreenSearchHint = entry(ScreenPrefix + "search_hint",
+            "Try another keyword or clear the search box", "换个关键词，或清空搜索框再试");
+    public static final MutableComponent ScreenEmptyChartHint = entry(ScreenPrefix + "empty_chart_hint",
+            "Try clearing the chart filters or picking another dimension",
+            "试试清除图表筛选，或换一个统计维度");
     public static final MutableComponent ScreenStorageTitle = entry(ScreenPrefix + "storage.title",
             "Server Storage", "服务器存储");
     public static final MutableComponent ScreenStorageRefresh = entry(ScreenPrefix + "storage.refresh",
