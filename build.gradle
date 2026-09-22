@@ -155,7 +155,6 @@ tasks.named('jar', Jar).configure {
         ])
     }
 
-    archiveFileName = "${mod_id}-${mod_version}-origin.jar"
     finalizedBy 'reobfJar'
 }
 
