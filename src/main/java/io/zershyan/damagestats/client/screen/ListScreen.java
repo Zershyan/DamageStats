@@ -81,7 +81,9 @@ abstract class ListScreen extends UiScreen {
     /** 顶栏里右对齐的按钮槽位，index 从右往左数。 */
     protected final UiLayout.Rect headerSlot(int index, int total, int preferredWidth) {
         int count = Math.max(1, total);
-        int span = count * HEADER_ACTION_WIDTH + (count - 1) * 5;
+        // 区域按实际按钮宽度预算，再夹到窗口内；预算和列宽不一致的话右对齐会落空
+        int span = Math.min(count * preferredWidth + (count - 1) * 5,
+                Math.max(1, width - PAGE_PADDING * 2));
         UiLayout.Rect area = new UiLayout.Rect(Math.max(PAGE_PADDING, topBar().right() - PAGE_PADDING - span),
                 topBar().y() + (topBar().height() - HEADER_ACTION_HEIGHT) / 2, span, HEADER_ACTION_HEIGHT);
         int[] widths = new int[count];
