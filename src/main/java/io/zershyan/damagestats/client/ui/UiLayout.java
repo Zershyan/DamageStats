@@ -93,7 +93,8 @@ public final class UiLayout {
     }
 
     /**
-     * 横向切分。weights 为每列权重，{@link #FILL} 表示吃掉剩余宽度，
+     * 横向切分。weights 为每列宽度：{@link #FILL} 表示「吃掉固定列之外的剩余空间」，
+     * 出现 FILL 时其余数值按像素宽处理；一个 FILL 都没有时，数值按权重比例分配。
      * 最后一列总是拿走剩下的像素，避免累计取整后留缝。
      */
     public static List<Rect> row(Rect area, int gap, int... weights) {
@@ -101,17 +102,33 @@ public final class UiLayout {
         if(weights.length == 0) return result;
         int totalGap = gap * (weights.length - 1);
         int available = Math.max(weights.length, area.width() - totalGap);
-        int totalWeight = 0;
-        for(int weight : weights) totalWeight += Math.max(1, weight);
+        int fillCount = 0;
+        int fixedTotal = 0;
+        int weightTotal = 0;
+        for(int weight : weights) {
+            if(weight == FILL) {
+                fillCount++;
+            } else {
+                fixedTotal += Math.max(1, weight);
+                weightTotal += Math.max(1, weight);
+            }
+        }
+        // FILL 列平分「可用宽度 - 固定列」；没有 FILL 时退回按权重比例分配
+        int fillWidth = fillCount == 0 ? 0
+                : Math.max(1, Math.max(fillCount, available - fixedTotal) / fillCount);
         int used = 0;
         for(int index = 0; index < weights.length; index++) {
             int width;
             if(index == weights.length - 1) {
                 width = Math.max(1, available - used);
+            } else if(weights[index] == FILL) {
+                width = fillWidth;
+            } else if(fillCount > 0) {
+                width = Math.max(1, weights[index]);
             } else {
-                width = Math.max(1, Math.round((float) Math.max(1, weights[index]) * available / totalWeight));
-                width = Math.min(width, Math.max(1, available - used - (weights.length - index - 1)));
+                width = Math.max(1, Math.round((float) Math.max(1, weights[index]) * available / weightTotal));
             }
+            width = Math.min(width, Math.max(1, available - used - (weights.length - index - 1)));
             result.add(new Rect(area.x() + used + gap * index, area.y(), width, area.height()));
             used += width;
         }
