@@ -1,34 +1,24 @@
 package io.zershyan.damagestats.client.screen;
 
+import io.zershyan.damagestats.client.ui.UiDraw;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
 import io.zershyan.damagestats.stats.filter.EntitySelector;
 import io.zershyan.damagestats.stats.filter.FilterKey;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.util.Mth;
-import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /** 图表实体行的操作菜单，类型必须先进入实例列表后才能成为具体直接来源。 */
-public final class ChartEntityActionScreen extends Screen {
-    private static final int PANEL_WIDTH = 180;
-    private static final int BUTTON_HEIGHT = 20;
-    private static final int BACKGROUND = 0xFF15181C;
+public final class ChartEntityActionScreen extends ActionListScreen {
     private final StatsScreen parent;
     private final FilterKey key;
     private final EntitySelector selector;
     private final Component entityName;
 
-    private record Layout(int x, int top, int width, int height, int titleHeight,
-                          List<ScreenLayout.Bounds> buttons) {}
-
     public ChartEntityActionScreen(StatsScreen parent, FilterKey key, Component entityName) {
-        super(DSKeyLang.ScreenChooseTypeAction.get(entityName));
+        super(parent, DSKeyLang.ScreenChooseTypeAction.get(entityName));
         this.parent = parent;
         this.key = key;
         this.selector = selector(key);
@@ -36,147 +26,62 @@ public final class ChartEntityActionScreen extends Screen {
     }
 
     @Override
-    protected void init() {
-        if(minecraft == null) return;
-        Layout layout = layout();
-        int buttonIndex = 0;
+    protected List<Action> buildActions() {
+        List<Action> actions = new ArrayList<>(4);
         if(key instanceof FilterKey.Direct) {
-            ScreenLayout.Bounds bounds = layout.buttons().get(buttonIndex++);
-            addRenderableWidget(Button.builder(DSKeyLang.ScreenFilter.copy(), button -> {
-                        parent.toggleDirectFilter(selector, entityName);
-                        minecraft.setScreen(parent);
-                    })
-                    .bounds(bounds.x(), bounds.y(), bounds.width(), bounds.height()).build());
+            actions.add(new Action(DSKeyLang.ScreenFilter.copy(), UiDraw::funnel, () -> {
+                parent.toggleDirectFilter(selector, entityName);
+                returnToParent();
+            }));
         }
         if(selector instanceof EntitySelector.Instance) {
             if(key instanceof FilterKey.Direct) {
-                addSetAsSourceButton(layout.buttons().get(buttonIndex++), true);
+                actions.add(asSource(true));
             } else if(parent.canChooseAnySource() && (key instanceof FilterKey.Source || key instanceof FilterKey.Target)) {
-                addSetAsSourceButton(layout.buttons().get(buttonIndex++), false);
+                actions.add(asSource(false));
             }
-            ScreenLayout.Bounds bounds = layout.buttons().get(buttonIndex++);
-            addRenderableWidget(Button.builder(DSKeyLang.ScreenSetAsTarget.copy(), button -> {
-                        parent.selectAsTarget(selector, entityName);
-                        minecraft.setScreen(parent);
-                    })
-                    .bounds(bounds.x(), bounds.y(), bounds.width(), bounds.height()).build());
+            actions.add(new Action(DSKeyLang.ScreenSetAsTarget.copy(), UiDraw::target, () -> {
+                parent.selectAsTarget(selector, entityName);
+                returnToParent();
+            }));
         } else if(selector instanceof EntitySelector.Type type) {
             ResourceLocation typeId = type.typeId();
             if(key instanceof FilterKey.Source) {
-                if(parent.canChooseAnySource()) {
-                    addSetAsSourceButton(layout.buttons().get(buttonIndex++), false);
-                }
-                addSetAsTargetButton(layout.buttons().get(buttonIndex++));
+                if(parent.canChooseAnySource()) actions.add(asSource(false));
+                actions.add(asTarget());
             } else if(key instanceof FilterKey.Target) {
-                addSetAsTargetButton(layout.buttons().get(buttonIndex++));
-                if(parent.canChooseAnySource()) {
-                    addSetAsSourceButton(layout.buttons().get(buttonIndex++), false);
-                }
+                actions.add(asTarget());
+                if(parent.canChooseAnySource()) actions.add(asSource(false));
             }
-            ScreenLayout.Bounds bounds = layout.buttons().get(buttonIndex++);
-            addRenderableWidget(Button.builder(DSKeyLang.ScreenInstances.copy(), button ->
-                            parent.openInstances(new EntitySelector.Type(typeId), key, this))
-                    .bounds(bounds.x(), bounds.y(), bounds.width(), bounds.height()).build());
+            actions.add(new Action(DSKeyLang.ScreenInstances.copy(), UiDraw::database, () ->
+                    parent.openInstances(new EntitySelector.Type(typeId), key, this)));
         }
-        ScreenLayout.Bounds cancel = layout.buttons().get(buttonIndex);
-        addRenderableWidget(Button.builder(CommonComponents.GUI_CANCEL, button -> minecraft.setScreen(parent))
-                .bounds(cancel.x(), cancel.y(), cancel.width(), cancel.height()).build());
+        return List.copyOf(actions);
     }
 
-    @Override
-    public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics);
-        Layout layout = layout();
-        int x = Math.max(0, layout.x() - 8);
-        int y = layout.top();
-        graphics.flush();
-        graphics.pose().pushPose();
-        graphics.pose().translate(0, 0, 1000);
-        graphics.fill(x, y, Math.min(width, x + layout.width() + 16),
-                Math.min(height, y + layout.height()), 0xFF20262C);
-        graphics.flush();
-        Component displayTitle = truncate(title, Math.max(1, layout.width() - 12));
-        graphics.drawCenteredString(font, displayTitle, width / 2,
-                Mth.clamp(y + 10, 0, Math.max(0, height - 1)), 0xFFFFFFFF);
-        List<Component> tooltip = font.width(title) > layout.width() - 12
-                && mouseX >= x && mouseX <= x + layout.width() + 16
-                && mouseY >= y && mouseY < y + layout.titleHeight()
-                ? List.of(title) : List.of();
-        renderables.forEach(renderable -> renderable.render(graphics, mouseX, mouseY, partialTick));
-        if(!tooltip.isEmpty()) graphics.renderComponentTooltip(font, tooltip, mouseX, mouseY);
-        graphics.flush();
-        graphics.pose().popPose();
+    private void returnToParent() {
+        if(minecraft != null) minecraft.setScreen(parent);
     }
 
-    @Override
-    public void renderBackground(GuiGraphics graphics) {
-        graphics.fill(0, 0, width, height, BACKGROUND);
+    private Action asSource(boolean directSource) {
+        return new Action(DSKeyLang.ScreenSetAsSource.copy(), UiDraw::target, () -> {
+            if(directSource) parent.selectAsDirectSource(selector, entityName);
+            else parent.selectAsSource(selector, entityName);
+            returnToParent();
+        });
     }
 
-    private void addSetAsSourceButton(ScreenLayout.Bounds bounds, boolean directSource) {
-        addRenderableWidget(Button.builder(DSKeyLang.ScreenSetAsSource.copy(), button -> {
-                    if(directSource) parent.selectAsDirectSource(selector, entityName);
-                    else parent.selectAsSource(selector, entityName);
-                    minecraft.setScreen(parent);
-                })
-                .bounds(bounds.x(), bounds.y(), bounds.width(), bounds.height()).build());
-    }
-
-    private void addSetAsTargetButton(ScreenLayout.Bounds bounds) {
-        addRenderableWidget(Button.builder(DSKeyLang.ScreenSetAsTarget.copy(), button -> {
-                    parent.selectAsTarget(selector, entityName);
-                    minecraft.setScreen(parent);
-                })
-                .bounds(bounds.x(), bounds.y(), bounds.width(), bounds.height()).build());
-    }
-
-    private int buttonCount() {
-        int count = key instanceof FilterKey.Direct ? 1 : 0;
-        if(selector instanceof EntitySelector.Instance) {
-            if(key instanceof FilterKey.Direct
-                    || parent.canChooseAnySource() && (key instanceof FilterKey.Source || key instanceof FilterKey.Target)) count++;
-            count++;
-        } else if(selector instanceof EntitySelector.Type) {
-            if(key instanceof FilterKey.Source) {
-                if(parent.canChooseAnySource()) count++;
-                count++;
-            } else if(key instanceof FilterKey.Target) {
-                count++;
-                if(parent.canChooseAnySource()) count++;
-            }
-            count++;
-        }
-        return count + 1;
-    }
-
-    private Layout layout() {
-        int count = buttonCount();
-        int panelWidth = Mth.clamp(width - 8, 1, PANEL_WIDTH);
-        int titleHeight = Mth.clamp(height / 5, 1, 28);
-        int padding = Mth.clamp(height / 12, 0, 8);
-        int available = Math.max(1, height - titleHeight - padding * 2);
-        int gap = count <= 1 ? 0 : Mth.clamp((available - count) / (count - 1), 0, 4);
-        int buttonHeight = Mth.clamp((available - gap * (count - 1)) / count, 1, BUTTON_HEIGHT);
-        int panelHeight = titleHeight + padding * 2 + count * buttonHeight + gap * (count - 1);
-        int top = Math.max(0, (height - panelHeight) / 2);
-        int panelX = Math.max(0, (width - panelWidth) / 2);
-        int buttonTop = top + padding + titleHeight;
-        List<ScreenLayout.Bounds> buttons = ScreenLayout.flow(width, panelX, buttonTop, buttonHeight, gap,
-                java.util.stream.IntStream.range(0, count).map(ignored -> panelWidth).toArray());
-        return new Layout(panelX, top, panelWidth, panelHeight,
-                titleHeight, buttons);
-    }
-
-    private Component truncate(Component text, int maxWidth) {
-        if(maxWidth <= 0 || font.width(text) <= maxWidth) return text;
-        int suffixWidth = font.width("...");
-        return Component.literal(font.plainSubstrByWidth(text.getString(), Math.max(1, maxWidth - suffixWidth)) + "...");
+    private Action asTarget() {
+        return new Action(DSKeyLang.ScreenSetAsTarget.copy(), UiDraw::target, () -> {
+            parent.selectAsTarget(selector, entityName);
+            returnToParent();
+        });
     }
 
     private static EntitySelector selector(FilterKey key) {
         if(key instanceof FilterKey.Source source) return source.selector();
         if(key instanceof FilterKey.Target target) return target.selector();
         if(key instanceof FilterKey.Direct direct) return direct.selector();
-        throw new IllegalArgumentException("??????????????");
+        throw new IllegalArgumentException("实体操作菜单不能处理伤害类型");
     }
 }

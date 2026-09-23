@@ -66,6 +66,11 @@ minecraft {
             args("--username", "alex")
         }
 
+        clientMoYu {
+            parent(client)
+            args("--username", "MoYu", "--width", "320", "--height", "180")
+        }
+
         server {
             property 'forge.enabledGameTestNamespaces', mod_id
             property 'mixin.env.remapRefMap', 'true'

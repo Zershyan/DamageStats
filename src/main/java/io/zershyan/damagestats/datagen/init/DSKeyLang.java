@@ -123,6 +123,23 @@ public class DSKeyLang extends DSLang {
     public static final LazyComponent ReductionInvulnerability = entryLazy(StatsPrefix + "reduction.invulnerability",
             "Invulnerability: %s", "无敌帧减免：%s");
 
+    // 界面文案（由 1.21.1 分支的 UI 重构同步过来）
+    public static final MutableComponent ScreenSectionChart = entry(ScreenPrefix + "section.chart",
+            "Chart", "图表");
+    public static final MutableComponent ScreenClose = entry(ScreenPrefix + "close",
+            "Close", "关闭");
+    public static final MutableComponent ScreenRightClickHint = entry(ScreenPrefix + "right_click_hint",
+            "Right-click for actions", "右键打开操作菜单");
+    public static final MutableComponent ScreenSearchHint = entry(ScreenPrefix + "search_hint",
+            "Try another keyword or clear the search box", "换个关键词，或清空搜索框再试");
+    public static final MutableComponent ScreenEmptyChartHint = entry(ScreenPrefix + "empty_chart_hint",
+            "Try clearing the chart filters or picking another dimension",
+            "试试清除图表筛选，或换一个统计维度");
+    public static final MutableComponent ScreenOverlayFields = entry(ScreenPrefix + "overlay.fields",
+            "Overlay Fields", "浮层字段");
+    public static final MutableComponent DimensionAllSources = entry(ScreenPrefix + "dimension.all_sources",
+            "All Sources", "全部来源");
+
     // 按键。entryString 一步完成「登记翻译」和「拿到键名」，KeyMapping 直接用这些常量，不必再抄一遍字符串
     public static final String KeyCategoryId = entryString("key.categories." + ModId,
             "DamageStats", "伤害统计");

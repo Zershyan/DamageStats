@@ -1,6 +1,7 @@
 package io.zershyan.damagestats.client.screen;
 
 import io.zershyan.damagestats.client.ClientStats;
+import io.zershyan.damagestats.client.ui.*;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
 import io.zershyan.damagestats.registry.DSPackets;
 import io.zershyan.damagestats.registry.packet.EntityChoiceRequestPacket;
@@ -11,8 +12,6 @@ import io.zershyan.damagestats.stats.view.EntityChoicePage;
 import io.zershyan.damagestats.stats.view.EntityChoiceSort;
 import io.zershyan.damagestats.stats.view.EntityChoiceView;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
@@ -27,17 +26,14 @@ import java.util.Optional;
 import java.util.function.BiConsumer;
 
 /** 服务端实体候选的搜索与分页选择页，不枚举客户端本地或已加载实体。 */
-public class FocusEntitySelectorScreen extends Screen {
+public class FocusEntitySelectorScreen extends UiScreen {
     private static final int ROW_HEIGHT = 24;
-    private static final int TOP = 58;
-    private static final int SIDE = 24;
-    private static final int BACKGROUND = 0xFF15181C;
-    private static final int ROW_HOVER = 0x40FFFFFF;
-    private static final int RECENT_MENU_ROWS = 8;
-    private static final int RECENT_MENU_WIDTH = 220;
     private static final int ACTION_GAP = 4;
     private static final int ACTION_HEIGHT = 18;
     private static final int INSTANCES_MIN_WIDTH = 56;
+    private static final int SEARCH_HEIGHT = 18;
+    private static final int RECENT_MENU_ROWS = 8;
+    private static final int FOOTER_HEIGHT = 26;
 
     private final Screen parent;
     private final Screen selectionReturnScreen;
@@ -48,20 +44,27 @@ public class FocusEntitySelectorScreen extends Screen {
     private String cursor = "";
     private final List<String> cursorHistory = new ArrayList<>();
     private int requestId;
-    private int rowOffset;
+    private final UiScroll rowScroll = new UiScroll();
     private @Nullable EntityChoicePage adopted;
-    private @Nullable EditBox searchBox;
-    private @Nullable Button recentButton;
-    private @Nullable Button sortButton;
+    private @Nullable UiTextField searchBox;
+    private @Nullable UiButton recentButton;
+    private @Nullable UiButton sortButton;
     private EntityChoiceSort sort = EntityChoiceSort.DAMAGE;
-    private boolean recentMenuOpen;
+    private @Nullable UiPopupMenu recentMenu;
     private List<EntityChoiceView> recentChoices = List.of();
     private int recentRequestId = -1;
-    private Button previousButton;
-    private Button nextButton;
-    private final List<Button> rowSelectButtons = new ArrayList<>();
-    private final List<Button> rowInstancesButtons = new ArrayList<>();
+    private @Nullable UiButton previousButton;
+    private @Nullable UiButton nextButton;
+    private final List<UiButton> rowSelectButtons = new ArrayList<>();
+    private final List<UiButton> rowInstancesButtons = new ArrayList<>();
     private List<Component> rowTooltip = List.of();
+
+    private UiLayout.Rect listViewport = new UiLayout.Rect(0, 0, 0, 0);
+    private UiLayout.Rect searchRow = new UiLayout.Rect(0, 0, 0, 0);
+    private UiLayout.Rect backSlot = new UiLayout.Rect(0, 0, 0, 0);
+    private UiLayout.Rect previousSlot = new UiLayout.Rect(0, 0, 0, 0);
+    private UiLayout.Rect nextSlot = new UiLayout.Rect(0, 0, 0, 0);
+    private UiLayout.Rect closeSlot = new UiLayout.Rect(0, 0, 0, 0);
 
     private record RowActionLayout(int selectLeft, int selectWidth, int instancesLeft, int instancesWidth,
                                    int textRight) {
@@ -128,64 +131,111 @@ public class FocusEntitySelectorScreen extends Screen {
         searchBox = null;
         rowSelectButtons.clear();
         rowInstancesButtons.clear();
-        ScreenLayout.Flow footer = footerFlow();
-        int left = contentLeft();
-        int available = contentWidth();
-        int searchTop = searchTop();
-        if(searchTop >= 0) {
-            int controlsLeft = left;
-            if(typeFilter == null && available >= 2) {
-                int controlGap = Mth.clamp(available - 2, 0, 4);
-                int reservedSearchWidth = Mth.clamp((available - controlGap) / 2, 1, 64);
-                int preferredRecentWidth = Mth.clamp(available / 3, 64, 120);
-                int recentWidth = Mth.clamp(preferredRecentWidth, 1,
-                        Math.max(1, available - controlGap - reservedSearchWidth));
-                recentButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenRecent.copy(), button ->
-                                toggleRecentMenu())
-                        .bounds(controlsLeft, searchTop, recentWidth, 18).build());
-                controlsLeft += recentWidth + controlGap;
-            } else if(typeFilter != null && available >= 2) {
-                int controlGap = Mth.clamp(available - 2, 0, 4);
-                int reservedSearchWidth = Mth.clamp((available - controlGap) / 2, 1, 64);
-                int preferredSortWidth = Mth.clamp(available / 3, 72, 132);
-                int sortWidth = Mth.clamp(preferredSortWidth, 1,
-                        Math.max(1, available - controlGap - reservedSearchWidth));
-                sortButton = addRenderableWidget(Button.builder(sortLabel(), button -> cycleSort())
-                        .bounds(controlsLeft, searchTop, sortWidth, 18).build());
-                controlsLeft += sortWidth + controlGap;
-            }
-            int remaining = Math.max(1, contentRight() - controlsLeft);
-            boolean showSearchButton = remaining >= 92;
-            int searchButtonWidth = showSearchButton ? Mth.clamp(remaining / 3, 40, 52) : 0;
-            int searchWidth = Math.max(1, remaining - (showSearchButton ? searchButtonWidth + 4 : 0));
-            searchBox = addRenderableWidget(new EditBox(font, controlsLeft, searchTop, searchWidth, 18,
-                    DSKeyLang.ScreenSearch.copy()));
-            searchBox.setHint(DSKeyLang.ScreenSearch.copy());
-            if(showSearchButton) {
-                addRenderableWidget(Button.builder(DSKeyLang.ScreenSearch.copy(), button -> requestFirstPage())
-                        .bounds(controlsLeft + searchWidth + 4, searchTop,
-                                searchButtonWidth, 18).build());
-            }
-        }
+        computeLayout();
+        addSearchControls();
         addRowActionButtons();
-
-        List<ScreenLayout.Bounds> footerBounds = footer.bounds();
-        ScreenLayout.Bounds backBounds = footerBounds.get(0);
-        ScreenLayout.Bounds previousBounds = footerBounds.get(1);
-        ScreenLayout.Bounds nextBounds = footerBounds.get(2);
-        addRenderableWidget(Button.builder(CommonComponents.GUI_BACK, button -> minecraft.setScreen(parent))
-                .bounds(backBounds.x(), backBounds.y(), backBounds.width(), backBounds.height()).build());
-        previousButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenPrevious.copy(), button -> previousPage())
-                .bounds(previousBounds.x(), previousBounds.y(), previousBounds.width(), previousBounds.height()).build());
-        nextButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenNext.copy(), button -> nextPage())
-                .bounds(nextBounds.x(), nextBounds.y(), nextBounds.width(), nextBounds.height()).build());
+        addFooterButtons();
         requestFirstPage();
         refreshActions();
     }
 
+    private void computeLayout() {
+        closeSlot = new UiLayout.Rect(topBar().right() - PAGE_PADDING - 18, topBar().y() + 4, 18,
+                Math.max(1, topBar().height() - 8));
+        UiLayout.Rect page = new UiLayout.Rect(PAGE_PADDING, topBar().bottom() + 6,
+                Math.max(0, width - PAGE_PADDING * 2),
+                Math.max(0, height - topBar().bottom() - FOOTER_HEIGHT - 12));
+        // 空间不足时直接不摆搜索行，把高度让给列表，和原版的下限判断一致
+        searchRow = page.height() >= 48 ? new UiLayout.Rect(page.x(), page.y(), page.width(), SEARCH_HEIGHT)
+                : new UiLayout.Rect(0, 0, 0, 0);
+        int listTop = searchRow.isEmpty() ? page.y() : searchRow.bottom() + 6;
+        listViewport = new UiLayout.Rect(page.x(), listTop, page.width(), Math.max(0, page.bottom() - listTop));
+
+        UiLayout.Rect footer = new UiLayout.Rect(PAGE_PADDING, height - FOOTER_HEIGHT + 4,
+                Math.max(0, width - PAGE_PADDING * 2), FOOTER_HEIGHT - 8);
+        List<UiLayout.Rect> left = UiLayout.row(footer, 5, 72, 72);
+        List<UiLayout.Rect> right = UiLayout.rowRight(footer, 5, 72);
+        backSlot = left.get(0);
+        previousSlot = left.get(1);
+        nextSlot = right.get(0);
+    }
+
+    private void addSearchControls() {
+        if(searchRow.isEmpty()) return;
+        int available = searchRow.width();
+        int left = searchRow.x();
+        if(typeFilter == null && available >= 2) {
+            int controlGap = Mth.clamp(available - 2, 0, 4);
+            int reservedSearchWidth = Mth.clamp((available - controlGap) / 2, 1, 64);
+            int recentWidth = Mth.clamp(Mth.clamp(available / 3, 64, 120), 1,
+                    Math.max(1, available - controlGap - reservedSearchWidth));
+            recentButton = addRenderableWidget(UiButton.builder(DSKeyLang.ScreenRecent.copy(), button ->
+                            toggleRecentMenu())
+                    .bounds(new UiLayout.Rect(left, searchRow.y(), recentWidth, SEARCH_HEIGHT))
+                    .variant(UiButton.Variant.SECONDARY).icon(UiDraw::clock)
+                    .trailingIcon(FocusEntitySelectorScreen::downChevron).build());
+            left += recentWidth + controlGap;
+        } else if(typeFilter != null && available >= 2) {
+            int controlGap = Mth.clamp(available - 2, 0, 4);
+            int reservedSearchWidth = Mth.clamp((available - controlGap) / 2, 1, 64);
+            int sortWidth = Mth.clamp(Mth.clamp(available / 3, 72, 132), 1,
+                    Math.max(1, available - controlGap - reservedSearchWidth));
+            sortButton = addRenderableWidget(UiButton.builder(sortLabel(), button -> cycleSort())
+                    .bounds(new UiLayout.Rect(left, searchRow.y(), sortWidth, SEARCH_HEIGHT))
+                    .variant(UiButton.Variant.SECONDARY).icon(UiDraw::chartLine).build());
+            left += sortWidth + controlGap;
+        }
+        int remaining = Math.max(1, searchRow.right() - left);
+        boolean showSearchButton = remaining >= 92;
+        int searchButtonWidth = showSearchButton ? Mth.clamp(remaining / 3, 40, 52) : 0;
+        int searchWidth = Math.max(1, remaining - (showSearchButton ? searchButtonWidth + 4 : 0));
+        searchBox = addRenderableWidget(new UiTextField(font,
+                new UiLayout.Rect(left, searchRow.y(), searchWidth, SEARCH_HEIGHT),
+                DSKeyLang.ScreenSearch.copy()));
+        if(showSearchButton) {
+            addRenderableWidget(UiButton.builder(DSKeyLang.ScreenSearch.copy(), button -> requestFirstPage())
+                    .bounds(new UiLayout.Rect(left + searchWidth + 4, searchRow.y(),
+                            searchButtonWidth, SEARCH_HEIGHT))
+                    .variant(UiButton.Variant.PRIMARY).build());
+        }
+    }
+
+    /**
+     * 行按钮按「槽位」建：槽位 0 对应当前第一行，槽位与条目、纵向位置都在每帧的
+     * {@link #updateRowActions} 里随滚动偏移重算。这样平滑滚动时按钮能跟着行走。
+     */
+    private void addRowActionButtons() {
+        RowActionLayout actions = rowActionLayout();
+        for(int slot = 0; slot < slotCount(); slot++) {
+            int buttonY = listViewport.y() + slot * ROW_HEIGHT + (ROW_HEIGHT - ACTION_HEIGHT) / 2;
+            int slotIndex = slot;
+            rowSelectButtons.add(addClippedWidget(UiButton.builder(DSKeyLang.ScreenSelect.copy(),
+                            button -> selectRow(slotIndex))
+                    .bounds(new UiLayout.Rect(actions.selectLeft(), buttonY, actions.selectWidth(), ACTION_HEIGHT))
+                    .variant(UiButton.Variant.SECONDARY).build()));
+            rowInstancesButtons.add(addClippedWidget(UiButton.builder(DSKeyLang.ScreenInstances.copy(),
+                            button -> openInstancesRow(slotIndex))
+                    .bounds(new UiLayout.Rect(actions.instancesLeft(), buttonY, actions.instancesWidth(),
+                            ACTION_HEIGHT))
+                    .variant(UiButton.Variant.GHOST).build()));
+        }
+    }
+
+    private void addFooterButtons() {
+        addRenderableWidget(UiButton.builder(CommonComponents.GUI_BACK, button -> minecraft.setScreen(parent))
+                .bounds(backSlot).variant(UiButton.Variant.SECONDARY).icon(FocusEntitySelectorScreen::leftChevron)
+                .build());
+        previousButton = addRenderableWidget(UiButton.builder(DSKeyLang.ScreenPrevious.copy(),
+                        button -> previousPage())
+                .bounds(previousSlot).variant(UiButton.Variant.GHOST).build());
+        nextButton = addRenderableWidget(UiButton.builder(DSKeyLang.ScreenNext.copy(), button -> nextPage())
+                .bounds(nextSlot).variant(UiButton.Variant.PRIMARY).build());
+        addRenderableWidget(UiButton.builder(Component.empty(), button -> minecraft.setScreen(parent))
+                .bounds(closeSlot).variant(UiButton.Variant.GHOST).icon(UiDraw::cross).build());
+    }
+
     @Override
-    public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics);
+    protected void renderContent(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         EntityChoicePage page = ClientStats.entityChoices();
         if(page != null && page != adopted && page.requestId() == requestId
                 && page.slot() == slot && page.typeFilter().equals(Optional.ofNullable(typeFilter))
@@ -197,108 +247,113 @@ public class FocusEntitySelectorScreen extends Screen {
                 return;
             }
             if(page.requestId() == recentRequestId) {
-                if(searchValue().isBlank()) {
-                    recentChoices = page.allowed()
-                            ? page.entries().stream()
-                            .filter(entry -> entry.selector() instanceof EntitySelector.Type)
-                            .limit(RECENT_MENU_ROWS)
-                            .toList()
-                            : List.of();
-                    if(recentChoices.isEmpty()) recentMenuOpen = false;
-                }
+                adoptRecentChoices(page);
                 recentRequestId = -1;
             }
             adopted = page;
             cursor = page.cursor();
-            rowOffset = 0;
+            rowScroll.reset();
             refreshActions();
         }
         if(page != null && (page.requestId() != requestId || page.slot() != slot
                 || !page.typeFilter().equals(Optional.ofNullable(typeFilter)) || page.sort() != sort)) page = null;
+        int entryCount = page == null || !page.allowed() ? 0 : page.entries().size();
+        rowScroll.measure(entryCount * ROW_HEIGHT, listViewport.height());
+        rowScroll.tick();
         updateRowActions(page);
-        int titleY = Mth.clamp(footerFlow().top() - 1, 0, 10);
-        if(footerFlow().top() >= 12) {
-            graphics.drawCenteredString(font, title, width / 2,
-                    Mth.clamp(titleY, 0, Math.max(0, height - 1)), 0xFFFFFFFF);
-        }
+        clipWidgetsTo(listViewport);
+        renderTopBar(graphics, title, null, null, false, 34);
+        renderCard(graphics, listViewport.inset(-8, -6), false);
         rowTooltip = List.of();
         if(page == null || !page.allowed()) {
             if(visibleRows() > 0) {
-                graphics.drawCenteredString(font, DSKeyLang.NoData.copy(), width / 2, listTop(), 0xFFAAAAAA);
+                renderEmptyState(graphics, listViewport, UiDraw::target, DSKeyLang.NoData.copy(),
+                        DSKeyLang.ScreenSearchHint.copy());
             }
         } else {
             renderRows(graphics, page, mouseX, mouseY);
         }
-        renderables.forEach(renderable -> renderable.render(graphics, mouseX, mouseY, partialTick));
-        renderRecentMenu(graphics, mouseX, mouseY);
+        renderFooterHint(graphics);
+    }
+
+    /** 行数超出可视区时在右缘给一条滚动指示。 */
+    private void renderFooterHint(GuiGraphics graphics) {
+        rowScroll.renderIndicator(graphics, new UiLayout.Rect(listViewport.right() - 3, listViewport.y(), 3,
+                listViewport.height()));
+    }
+
+    @Override
+    protected void renderOverlay(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        if(recentMenu != null) recentMenu.render(graphics, mouseX, mouseY);
         if(!rowTooltip.isEmpty()) graphics.renderComponentTooltip(font, rowTooltip, mouseX, mouseY);
     }
 
     private void renderRows(GuiGraphics graphics, EntityChoicePage page, int mouseX, int mouseY) {
-        int rows = Math.min(visibleRows(), page.entries().size() - rowOffset);
-        int bottom = listBottom();
-        if(bottom <= listTop()) return;
-        int left = contentLeft();
-        int right = contentRight();
+        if(listViewport.isEmpty()) return;
         RowActionLayout actions = rowActionLayout();
-        graphics.enableScissor(left, listTop(), right, bottom);
-        for (int row = 0; row < rows; row++) {
-            EntityChoiceView entry = page.entries().get(rowOffset + row);
-            int y = listTop() + row * ROW_HEIGHT;
-            if(isInsideRow(mouseX, mouseY, y)) graphics.fill(left, y, right, y + ROW_HEIGHT - 1, ROW_HOVER);
-            int textWidth = Math.max(1, actions.textRight() - left - 4);
-            graphics.drawString(font, font.plainSubstrByWidth(entry.name().getString(), textWidth),
-                    left + 2, y + 2, 0xFFFFFFFF);
-            if(!entry.detail().getString().isEmpty()) {
-                graphics.drawString(font, font.plainSubstrByWidth(entry.detail().getString(), textWidth),
-                        left + 2, y + 13, 0xFFAAAAAA);
+        int offset = rowScroll.offset();
+        int first = firstEntry();
+        graphics.enableScissor(listViewport.x(), listViewport.y(), listViewport.right(), listViewport.bottom());
+        for(int slot = 0; slot < slotCount(); slot++) {
+            int index = first + slot;
+            if(index < 0 || index >= page.entries().size()) continue;
+            EntityChoiceView entry = page.entries().get(index);
+            int y = listViewport.y() + index * ROW_HEIGHT - offset;
+            if(y + ROW_HEIGHT < listViewport.y() || y > listViewport.bottom()) continue;
+            boolean hovered = isInsideRow(mouseX, mouseY, y);
+            if(hovered) {
+                // 高亮必须落在裁剪区内，否则左右各被切掉一点，圆角只剩半边
+                UiDraw.roundedRect(graphics, listViewport.x(), y, listViewport.width(),
+                        ROW_HEIGHT - 1F, UiTheme.RADIUS_SM, UiTheme.ROW_HOVER);
             }
-            if(isInsideRow(mouseX, mouseY, y)
-                    && (font.width(entry.name()) > textWidth || font.width(entry.detail()) > textWidth)) {
+            int textLeft = listViewport.x() + 4;
+            int textWidth = Math.max(1, actions.textRight() - textLeft - 4);
+            UiText.plain(graphics, Component.literal(font.plainSubstrByWidth(entry.name().getString(), textWidth)),
+                    textLeft, y + 3, hovered ? UiTheme.TEXT_STRONG : UiTheme.TEXT);
+            if(!entry.detail().getString().isEmpty()) {
+                UiText.plain(graphics,
+                        Component.literal(font.plainSubstrByWidth(entry.detail().getString(), textWidth)),
+                        textLeft, y + 14, UiTheme.TEXT_MUTED);
+            }
+            if(hovered && (font.width(entry.name()) > textWidth || font.width(entry.detail()) > textWidth)) {
                 rowTooltip = entry.detail().getString().isEmpty()
                         ? List.of(entry.name()) : List.of(entry.name(), entry.detail());
             }
         }
         graphics.disableScissor();
+        graphics.flush();
     }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if(minecraft == null) return super.mouseClicked(mouseX, mouseY, button);
-        if(button == 0 && recentMenuOpen) {
-            EntityChoiceView recent = recentEntryAt(mouseX, mouseY);
-            if(recent != null) {
-                recentMenuOpen = false;
-                selectionConsumer.accept(recent.selector(), recent.name());
-                minecraft.setScreen(selectionReturnScreen);
-                return true;
-            }
-            if(isInsideRecentMenu(mouseX, mouseY)) {
-                recentMenuOpen = false;
-                return true;
-            }
-            if(recentButton != null && recentButton.isMouseOver(mouseX, mouseY)) {
-                return super.mouseClicked(mouseX, mouseY, button);
-            }
-            recentMenuOpen = false;
+        // 菜单先吃掉落在自己身上的点击；点在别处则收起再继续往下传，按钮自己负责重新展开
+        if(button == 0 && recentMenu != null && recentMenu.isOpen()
+                && !recentMenu.covers(mouseX, mouseY)
+                && !(recentButton != null && recentButton.isMouseOver(mouseX, mouseY))) {
+            recentMenu.close();
         }
+        if(button == 0 && recentMenu != null && recentMenu.mouseClicked(mouseX, mouseY, button)) return true;
         return super.mouseClicked(mouseX, mouseY, button);
     }
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollY) {
-        if(recentMenuOpen) return true;
-        EntityChoicePage page = adopted;
-        if(page == null || mouseY < listTop() || mouseY >= listBottom()) return super.mouseScrolled(mouseX, mouseY, scrollY);
-        int max = Math.max(0, page.entries().size() - visibleRows());
-        rowOffset = Mth.clamp(rowOffset - (int) Math.signum(scrollY), 0, max);
+        if(recentMenu != null && recentMenu.isOpen()) {
+            recentMenu.mouseScrolled(mouseX, mouseY, scrollY);
+            return true;
+        }
+        if(!listViewport.contains(mouseX, mouseY)) {
+            return super.mouseScrolled(mouseX, mouseY, scrollY);
+        }
+        rowScroll.scrollBy(Math.signum(scrollY), ROW_HEIGHT);
         return true;
     }
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if(keyCode == 256 && recentMenuOpen) {
-            recentMenuOpen = false;
+        if(keyCode == 256 && recentMenu != null && recentMenu.isOpen()) {
+            recentMenu.close();
             return true;
         }
         if(keyCode == 257 || keyCode == 335) {
@@ -311,7 +366,7 @@ public class FocusEntitySelectorScreen extends Screen {
     private void requestFirstPage() {
         cursorHistory.clear();
         boolean requestsRecentTypes = typeFilter == null && searchValue().isBlank();
-        recentMenuOpen = false;
+        if(recentMenu != null) recentMenu.close();
         int sentRequestId = request("");
         recentRequestId = requestsRecentTypes ? sentRequestId : -1;
     }
@@ -332,8 +387,49 @@ public class FocusEntitySelectorScreen extends Screen {
     }
 
     private void toggleRecentMenu() {
-        if(recentChoices.isEmpty()) return;
-        recentMenuOpen = !recentMenuOpen;
+        if(recentChoices.isEmpty() || recentButton == null) return;
+        boolean wasOpen = recentMenu != null && recentMenu.isOpen();
+        // 每次展开都按最新的最近类型重建，关闭状态下点按钮才重新弹出
+        rebuildRecentMenu();
+        if(!wasOpen && recentMenu != null) {
+            recentMenu.open(new UiLayout.Rect(recentButton.getX(), recentButton.getY(),
+                    recentButton.getWidth(), recentButton.getHeight()));
+        }
+    }
+
+    private static void downChevron(GuiGraphics graphics, float centerX, float centerY, float size,
+                                    float thickness, int color) {
+        UiDraw.chevronVertical(graphics, centerX, centerY, size * 0.6F, thickness, 1, color);
+    }
+
+    private static void leftChevron(GuiGraphics graphics, float centerX, float centerY, float size,
+                                    float thickness, int color) {
+        UiDraw.chevron(graphics, centerX, centerY, size * 0.6F, thickness, -1, color);
+    }
+
+    /** 最近类型每帧都可能变化，展开时按当前内容重建一次菜单。 */
+    private void rebuildRecentMenu() {
+        if(recentButton == null) return;
+        List<UiPopupMenu.Item> items = new ArrayList<>(recentChoices.size());
+        for(EntityChoiceView choice : recentChoices) {
+            items.add(new UiPopupMenu.Item(choice.name(), UiDraw::database, () -> {
+                selectionConsumer.accept(choice.selector(), choice.name());
+                if(minecraft != null) minecraft.setScreen(selectionReturnScreen);
+            }));
+        }
+        recentMenu = new UiPopupMenu(items, width, height);
+    }
+
+    private void adoptRecentChoices(EntityChoicePage page) {
+        if(searchValue().isBlank()) {
+            recentChoices = page.allowed()
+                    ? page.entries().stream()
+                    .filter(entry -> entry.selector() instanceof EntitySelector.Type)
+                    .limit(RECENT_MENU_ROWS)
+                    .toList()
+                    : List.of();
+            if(recentChoices.isEmpty() && recentMenu != null) recentMenu.close();
+        }
     }
 
     private void nextPage() {
@@ -351,7 +447,7 @@ public class FocusEntitySelectorScreen extends Screen {
     private int request(String newCursor) {
         cursor = newCursor == null ? "" : newCursor;
         adopted = null;
-        rowOffset = 0;
+        rowScroll.reset();
         recentRequestId = -1;
         requestId = ClientStats.nextEntityChoiceRequestId();
         DSPackets.sendToServer(new EntityChoiceRequestPacket(slot, Optional.ofNullable(typeFilter), searchValue(),
@@ -364,59 +460,54 @@ public class FocusEntitySelectorScreen extends Screen {
         return searchBox == null ? "" : searchBox.getValue();
     }
 
-    private void selectRow(int row) {
+    private void selectRow(int slotIndex) {
         if(minecraft == null) return;
-        EntityChoiceView entry = entryAtRow(row);
+        EntityChoiceView entry = entryAtSlot(slotIndex);
         if(entry == null) return;
         selectionConsumer.accept(entry.selector(), entry.name());
         minecraft.setScreen(selectionReturnScreen);
     }
 
-    private void openInstancesRow(int row) {
+    private void openInstancesRow(int slotIndex) {
         if(minecraft == null) return;
-        EntityChoiceView entry = entryAtRow(row);
-        if(entry == null || !(entry.selector() instanceof EntitySelector.Type type)) return;
+        EntityChoiceView entry = entryAtSlot(slotIndex);
+        if(!(entry != null && entry.selector() instanceof EntitySelector.Type type)) return;
         ResourceLocation typeId = type.typeId();
         minecraft.setScreen(new FocusEntitySelectorScreen(this, selectionReturnScreen, slot, typeId,
                 contextFilter, selectionConsumer));
     }
 
-    private @Nullable EntityChoiceView entryAtRow(int row) {
-        EntityChoicePage page = adopted;
-        if(page == null || row < 0 || row >= Math.min(visibleRows(), page.entries().size() - rowOffset)) {
-            return null;
-        }
-        return page.entries().get(rowOffset + row);
+    /** 当前偏移对应的第一行条目下标。 */
+    private int firstEntry() {
+        return Math.max(0, rowScroll.offset() / ROW_HEIGHT);
     }
 
-    private void addRowActionButtons() {
-        RowActionLayout actions = rowActionLayout();
-        int rows = visibleRows();
-        for(int row = 0; row < rows; row++) {
-            int buttonY = listTop() + row * ROW_HEIGHT + (ROW_HEIGHT - ACTION_HEIGHT) / 2;
-            int visibleRow = row;
-            rowSelectButtons.add(addRenderableWidget(Button.builder(DSKeyLang.ScreenSelect.copy(),
-                            button -> selectRow(visibleRow))
-                    .bounds(actions.selectLeft(), buttonY, actions.selectWidth(), ACTION_HEIGHT).build()));
-            rowInstancesButtons.add(addRenderableWidget(Button.builder(DSKeyLang.ScreenInstances.copy(),
-                            button -> openInstancesRow(visibleRow))
-                    .bounds(actions.instancesLeft(), buttonY, actions.instancesWidth(), ACTION_HEIGHT).build()));
-        }
+    private @Nullable EntityChoiceView entryAtSlot(int slot) {
+        EntityChoicePage page = adopted;
+        if(page == null || slot < 0) return null;
+        int index = firstEntry() + slot;
+        return index >= 0 && index < page.entries().size() ? page.entries().get(index) : null;
     }
 
     private void updateRowActions(@Nullable EntityChoicePage page) {
         RowActionLayout actions = rowActionLayout();
-        int rows = Mth.clamp(page == null || !page.allowed() ? 0 : page.entries().size() - rowOffset,
-                0, rowSelectButtons.size());
-        for(int row = 0; row < rowSelectButtons.size(); row++) {
-            Button select = rowSelectButtons.get(row);
-            Button instances = rowInstancesButtons.get(row);
-            boolean rowVisible = row < rows;
-            EntityChoiceView entry = rowVisible && page != null
-                    ? page.entries().get(rowOffset + row) : null;
-            boolean showInstances = entry != null && actions.supportsInstances() && entry.selector() instanceof EntitySelector.Type;
+        int offset = rowScroll.offset();
+        int first = firstEntry();
+        for(int slot = 0; slot < rowSelectButtons.size(); slot++) {
+            UiButton select = rowSelectButtons.get(slot);
+            UiButton instances = rowInstancesButtons.get(slot);
+            EntityChoiceView entry = page == null || !page.allowed() ? null : entryAtSlot(slot);
+            // 按钮跟着行走，并且只在行真的落在可视区里才出现
+            int buttonY = listViewport.y() + (first + slot) * ROW_HEIGHT - offset
+                    + (ROW_HEIGHT - ACTION_HEIGHT) / 2;
+            boolean rowVisible = entry != null
+                    && buttonY + ACTION_HEIGHT > listViewport.y() && buttonY < listViewport.bottom();
+            boolean showInstances = rowVisible && actions.supportsInstances()
+                    && entry.selector() instanceof EntitySelector.Type;
+            select.setY(buttonY);
             select.visible = rowVisible;
             select.active = rowVisible;
+            instances.setY(buttonY);
             instances.visible = showInstances;
             instances.active = showInstances;
         }
@@ -428,133 +519,28 @@ public class FocusEntitySelectorScreen extends Screen {
         if(nextButton != null) nextButton.active = page != null && page.hasNext();
         if(recentButton != null) {
             recentButton.active = !recentChoices.isEmpty();
-            if(!recentButton.active) recentMenuOpen = false;
+            if(!recentButton.active && recentMenu != null) recentMenu.close();
         }
-    }
-
-    private void renderRecentMenu(GuiGraphics graphics, int mouseX, int mouseY) {
-        if(!recentMenuOpen || recentButton == null) return;
-        RecentMenuLayout layout = recentMenuLayout();
-        List<EntityChoiceView> entries = recentEntries(layout);
-        if(entries.isEmpty()) return;
-        int left = layout.left();
-        int top = layout.top();
-        int right = left + layout.width();
-        int bottom = top + layout.height();
-        // 先提交底层列表，避免弹窗背景与列表文字在不同缓冲区中重新排序后发生穿透。
-        graphics.flush();
-        graphics.pose().pushPose();
-        graphics.pose().translate(0, 0, 1000);
-        graphics.fill(left - 1, top - 1, right + 1, bottom + 1, 0xFF111418);
-        graphics.fill(left, top, right, bottom, 0xFF20262C);
-        graphics.flush();
-        for(int index = 0; index < entries.size(); index++) {
-            EntityChoiceView entry = entries.get(index);
-            int y = top + index * ROW_HEIGHT;
-            boolean hovered = mouseX >= left && mouseX < right && mouseY >= y && mouseY < y + ROW_HEIGHT;
-            if(hovered) graphics.fill(left, y, right, y + ROW_HEIGHT, ROW_HOVER);
-            int horizontalPadding = Mth.clamp((layout.width() - 1) / 2, 0, 3);
-            int textWidth = Math.max(0, layout.width() - horizontalPadding * 2);
-            if(textWidth > 0) {
-                graphics.drawString(font, font.plainSubstrByWidth(entry.name().getString(), textWidth),
-                        left + horizontalPadding, y + 6, 0xFFFFFFFF);
-            }
-            if(hovered && font.width(entry.name()) > textWidth) rowTooltip = List.of(entry.name());
-        }
-        graphics.fill(left, top, right, Math.min(bottom, top + 1), 0xFF505A64);
-        graphics.fill(left, Math.max(top, bottom - 1), right, bottom, 0xFF505A64);
-        graphics.fill(left, top, Math.min(right, left + 1), bottom, 0xFF505A64);
-        graphics.fill(Math.max(left, right - 1), top, right, bottom, 0xFF505A64);
-        graphics.flush();
-        graphics.pose().popPose();
-    }
-
-    private List<EntityChoiceView> recentEntries(RecentMenuLayout layout) {
-        if(layout.rows() == 0) return List.of();
-        return recentChoices.subList(0, layout.rows());
-    }
-
-    private @Nullable EntityChoiceView recentEntryAt(double mouseX, double mouseY) {
-        RecentMenuLayout layout = recentMenuLayout();
-        if(!isInsideRecentMenu(mouseX, mouseY, layout)) return null;
-        int index = (int) ((mouseY - layout.top()) / ROW_HEIGHT);
-        List<EntityChoiceView> entries = recentEntries(layout);
-        return index >= 0 && index < entries.size() ? entries.get(index) : null;
-    }
-
-    private boolean isInsideRecentMenu(double mouseX, double mouseY) {
-        return isInsideRecentMenu(mouseX, mouseY, recentMenuLayout());
-    }
-
-    private boolean isInsideRecentMenu(double mouseX, double mouseY, RecentMenuLayout layout) {
-        return mouseX >= layout.left() && mouseX < layout.left() + layout.width()
-                && mouseY >= layout.top() && mouseY < layout.top() + layout.height();
-    }
-
-    @Override
-    public void renderBackground(GuiGraphics graphics) {
-        graphics.fill(0, 0, width, height, BACKGROUND);
-    }
-
-    private RecentMenuLayout recentMenuLayout() {
-        int availableWidth = Math.max(1, contentRight() - contentLeft());
-        int menuWidth = Math.min(RECENT_MENU_WIDTH, availableWidth);
-        int preferredLeft = recentButton == null ? contentLeft() : recentButton.getX();
-        int menuLeft = Mth.clamp(preferredLeft, contentLeft(), contentRight() - menuWidth);
-        if(recentButton == null || typeFilter != null || recentChoices.isEmpty()) {
-            return new RecentMenuLayout(menuLeft, 0, menuWidth, 0);
-        }
-        int desiredRows = Math.min(RECENT_MENU_ROWS, recentChoices.size());
-        int buttonTop = recentButton.getY();
-        int belowTop = buttonTop + recentButton.getHeight() + 2;
-        int aboveBottom = Math.max(0, buttonTop - 2);
-        int belowRows = Mth.clamp(desiredRows, 0, Math.max(0, height - belowTop) / ROW_HEIGHT);
-        int aboveRows = Math.min(desiredRows, aboveBottom / ROW_HEIGHT);
-        if(belowRows >= aboveRows) return new RecentMenuLayout(menuLeft, belowTop, menuWidth, belowRows);
-        return new RecentMenuLayout(menuLeft, aboveBottom - aboveRows * ROW_HEIGHT, menuWidth, aboveRows);
     }
 
     private int visibleRows() {
-        return Math.max(0, (listBottom() - listTop() - 6) / ROW_HEIGHT);
+        return Math.max(0, (listViewport.height() - 6) / ROW_HEIGHT);
+    }
+
+    /** 槽位比整行数多一个，平滑滚动时半露的那一行也有对应的行按钮。 */
+    private int slotCount() {
+        return visibleRows() + 1;
     }
 
     private boolean isInsideRow(double mouseX, double mouseY, int y) {
-        return mouseX >= contentLeft() && mouseX <= contentRight() && mouseY >= y && mouseY < y + ROW_HEIGHT - 1
-                && y >= listTop() && y + ROW_HEIGHT - 1 <= listBottom();
-    }
-
-    private int listTop() {
-        int searchTop = searchTop();
-        int preferredTop = searchTop >= 0 ? searchTop + 28 : 24;
-        int bottom = listBottom();
-        if(bottom - preferredTop < ROW_HEIGHT + 6) return bottom;
-        return Mth.clamp(preferredTop, 0, Math.max(0, bottom - 1));
-    }
-
-    private int listBottom() {
-        return Math.max(0, footerFlow().top() - 6);
-    }
-
-    private int searchTop() {
-        int bottom = footerFlow().top();
-        return bottom >= 48 ? Mth.clamp(bottom - 22, 0, TOP - 28) : -1;
-    }
-
-    private int contentLeft() {
-        return Mth.clamp((width - 1) / 2, 0, SIDE);
-    }
-
-    private int contentRight() {
-        return Math.max(contentLeft() + 1, width - contentLeft());
-    }
-
-    private int contentWidth() {
-        return Math.max(1, width - contentLeft() * 2);
+        return mouseX >= listViewport.x() && mouseX <= listViewport.right()
+                && mouseY >= y && mouseY < y + ROW_HEIGHT - 1
+                && y >= listViewport.y() && y + ROW_HEIGHT - 1 <= listViewport.bottom();
     }
 
     private RowActionLayout rowActionLayout() {
-        int left = contentLeft();
-        int right = contentRight();
+        int left = listViewport.x();
+        int right = listViewport.right();
         int available = Math.max(1, right - left);
         int selectWidth = Mth.clamp(available / 4, 1, 56);
         int preferredInstancesWidth = Mth.clamp(available / 3, 1, 76);
@@ -568,18 +554,8 @@ public class FocusEntitySelectorScreen extends Screen {
         return new RowActionLayout(selectLeft, selectWidth, instancesLeft, instancesWidth, textRight);
     }
 
-    private ScreenLayout.Flow footerFlow() {
-        return ScreenLayout.bottomFlow(width, height, SIDE, 20, 4, 6, 80, 72, 72);
-    }
-
-    private record RecentMenuLayout(int left, int top, int width, int rows) {
-        private int height() {
-            return rows * ROW_HEIGHT;
-        }
-    }
-
     private static Component titleFor(FocusSelectionSlot slot) {
-        return switch (slot) {
+        return switch(slot) {
             case SOURCE -> DSKeyLang.FilterSource.get(Component.empty());
             case TARGET -> DSKeyLang.FilterTarget.get(Component.empty());
             case DIRECT_SOURCE -> DSKeyLang.FilterDirect.get(Component.empty());

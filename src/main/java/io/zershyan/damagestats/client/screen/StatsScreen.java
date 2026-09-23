@@ -3,6 +3,7 @@ package io.zershyan.damagestats.client.screen;
 import io.zershyan.damagestats.client.ClientExportManager;
 import io.zershyan.damagestats.client.ClientFocusPreferences;
 import io.zershyan.damagestats.client.ClientStats;
+import io.zershyan.damagestats.client.ui.*;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
 import io.zershyan.damagestats.registry.DSPackets;
 import io.zershyan.damagestats.registry.packet.*;
@@ -15,12 +16,11 @@ import io.zershyan.damagestats.stats.view.FocusChartInstancesPage;
 import io.zershyan.damagestats.stats.view.FocusChartPage;
 import io.zershyan.damagestats.stats.view.FocusSummary;
 import io.zershyan.damagestats.stats.view.GroupView;
+import io.zershyan.damagestats.util.LazyComponent;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import org.jetbrains.annotations.NotNull;
@@ -28,24 +28,29 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-/** 全屏焦点仪表盘：页头即时更新，页间统一滚动，图表和历史数据按需请求。 */
+/** 全屏焦点仪表盘：左侧收纳筛选与视图设置，右侧是一张可下钻、可展开的图表卡片。 */
 @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
-public class StatsScreen extends Screen {
-    private static final int SIDE = 14;
-    private static final int LINE_HEIGHT = 12;
-    private static final int ROW_HEIGHT = 20;
-    private static final int CONTENT_GAP = 8;
-    private static final int MIN_CONTENT_HEIGHT = 30;
+public class StatsScreen extends UiScreen {
+    private static final int SIDEBAR_WIDTH = 118;
+    /** 低于这个宽度就改用顶部换行布局：再窄下去图表卡片会被侧栏压到放不下一行分页签。 */
+    private static final int SIDEBAR_MIN_SCREEN_WIDTH = 380;
+    private static final int SIDEBAR_MIN_BODY_HEIGHT = 100;
+    private static final int ROW_HEIGHT = 18;
+    private static final int LABEL_LINE = 11;
+    private static final int BAR_HEIGHT = 5;
+    private static final int LINE_HEIGHT = 11;
+    private static final int CARD_HEADER_HEIGHT = 24;
+    private static final int CHIP_ROW_HEIGHT = 16;
+    private static final int SIDEBAR_SECTION_HEIGHT = 11;
+    private static final int SIDEBAR_ROW_HEIGHT = 16;
+    private static final int SIDEBAR_ROW_GAP = 3;
+    /** 图表右侧三列的期望宽度。固定列宽 + 右对齐，数字才能在行与行之间对齐 */
+    private static final int DAMAGE_COLUMN = 52;
+    private static final int SHARE_COLUMN = 34;
+    private static final int HITS_COLUMN = 36;
     private static final int FOCUS_STATE_REQUEST_ID = 0;
-    private static final int BACKGROUND = 0xFF15181C;
-    private static final int HEADER = 0xFF20262C;
-    private static final int BORDER = 0xFF505A64;
-    private static final int BAR = 0xFF2F8FA3;
-    private static final int BAR_HOVER = 0xFF49B4C5;
-    private static final int MUTED = 0xFFACB8C2;
-    private static final int TEXT = 0xFFFFFFFF;
-    private static final int ACCENT = 0xFF55D6E8;
     private static final ResourceLocation PLAYER_TYPE = new ResourceLocation("minecraft", "player");
+    private static final FocusChartDimension[] DIMENSIONS = FocusChartDimension.values();
 
     private FocusChartDimension dimension = FocusChartDimension.DAMAGE_TYPE;
     private FocusChartScope chartScope = FocusChartScope.LIFETIME;
@@ -54,7 +59,11 @@ public class StatsScreen extends Screen {
     private String chartCursor = "";
     private final List<String> chartCursorHistory = new ArrayList<>();
     private int chartRequestId;
-    private int contentScrollOffset;
+    private final UiScroll contentScroll = new UiScroll();
+    private final UiScroll sidebarScroll = new UiScroll();
+    /** 侧栏控件已经搬到的偏移，用来算这一帧还要再挪多少 */
+    private int sidebarAppliedOffset;
+    private final List<AbstractWidget> sidebarWidgets = new ArrayList<>();
     private final Set<FilterKey> expandedChartParents = new HashSet<>();
     private Optional<EntitySelector> browsingSource = Optional.empty();
     private Optional<EntitySelector> browsingTarget = Optional.empty();
@@ -72,25 +81,26 @@ public class StatsScreen extends Screen {
     private @Nullable FocusChartPage adopted;
     private List<Component> chartTooltip = List.of();
     private List<Component> headerTooltip = List.of();
-    private @Nullable Button sourceButton;
-    private @Nullable Button targetButton;
-    private @Nullable Button dimensionButton;
-    private @Nullable Button scopeButton;
-    private @Nullable Button groupingButton;
-    private @Nullable Button setFocusButton;
-    private @Nullable Button clearSourceButton;
-    private @Nullable Button clearTargetButton;
-    private @Nullable Button clearChartFiltersButton;
-    private @Nullable Button previousButton;
-    private @Nullable Button nextButton;
-    private Button refreshButton;
-    private @Nullable Button exportButton;
+
+    private @Nullable UiButton sourceButton;
+    private @Nullable UiButton targetButton;
+    private @Nullable UiButton clearSourceButton;
+    private @Nullable UiButton clearTargetButton;
+    private @Nullable UiButton clearChartFiltersButton;
+    private @Nullable UiButton setFocusButton;
+    private @Nullable UiSegmented dimensionTabs;
+    private @Nullable UiSegmented groupingTabs;
+    private @Nullable UiSegmented scopeTabs;
+    private @Nullable UiButton refreshButton;
+    private @Nullable UiButton previousButton;
+    private @Nullable UiButton nextButton;
+    private @Nullable UiButton actionsButton;
+    private @Nullable UiButton closeButton;
 
     public StatsScreen() {
         super(DSKeyLang.ScreenTitle.copy());
     }
 
-    /** 每次打开统计界面时重新请求焦点摘要，并让当前图表在新摘要到达后重新加载。 */
     public void refreshOnOpen() {
         resetForServerRefresh();
     }
@@ -104,7 +114,7 @@ public class StatsScreen extends Screen {
         chartCursor = new String();
         chartCursorHistory.clear();
         expandedChartParents.clear();
-        contentScrollOffset = 0;
+        contentScroll.reset();
         adopted = null;
         browsingSource = Optional.empty();
         browsingTarget = Optional.empty();
@@ -116,115 +126,129 @@ public class StatsScreen extends Screen {
         browsingDirectSourceName = Component.empty();
         browsingDamageTypeName = Component.empty();
         ClientStats.clearChartInstances();
-        chartTooltip = List.of();
-        headerTooltip = List.of();
         requestFocusState();
+    }
+
+    private void requestFocusState() {
+        if(focusStateRequested) return;
+        focusStateRequested = true;
+        DSPackets.sendToServer(new FocusStateRequestPacket(FOCUS_STATE_REQUEST_ID));
     }
 
     @Override
     protected void init() {
         if(!browsingInitialized) ClientStats.expectFocusState();
         PageLayout layout = layout();
-        addHeaderButtons(layout);
-        addFooterButtons(layout);
+        addSidebarWidgets(layout);
+        addCardWidgets(layout);
+        addCloseButton(layout);
         if(!focusStateRequested) {
             requestFocusState();
         }
         refreshButtons();
     }
 
-    private void addHeaderButtons(PageLayout layout) {
+    // ------------------------------------------------------------------ 控件装配
+
+    private void addSidebarWidgets(PageLayout layout) {
         if(minecraft == null) return;
-        ScreenLayout.Bounds sourceBounds = layout.topRow().get(0);
-        ScreenLayout.Bounds targetBounds = layout.topRow().get(1);
-        ScreenLayout.Bounds focusBounds = layout.topRow().get(2);
-        ScreenLayout.Bounds actionsBounds = layout.topRow().get(3);
-        sourceButton = addRenderableWidget(Button.builder(Component.empty(), button ->
+        sidebarWidgets.clear();
+        sidebarAppliedOffset = 0;
+        UiLayout.Rect sourceRow = layout.row(ROW_SOURCE);
+        UiLayout.Rect targetRow = layout.row(ROW_TARGET);
+        List<UiLayout.Rect> splitSource = UiLayout.row(sourceRow, 2, UiLayout.FILL, 16);
+        List<UiLayout.Rect> splitTarget = UiLayout.row(targetRow, 2, UiLayout.FILL, 16);
+
+        sourceButton = addSidebarWidget(UiButton.builder(Component.empty(), button ->
                         minecraft.setScreen(new FocusEntitySelectorScreen(this, FocusSelectionSlot.SOURCE,
                                 browsingFilter(), this::setBrowsingSource)))
-                .bounds(sourceBounds.x(), sourceBounds.y(), sourceBounds.width(), sourceBounds.height()).build());
-        targetButton = addRenderableWidget(Button.builder(Component.empty(), button ->
+                .bounds(splitSource.get(0)).variant(UiButton.Variant.SECONDARY)
+                .align(UiButton.Align.LEFT).icon(UiDraw::target).build());
+        clearSourceButton = addSidebarWidget(UiButton.builder(Component.empty(), button -> clearSource())
+                .bounds(splitSource.get(1)).variant(UiButton.Variant.GHOST)
+                .icon(UiDraw::cross).build());
+        targetButton = addSidebarWidget(UiButton.builder(Component.empty(), button ->
                         minecraft.setScreen(new FocusEntitySelectorScreen(this, FocusSelectionSlot.TARGET,
                                 browsingFilter(), this::setBrowsingTarget)))
-                    .bounds(targetBounds.x(), targetBounds.y(), targetBounds.width(), targetBounds.height()).build());
-        setFocusButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenSetFocus.copy(), button ->
+                .bounds(splitTarget.get(0)).variant(UiButton.Variant.SECONDARY)
+                .align(UiButton.Align.LEFT).icon(UiDraw::target).build());
+        clearTargetButton = addSidebarWidget(UiButton.builder(Component.empty(), button -> clearTarget())
+                .bounds(splitTarget.get(1)).variant(UiButton.Variant.GHOST)
+                .icon(UiDraw::cross).build());
+        clearChartFiltersButton = addSidebarWidget(UiButton.builder(DSKeyLang.ScreenClearChartFilters.copy(),
+                        button -> clearChartFilters())
+                .bounds(layout.row(ROW_CHART_FILTER)).variant(UiButton.Variant.GHOST).align(UiButton.Align.LEFT)
+                .icon(UiDraw::funnel).build());
+        setFocusButton = addSidebarWidget(UiButton.builder(DSKeyLang.ScreenSetFocus.copy(), button ->
                         ClientFocusPreferences.requestFocus(browsingSource, browsingTarget,
                                 browsingSourceIsDirectSource))
-                        .bounds(focusBounds.x(), focusBounds.y(), focusBounds.width(), focusBounds.height()).build());
-        addRenderableWidget(Button.builder(DSKeyLang.ScreenActions.copy(), button ->
+                .bounds(layout.row(ROW_FOCUS)).variant(UiButton.Variant.PRIMARY).icon(UiDraw::target).build());
+
+        groupingTabs = addSidebarWidget(new UiSegmented(layout.row(ROW_GROUPING), List.of(
+                new UiSegmented.Option(DSKeyLang.ScreenGroupingCategory.copy()),
+                new UiSegmented.Option(DSKeyLang.ScreenGroupingRegistry.copy())), 0, true,
+                index -> {
+                    DamageTypeGrouping next = index == 0 ? DamageTypeGrouping.CATEGORY : DamageTypeGrouping.REGISTRY;
+                    if(typeGrouping == next) return;
+                    typeGrouping = next;
+                    requestFirstChart();
+                }));
+        scopeTabs = addSidebarWidget(new UiSegmented(layout.row(ROW_SCOPE), List.of(
+                new UiSegmented.Option(DSKeyLang.ScopeSession.copy()),
+                new UiSegmented.Option(DSKeyLang.ScopeLifetime.copy())), 0, true,
+                index -> {
+                    FocusChartScope next = index == 0 ? FocusChartScope.SESSION : FocusChartScope.LIFETIME;
+                    if(chartScope == next) return;
+                    chartScope = next;
+                    requestFirstChart();
+                }));
+
+        actionsButton = addSidebarWidget(UiButton.builder(DSKeyLang.ScreenActions.copy(), button ->
                         minecraft.setScreen(new StatsActionsScreen(this)))
-                .bounds(actionsBounds.x(), actionsBounds.y(), actionsBounds.width(), actionsBounds.height()).build());
-
-        ScreenLayout.Bounds clearSourceBounds = layout.middleRow().get(0);
-        ScreenLayout.Bounds clearTargetBounds = layout.middleRow().get(1);
-        ScreenLayout.Bounds overlayBounds = layout.middleRow().get(2);
-        ScreenLayout.Bounds exportBounds = layout.middleRow().get(3);
-        ScreenLayout.Bounds clearFiltersBounds = layout.middleRow().get(4);
-        clearSourceButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenClearSource.copy(), button -> clearSource())
-                .bounds(clearSourceBounds.x(), clearSourceBounds.y(), clearSourceBounds.width(), clearSourceBounds.height()).build());
-        clearTargetButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenClearTarget.copy(), button -> clearTarget())
-                .bounds(clearTargetBounds.x(), clearTargetBounds.y(), clearTargetBounds.width(), clearTargetBounds.height()).build());
-        addRenderableWidget(Button.builder(DSKeyLang.ScreenEditOverlay.copy(), button -> openOverlay())
-                    .bounds(overlayBounds.x(), overlayBounds.y(), overlayBounds.width(), overlayBounds.height()).build());
-        exportButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenExport.copy(), button -> requestExport())
-                    .bounds(exportBounds.x(), exportBounds.y(), exportBounds.width(), exportBounds.height()).build());
-        clearChartFiltersButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenClearChartFilters.copy(),
-                        button -> clearChartFilters())
-                    .bounds(clearFiltersBounds.x(), clearFiltersBounds.y(), clearFiltersBounds.width(), clearFiltersBounds.height()).build());
-
-        ScreenLayout.Bounds dimensionBounds = layout.toolbar().get(0);
-        ScreenLayout.Bounds scopeBounds = layout.toolbar().get(1);
-        ScreenLayout.Bounds groupingBounds = layout.toolbar().get(2);
-        ScreenLayout.Bounds refreshBounds = layout.toolbar().get(3);
-        ScreenLayout.Bounds previousBounds = layout.toolbar().get(4);
-        ScreenLayout.Bounds nextBounds = layout.toolbar().get(5);
-        dimensionButton = addRenderableWidget(Button.builder(Component.empty(), button -> {
-                    cycleDimension();
-                    requestFirstChart();
-                })
-                    .bounds(dimensionBounds.x(), dimensionBounds.y(), dimensionBounds.width(), dimensionBounds.height()).build());
-        scopeButton = addRenderableWidget(Button.builder(Component.empty(), button -> {
-                    chartScope = chartScope == FocusChartScope.SESSION
-                            ? FocusChartScope.LIFETIME : FocusChartScope.SESSION;
-                    requestFirstChart();
-                })
-                    .bounds(scopeBounds.x(), scopeBounds.y(), scopeBounds.width(), scopeBounds.height()).build());
-        groupingButton = addRenderableWidget(Button.builder(Component.empty(), button -> {
-                    typeGrouping = typeGrouping.next();
-                    requestFirstChart();
-                })
-                    .bounds(groupingBounds.x(), groupingBounds.y(), groupingBounds.width(), groupingBounds.height()).build());
-        refreshButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenRefresh.copy(), button -> requestChart(chartCursor))
-                    .bounds(refreshBounds.x(), refreshBounds.y(), refreshBounds.width(), refreshBounds.height()).build());
-        previousButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenPrevious.copy(), button -> previousChartPage())
-                    .bounds(previousBounds.x(), previousBounds.y(), previousBounds.width(), previousBounds.height()).build());
-        nextButton = addRenderableWidget(Button.builder(DSKeyLang.ScreenNext.copy(), button -> nextChartPage())
-                    .bounds(nextBounds.x(), nextBounds.y(), nextBounds.width(), nextBounds.height()).build());
+                .bounds(layout.row(ROW_ACTIONS)).variant(UiButton.Variant.OUTLINE)
+                .align(UiButton.Align.LEFT).icon(UiDraw::ellipsis).build());
     }
 
-    private void addFooterButtons(PageLayout layout) {
-        FooterLayout footer = layout.footer();
-        if(footer.reset() != null) {
-            ScreenLayout.Bounds resetBounds = footer.reset();
-            addRenderableWidget(Button.builder(DSKeyLang.ScreenReset.copy(), button -> openResetConfirmation())
-                    .bounds(resetBounds.x(), resetBounds.y(), resetBounds.width(), resetBounds.height()).build());
-        }
-        if(footer.resetAll() != null) {
-            ScreenLayout.Bounds resetAllBounds = footer.resetAll();
-            addRenderableWidget(Button.builder(DSKeyLang.ScreenResetAll.copy(), button -> openGlobalResetConfirmation())
-                    .bounds(resetAllBounds.x(), resetAllBounds.y(), resetAllBounds.width(), resetAllBounds.height()).build());
-        }
-        ScreenLayout.Bounds doneBounds = footer.done();
-        addRenderableWidget(Button.builder(CommonComponents.GUI_DONE, button -> onClose())
-                .bounds(doneBounds.x(), doneBounds.y(), doneBounds.width(), doneBounds.height()).build());
+    /** 侧栏控件既要跟着滚动搬位置，也要被裁剪到侧栏范围内，所以统一从这里加。 */
+    private <T extends AbstractWidget> T addSidebarWidget(T widget) {
+        sidebarWidgets.add(widget);
+        return addClippedWidget(widget);
     }
+
+    private void addCardWidgets(PageLayout layout) {
+        if(minecraft == null) return;
+        List<UiSegmented.Option> options = new ArrayList<>(DIMENSIONS.length);
+        for(FocusChartDimension candidate : DIMENSIONS) {
+            options.add(new UiSegmented.Option(dimensionLabel(candidate), null, supportsDimension(candidate)));
+        }
+        // 标签页样式（pill=false）：只有一条底线 + 会滑动的指示条，是网页里最常见的一级导航
+        dimensionTabs = addRenderableWidget(new UiSegmented(layout.tabs(), options, dimension.ordinal(), false,
+                index -> selectDimension(DIMENSIONS[index])));
+
+        List<UiLayout.Rect> pager = layout.pager();
+        refreshButton = addRenderableWidget(UiButton.builder(Component.empty(), button -> requestChart(chartCursor))
+                .bounds(pager.get(0)).variant(UiButton.Variant.GHOST).icon(UiDraw::refresh).build());
+        previousButton = addRenderableWidget(UiButton.builder(Component.empty(), button -> previousChartPage())
+                .bounds(pager.get(1)).variant(UiButton.Variant.GHOST).icon(
+                        (graphics, cx, cy, size, thickness, color) ->
+                                UiDraw.chevron(graphics, cx, cy, size * 0.6F, thickness, -1, color)).build());
+        nextButton = addRenderableWidget(UiButton.builder(Component.empty(), button -> nextChartPage())
+                .bounds(pager.get(2)).variant(UiButton.Variant.GHOST).icon(
+                        (graphics, cx, cy, size, thickness, color) ->
+                                UiDraw.chevron(graphics, cx, cy, size * 0.6F, thickness, 1, color)).build());
+    }
+
+    private void addCloseButton(PageLayout layout) {
+        if(minecraft == null) return;
+        closeButton = addRenderableWidget(UiButton.builder(Component.empty(), button -> onClose())
+                .bounds(layout.closeButton()).variant(UiButton.Variant.GHOST).icon(UiDraw::cross).build());
+    }
+
+    // ------------------------------------------------------------------ 渲染
 
     @Override
-    public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics);
-        if(ClientStats.consumeSnapshotInvalidation()) {
-            resetForServerRefresh();
-        }
+    protected void renderContent(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        if(ClientStats.consumeSnapshotInvalidation()) resetForServerRefresh();
         FocusSummary summary = ClientStats.summary();
         boolean dataReady = prepareData(summary);
         if(dataReady && summary.scope().version() != chartFocusVersion) {
@@ -234,25 +258,29 @@ public class StatsScreen extends Screen {
         if(dataReady) adoptPages(summary);
 
         PageLayout layout = layout();
+        syncSidebarScroll(layout);
+        clipWidgetsTo(layout.sidebarMode() ? layout.sidebarArea() : null);
         chartTooltip = List.of();
         headerTooltip = List.of();
-        graphics.fill(0, 0, width, height, BACKGROUND);
-        graphics.fill(0, 0, width, layout.headerHeight(), HEADER);
-        graphics.fill(0, layout.footerTop(), width, height, HEADER);
-        if(layout.headerHeight() > 0) graphics.fill(0, layout.headerHeight() - 1, width, layout.headerHeight(), BORDER);
-        if(layout.footerTop() < height) graphics.fill(0, layout.footerTop(), width, layout.footerTop() + 1, BORDER);
+        renderTopBar(graphics, title, browsingInitialized
+                        ? (isCurrentFocus(summary) ? DSKeyLang.ScreenCurrentFocus.copy() : DSKeyLang.ScreenBrowsing.copy())
+                        : null,
+                layout.statusPill(),
+                browsingInitialized && isCurrentFocus(summary));
+        renderSidebar(graphics, layout);
+        renderChartCard(graphics, layout, dataReady, mouseX, mouseY);
+        renderHoverTooltips(mouseX, mouseY);
+    }
 
-        renderHeader(graphics, summary, layout, mouseX, mouseY);
-        if(dataReady) renderContent(graphics, adopted, mouseX, mouseY, layout);
-        else renderLoading(graphics, layout);
-        renderables.forEach(renderable -> renderable.render(graphics, mouseX, mouseY, partialTick));
+    @Override
+    protected void renderOverlay(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         if(!chartTooltip.isEmpty()) graphics.renderComponentTooltip(font, chartTooltip, mouseX, mouseY);
         if(!headerTooltip.isEmpty()) graphics.renderComponentTooltip(font, headerTooltip, mouseX, mouseY);
     }
 
     private boolean prepareData(FocusSummary summary) {
-        if(!ClientStats.hasFocusState()) return false;
         if(!browsingInitialized) {
+            if(!ClientStats.hasFocusState()) return false;
             initializeBrowsing(summary);
             chartFocusVersion = summary.scope().version();
         }
@@ -260,14 +288,6 @@ public class StatsScreen extends Screen {
         dataRequestsStarted = true;
         requestFirstChart();
         return true;
-    }
-
-    private void renderLoading(GuiGraphics graphics, PageLayout layout) {
-        int top = contentTop(layout);
-        int bottom = contentBottom(layout);
-        if(bottom <= top) return;
-        graphics.drawCenteredString(font, DSKeyLang.ScreenLoading.copy(), width / 2,
-                top + Math.max(0, (bottom - top - font.lineHeight) / 2), MUTED);
     }
 
     private void adoptPages(FocusSummary summary) {
@@ -281,134 +301,247 @@ public class StatsScreen extends Screen {
             } else {
                 adopted = page;
                 chartCursor = page.cursor();
-                contentScrollOffset = 0;
+                contentScroll.reset();
                 refreshButtons();
             }
         }
     }
 
-    private void renderHeader(GuiGraphics graphics, FocusSummary summary, PageLayout layout, int mouseX, int mouseY) {
-        Component sourceName = browsingInitialized ? browsingSourceName : summary.scope().sourceName();
-        Component targetName = browsingInitialized ? browsingTargetName : summary.scope().targetName();
-        if(sourceButton != null) {
-            sourceButton.setMessage(DSKeyLang.FilterSource.get(sourceName));
-            appendButtonTooltip(sourceButton, mouseX, mouseY);
-        }
-        if(targetButton != null) {
-            targetButton.setMessage(DSKeyLang.FilterTarget.get(targetName));
-            appendButtonTooltip(targetButton, mouseX, mouseY);
-        }
-        Component state = isCurrentFocus(summary) ? DSKeyLang.ScreenCurrentFocus.copy() : DSKeyLang.ScreenBrowsing.copy();
-        int left = ScreenLayout.left(width, SIDE);
-        int right = ScreenLayout.right(width, SIDE);
-        int titleWidth = font.width(title);
-        int stateWidth = font.width(state);
-        if(layout.headerHeight() >= 14 && right - left >= titleWidth + stateWidth + 12) {
-            graphics.drawString(font, title, left, 4, TEXT);
-            graphics.drawString(font, state, right - stateWidth, 4, ACCENT);
-        } else if(layout.headerHeight() >= 14) {
-            graphics.drawCenteredString(font, truncate(title, Math.max(1, right - left)), width / 2, 4, TEXT);
-        }
-        refreshButtons();
-        renderables.forEach(renderable -> {
-            if(renderable instanceof Button button) appendButtonTooltip(button, mouseX, mouseY);
-        });
-    }
-
-    private void renderContent(GuiGraphics graphics, @Nullable FocusChartPage page,
-                               int mouseX, int mouseY, PageLayout layout) {
-        int top = contentTop(layout);
-        int bottom = contentBottom(layout);
-        if(bottom <= top) return;
-        int chartOffset = chartFilterHeight();
-        renderChartFilters(graphics, top);
-        int totalHeight = chartBlockHeight(page) + CONTENT_GAP;
-        int viewportHeight = bottom - top;
-        contentScrollOffset = Mth.clamp(contentScrollOffset, 0, Math.max(0, totalHeight - viewportHeight));
-
-        int left = ScreenLayout.left(width, SIDE);
-        int right = ScreenLayout.right(width, SIDE);
-        graphics.enableScissor(Math.max(0, left - 2), top, Math.min(width, right + 2), bottom);
-        renderChartAt(graphics, page, chartOffset, mouseX, mouseY, layout);
-        graphics.disableScissor();
-    }
-
-    private void renderChartAt(GuiGraphics graphics, @Nullable FocusChartPage page, int contentOffset,
-                               int mouseX, int mouseY, PageLayout layout) {
-        int left = ScreenLayout.left(width, SIDE);
-        int right = ScreenLayout.right(width, SIDE);
-        int screenTop = contentTop(layout) + contentOffset - contentScrollOffset;
-        graphics.drawString(font, truncate(dimensionLabel(), Math.max(1, right - left)), left, screenTop, ACCENT);
-        int rowTop = screenTop + 16;
-        if(!validChartPage(page)) {
-            graphics.drawString(font, page != null && !page.allowed() ? DSKeyLang.StatsPrivate.copy()
-                    : DSKeyLang.NoData.copy(), left, rowTop, MUTED);
+    /**
+     * 侧栏内容比可视高度高时平滑滚动。控件位置每帧按当前偏移搬移——
+     * 重建控件（clearWidgets + init）做不到逐帧插值，只能搬。
+     */
+    private void syncSidebarScroll(PageLayout layout) {
+        if(!layout.sidebarMode()) {
+            sidebarScroll.measure(0, 0);
             return;
         }
-        List<ChartRow> rows = chartRows(page);
+        sidebarScroll.measure(layout.sidebarContentHeight(), layout.sidebarArea().height());
+        sidebarScroll.tick();
+        int delta = sidebarScroll.offset() - sidebarAppliedOffset;
+        if(delta != 0) {
+            sidebarAppliedOffset = sidebarScroll.offset();
+            for(AbstractWidget widget : sidebarWidgets) {
+                widget.setY(widget.getY() - delta);
+            }
+        }
+        // 滚出侧栏的控件只是被裁剪区遮住，本身仍然 visible、仍然会吃掉鼠标事件，
+        // 必须按侧栏范围把完全滚出去的那些剔除，否则会挡住底下的东西。
+        UiLayout.Rect area = layout.sidebarArea();
+        for(AbstractWidget widget : sidebarWidgets) {
+            widget.visible = widget.getY() + widget.getHeight() > area.y()
+                    && widget.getY() < area.bottom();
+        }
+    }
+
+    /** 侧栏：分组标题 + 控件，标题跟着当前偏移一起搬。 */
+    private void renderSidebar(GuiGraphics graphics, PageLayout layout) {
+        if(!layout.sidebarMode()) return;
+        int offset = sidebarScroll.offset();
+        List<UiLayout.Rect> labels = layout.sectionLabels();
+        renderSectionLabel(graphics, labels.get(0).translated(0, -offset), DSKeyLang.ScreenFilter.copy());
+        renderSectionLabel(graphics, labels.get(1).translated(0, -offset),
+                DSKeyLang.ScreenSectionChart.copy());
+        sidebarScroll.renderIndicator(graphics, layout.sidebarScrollTrack());
+    }
+
+    /** 图表卡片：页头是维度分页签与翻页器，下面是可滚动、可下钻的条形列表。 */
+    private void renderChartCard(GuiGraphics graphics, PageLayout layout, boolean dataReady,
+                                 int mouseX, int mouseY) {
+        UiLayout.Rect card = layout.card();
+        if(card.isEmpty()) return;
+        renderCard(graphics, card, false);
+        UiLayout.Rect header = layout.cardHeader();
+        UiDraw.rectGradient(graphics, header.x() + 1, header.bottom() - 1, header.width() - 2, 1F,
+                UiTheme.alpha(UiTheme.BORDER, 0.9F), UiTheme.alpha(UiTheme.BORDER, 0.25F));
+        graphics.flush();
+
+        UiLayout.Rect viewport = layout.chartViewport();
+        if(viewport.isEmpty()) return;
+        if(chartFilterActive()) renderChartChips(graphics, layout.chipRow());
+        if(!dataReady) {
+            contentScroll.measure(0, 0);
+            renderLoading(graphics, viewport, DSKeyLang.ScreenLoading.copy());
+            return;
+        }
+
+        FocusChartPage page = adopted;
+        List<ChartRow> rows = validChartPage(page) ? chartRows(page) : List.of();
+        contentScroll.measure(Math.max(1, rows.size() * ROW_HEIGHT), viewport.height());
+        contentScroll.tick();
         if(rows.isEmpty()) {
-            graphics.drawString(font, DSKeyLang.NoData.copy(), left, rowTop, MUTED);
+            boolean allowed = page == null || page.allowed();
+            renderEmptyState(graphics, viewport, UiDraw::database,
+                    allowed ? DSKeyLang.NoData.copy() : DSKeyLang.StatsPrivate.copy(),
+                    allowed ? DSKeyLang.ScreenEmptyChartHint.copy() : null);
             return;
         }
-        int contentWidth = Math.max(1, right - left);
-        int maxLabelWidth = Math.max(1, contentWidth - 24);
-        int labelWidth = maxLabelWidth < 36 ? maxLabelWidth
-                : Mth.clamp(contentWidth / 3, 36, maxLabelWidth);
-        int barLeft = Math.min(right - 1, left + labelWidth + 8);
-        int barWidth = Math.max(1, right - barLeft);
-        float maxDamage = 1f;
-        for (ChartRow row : rows) {
+        graphics.enableScissor(viewport.x(), viewport.y(), viewport.right(), viewport.bottom());
+        renderChartRows(graphics, viewport, rows, mouseX, mouseY);
+        graphics.disableScissor();
+        contentScroll.renderIndicator(graphics, layout.chartScrollTrack());
+    }
+
+    /** 图表筛选条件做成只读 chip，清除入口在侧栏，避免同一个动作有两个按钮。 */
+    private void renderChartChips(GuiGraphics graphics, UiLayout.Rect row) {
+        if(row.isEmpty()) return;
+        List<Component> chips = new ArrayList<>(2);
+        if(browsingDirectSource.isPresent()) chips.add(DSKeyLang.FilterDirect.get(browsingDirectSourceName));
+        if(browsingDamageType.isPresent()) chips.add(DSKeyLang.FilterType.get(browsingDamageTypeName));
+        int x = row.x();
+        for(Component chip : chips) {
+            int width = Math.min(font.width(chip) + 16, Math.max(1, row.right() - x));
+            if(width < 18) break;
+            UiDraw.roundedRect(graphics, x, row.y(), width, row.height(), row.height() / 2F, UiTheme.ACCENT_FAINT);
+            UiDraw.roundedBorder(graphics, x + 0.5F, row.y() + 0.5F, width - 1F, row.height() - 1F,
+                    row.height() / 2F, 1F, UiTheme.alpha(UiTheme.ACCENT, 0.4F));
+            UiDraw.circle(graphics, x + 7F, row.centerY(), 2F, UiTheme.ACCENT_BRIGHT);
+            UiText.plain(graphics, truncate(chip, Math.max(1, width - 16)), x + 12,
+                    row.centerY() - UiText.lineHeight() / 2 + 1, UiTheme.ACCENT_BRIGHT);
+            x += width + 4;
+            if(x >= row.right()) break;
+        }
+        graphics.flush();
+    }
+
+    private void renderChartRows(GuiGraphics graphics, UiLayout.Rect viewport, List<ChartRow> rows,
+                                 int mouseX, int mouseY) {
+        // 三列固定宽度、各自右对齐；窗口太窄时按比例压缩，保证标签还有位置
+        float scale = Math.min(1F, (viewport.width() - 46F) / (DAMAGE_COLUMN + SHARE_COLUMN + HITS_COLUMN));
+        int hitsColumn = Math.round(HITS_COLUMN * scale);
+        int shareColumn = Math.round(SHARE_COLUMN * scale);
+        int damageColumn = Math.round(DAMAGE_COLUMN * scale);
+        int hitsRight = viewport.right() - 4;
+        int shareRight = hitsRight - hitsColumn;
+        int damageRight = shareRight - shareColumn;
+        float maxDamage = 1F;
+        for(ChartRow row : rows) {
             GroupView group = row.group();
             if(group != null) maxDamage = Math.max(maxDamage, group.damage());
         }
-        for (int row = 0; row < rows.size(); row++) {
-            ChartRow chartRow = rows.get(row);
-            int y = rowTop + row * ROW_HEIGHT;
-            GroupView group = chartRow.group();
+        int offset = contentScroll.offset();
+        for(int index = 0; index < rows.size(); index++) {
+            ChartRow row = rows.get(index);
+            int y = viewport.y() + index * ROW_HEIGHT - offset;
+            if(y + ROW_HEIGHT < viewport.y() || y > viewport.bottom()) continue;
+            boolean hovered = mouseX >= viewport.x() && mouseX <= viewport.right()
+                    && mouseY >= y && mouseY < y + ROW_HEIGHT && mouseY >= viewport.y()
+                    && mouseY < viewport.bottom();
+            if(hovered) {
+                UiDraw.roundedRect(graphics, viewport.x(), y, viewport.width(), ROW_HEIGHT - 1F,
+                        UiTheme.RADIUS_SM, UiTheme.ROW_HOVER);
+            }
+            GroupView group = row.group();
             if(group == null) {
-                Component marker = switch (chartRow.marker()) {
-                    case LOADING -> DSKeyLang.ScreenLoading.copy();
-                    case EMPTY -> chartRow.allowed() ? DSKeyLang.NoData.copy() : DSKeyLang.StatsPrivate.copy();
-                    case NEXT -> DSKeyLang.ScreenTruncated.copy();
-                    case NONE -> Component.empty();
-                };
-                graphics.drawString(font, marker,
-                        left + chartRow.indent() * 12, y + 5, MUTED);
+                renderMarkerRow(graphics, viewport, row, y);
                 continue;
             }
-            int labelLeft = left + chartRow.indent() * 12;
-            int rowLabelWidth = Math.max(1, labelWidth - chartRow.indent() * 12);
-            int widthForDamage = Mth.clamp(Math.round(barWidth * group.damage() / Math.max(1, maxDamage)), 1, barWidth);
-            boolean hovered = mouseX >= left && mouseX <= right
-                    && mouseY >= y && mouseY < y + ROW_HEIGHT - 2
-                    && mouseY >= contentTop(layout) && mouseY < contentBottom(layout);
-            graphics.fill(barLeft, y + 2, barLeft + widthForDamage, y + ROW_HEIGHT - 3,
-                    hovered ? BAR_HOVER : BAR);
-            Component label = group.name();
-            if(chartRow.indent() == 0 && expandable(group)) {
-                label = Component.literal(expandedChartParents.contains(group.key()) ? "▼ " : "▶ ")
-                        .append(label);
-            }
-            graphics.drawString(font, truncate(label, rowLabelWidth), labelLeft, y + 5, TEXT);
-            Component value = chartValue(group);
-            graphics.drawString(font, truncate(value, Math.max(1, barWidth - 4)), barLeft + 2, y + 5, TEXT);
+            renderGroupRow(graphics, viewport, row, group, y, damageRight, shareRight, hitsRight,
+                    maxDamage, hovered);
             if(hovered) chartTooltip = chartTooltip(group);
+        }
+        graphics.flush();
+    }
+
+    private void renderMarkerRow(GuiGraphics graphics, UiLayout.Rect viewport, ChartRow row, int y) {
+        Component marker = switch(row.marker()) {
+            case LOADING -> DSKeyLang.ScreenLoading.copy();
+            case EMPTY -> row.allowed() ? DSKeyLang.NoData.copy() : DSKeyLang.StatsPrivate.copy();
+            case NEXT -> DSKeyLang.ScreenTruncated.copy();
+            case NONE -> Component.empty();
+        };
+        int indent = row.indent() * 12;
+        boolean actionable = row.marker() == RowMarker.NEXT;
+        UiText.plain(graphics, truncate(marker, Math.max(1, viewport.width() - indent - 8)),
+                viewport.x() + indent + 4, y + 4,
+                actionable ? UiTheme.ACCENT : UiTheme.TEXT_MUTED);
+        if(actionable) {
+            UiDraw.chevronVertical(graphics, viewport.right() - 8F, y + ROW_HEIGHT / 2F - 2F, 7F, 1F, 1,
+                    UiTheme.ACCENT);
         }
     }
 
+    private void renderGroupRow(GuiGraphics graphics, UiLayout.Rect viewport, ChartRow row, GroupView group,
+                                int y, int damageRight, int shareRight, int hitsRight,
+                                float maxDamage, boolean hovered) {
+        int indent = row.indent() * 12;
+        int left = viewport.x() + indent;
+        int textY = y + 1;
+        boolean expandable = row.indent() == 0 && expandable(group);
+        int labelLeft = left + 4;
+        if(expandable) {
+            UiDraw.caret(graphics, left + 6F, textY + LABEL_LINE / 2F, 7F,
+                    expandedChartParents.contains(group.key()) ? 1 : 2, UiTheme.TEXT_MUTED);
+            labelLeft = left + 14;
+        }
+        UiText.plain(graphics, truncate(group.name(), Math.max(1, damageRight - 52 - labelLeft)), labelLeft,
+                textY, row.indent() == 0 ? UiTheme.TEXT : UiTheme.TEXT_SECONDARY);
+        // 伤害值加粗做主数值，占比与命中次数用弱色做辅助列
+        UiText.boldRight(graphics, chartDamage(group), damageRight, textY,
+                hovered ? UiTheme.TEXT_STRONG : UiTheme.TEXT);
+        UiText.right(graphics, chartShare(group), shareRight, textY, UiTheme.TEXT_MUTED);
+        UiText.right(graphics, chartHits(group), hitsRight, textY, UiTheme.TEXT_MUTED);
+
+        int barTop = textY + LABEL_LINE + 1;
+        float barWidth = Math.max(1, viewport.width());
+        UiDraw.roundedRect(graphics, viewport.x(), barTop, barWidth, BAR_HEIGHT, BAR_HEIGHT / 2F,
+                UiTheme.BAR_TRACK);
+        int filled = Mth.clamp(Math.round(barWidth * group.damage() / Math.max(1F, maxDamage)), 1, (int) barWidth);
+        // 子项用中性灰条，和父项强调色区分开，展开后层级一眼可辨
+        int barTopColor = row.indent() == 0
+                ? (hovered ? UiTheme.BAR_HOVER_TOP : UiTheme.BAR_TOP)
+                : UiTheme.BAR_CHILD_TOP;
+        int barBottomColor = row.indent() == 0
+                ? (hovered ? UiTheme.BAR_HOVER_BOTTOM : UiTheme.BAR_BOTTOM)
+                : UiTheme.BAR_CHILD_BOTTOM;
+        UiDraw.roundedRect(graphics, viewport.x(), barTop, filled, BAR_HEIGHT, BAR_HEIGHT / 2F,
+                barTopColor, barBottomColor);
+    }
+
+    /** 三列各自的文本。格式化沿用 DamageStats 统一的 #.# 规则，和重构前的输出一致。 */
+    private static Component chartDamage(GroupView group) {
+        return Component.literal(LazyComponent.number1f(group.damage()));
+    }
+
+    private static Component chartShare(GroupView group) {
+        return Component.literal(LazyComponent.number1f(group.share() * 100) + "%");
+    }
+
+    private static Component chartHits(GroupView group) {
+        return Component.literal("×" + LazyComponent.number1f(group.hitCount()));
+    }
+
+    /** 按钮文字被截断时补一个完整文本提示，避免省略号吃掉信息。 */
+    private void renderHoverTooltips(int mouseX, int mouseY) {
+        // Arrays.asList 允许元素为 null，控件尚未装配完时不会直接抛异常
+        for(UiButton button : Arrays.asList(sourceButton, targetButton, clearSourceButton, clearTargetButton,
+                clearChartFiltersButton, setFocusButton, actionsButton, refreshButton, previousButton,
+                nextButton, closeButton)) {
+            if(button != null && button.visible && button.isMouseOver(mouseX, mouseY)
+                    && button.isLabelTruncated()) {
+                headerTooltip = List.of(button.getMessage());
+                return;
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ 交互
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollY) {
         PageLayout layout = layout();
-        if(mouseY < contentTop(layout) || mouseY >= contentBottom(layout)) {
+        if(layout.sidebarMode() && layout.sidebarArea().contains(mouseX, mouseY)) {
+            sidebarScroll.scrollBy(Math.signum(scrollY), SIDEBAR_ROW_HEIGHT + SIDEBAR_ROW_GAP);
+            return true;
+        }
+        UiLayout.Rect viewport = layout.chartViewport();
+        UiLayout.Rect card = layout.card();
+        // 命中区放宽到整张卡片：图表区左右各有 8px 内边距，鼠标落在上面也应该能滚动
+        if(mouseY < viewport.y() || mouseY >= viewport.bottom()
+                || mouseX < card.x() || mouseX >= card.right()) {
             return super.mouseScrolled(mouseX, mouseY, scrollY);
         }
-        int totalHeight = contentHeight(adopted);
-        int viewportHeight = Math.max(1, contentBottom(layout) - contentTop(layout));
-        int step = Math.max(1, Math.round((float) Math.abs(scrollY) * LINE_HEIGHT));
-        if(scrollY > 0) step = -step;
-        contentScrollOffset = Mth.clamp(contentScrollOffset + step, 0,
-                Math.max(0, totalHeight - viewportHeight));
+        contentScroll.scrollBy(Math.signum(scrollY), LINE_HEIGHT * 2);
         return true;
     }
 
@@ -417,16 +550,16 @@ public class StatsScreen extends Screen {
         if(super.mouseClicked(mouseX, mouseY, button)) return true;
         PageLayout layout = layout();
         FocusChartPage page = adopted;
-        if(button != 0 || !insideContent(mouseX, mouseY, layout) || !validChartPage(page)) return false;
-        int chartOffset = chartFilterHeight();
-        int rowTop = contentTop(layout) + chartOffset + 16 - contentScrollOffset;
+        UiLayout.Rect viewport = layout.chartViewport();
+        if((button != 0 && button != 1) || !viewport.contains(mouseX, mouseY)
+                || !validChartPage(page)) return false;
         List<ChartRow> rows = chartRows(page);
-        int chartBottom = rowTop + rows.size() * ROW_HEIGHT;
-        if(mouseY < rowTop || mouseY >= chartBottom) return false;
-        int row = (int) ((mouseY - rowTop) / ROW_HEIGHT);
-        if(row < 0 || row >= rows.size()) return false;
-        ChartRow chartRow = rows.get(row);
+        int index = (int) ((mouseY - viewport.y() + contentScroll.offset()) / ROW_HEIGHT);
+        if(index < 0 || index >= rows.size()) return false;
+        ChartRow chartRow = rows.get(index);
         if(chartRow.group() == null) {
+            // 占位行只有左键有意义
+            if(button != 0) return false;
             if(chartRow.marker() == RowMarker.NEXT && chartRow.parentKey() != null) {
                 FocusChartInstancesPage instances = ClientStats.chartInstancesPage(chartRow.parentKey());
                 if(validChartInstancesPage(instances, chartRow.parentKey()) && instances.hasNext()) {
@@ -437,8 +570,23 @@ public class StatsScreen extends Screen {
             }
             return true;
         }
+        // 右键对实体行开操作菜单。伤害类型行没有对应的实体操作，直接左键下钻即可
+        if(button == 1) {
+            if(hasEntityActions(chartRow.group())) {
+                showEntityActions(chartRow.group().key(), chartRow.group().name());
+                return true;
+            }
+            return false;
+        }
         applyChartFilter(chartRow.group());
         return true;
+    }
+
+    /** 只有实体维度的行才有操作菜单；伤害类型行没有可设的来源或目标。 */
+    private static boolean hasEntityActions(GroupView group) {
+        FilterKey key = group.key();
+        return key instanceof FilterKey.Source || key instanceof FilterKey.Target
+                || key instanceof FilterKey.Direct;
     }
 
     @Override
@@ -446,6 +594,8 @@ public class StatsScreen extends Screen {
         DSPackets.sendToServer(FocusGuiClosedPacket.INSTANCE);
         super.onClose();
     }
+
+    // ------------------------------------------------------------------ 请求
 
     private void requestFirstChart() {
         if(!browsingInitialized) return;
@@ -459,26 +609,10 @@ public class StatsScreen extends Screen {
         adopted = null;
         expandedChartParents.clear();
         ClientStats.clearChartInstances();
-        contentScrollOffset = 0;
+        contentScroll.reset();
         chartRequestId = ClientStats.nextChartRequestId();
         DSPackets.sendToServer(new FocusChartRequestPacket(browsingFilter(), dimension, chartScope,
                 typeGrouping, EntityGrouping.TYPE, chartCursor, chartRequestId));
-    }
-
-    private void requestFocusState() {
-        if(focusStateRequested) return;
-        focusStateRequested = true;
-        DSPackets.sendToServer(new FocusStateRequestPacket(FOCUS_STATE_REQUEST_ID));
-    }
-
-    private static boolean isPlayerSelector(EntitySelector selector) {
-        if(selector instanceof EntitySelector.Instance instance) {
-            return PLAYER_TYPE.equals(instance.ref().typeId());
-        }
-        if(selector instanceof EntitySelector.Type type) {
-            return PLAYER_TYPE.equals(type.typeId());
-        }
-        return false;
     }
 
     private void nextChartPage() {
@@ -519,43 +653,63 @@ public class StatsScreen extends Screen {
         requestFirstChart();
     }
 
+    /** 页头每帧同步一次控件状态，让禁用态与真实数据保持一致。 */
     private void refreshButtons() {
-        if(dimensionButton != null) dimensionButton.setMessage(dimensionLabel());
-        if(scopeButton != null) scopeButton.setMessage(chartScope == FocusChartScope.SESSION
-                ? DSKeyLang.ScopeSession.copy() : DSKeyLang.ScopeLifetime.copy());
-        if(groupingButton != null) {
-            groupingButton.visible = true;
-            groupingButton.active = browsingInitialized && dimension == FocusChartDimension.DAMAGE_TYPE;
-            groupingButton.setMessage(typeGrouping == DamageTypeGrouping.CATEGORY
-                    ? DSKeyLang.ScreenGroupingCategory.copy() : DSKeyLang.ScreenGroupingRegistry.copy());
+        if(dimensionTabs != null) dimensionTabs.setSelected(dimension.ordinal());
+        if(scopeTabs != null) scopeTabs.setSelected(chartScope == FocusChartScope.SESSION ? 0 : 1);
+        if(groupingTabs != null) {
+            groupingTabs.setSelected(typeGrouping == DamageTypeGrouping.CATEGORY ? 0 : 1);
+            groupingTabs.active = browsingInitialized && dimension == FocusChartDimension.DAMAGE_TYPE;
         }
-        if(refreshButton != null) refreshButton.setMessage(DSKeyLang.ScreenRefresh.copy());
+        if(sourceButton != null) {
+            sourceButton.setMessage(DSKeyLang.FilterSource.get(browsingInitialized
+                    ? browsingSourceName : ClientStats.summary().scope().sourceName()));
+            sourceButton.active = browsingInitialized && canChooseAnySource();
+        }
+        if(targetButton != null) {
+            targetButton.setMessage(DSKeyLang.FilterTarget.get(browsingInitialized
+                    ? browsingTargetName : ClientStats.summary().scope().targetName()));
+            targetButton.active = browsingInitialized;
+        }
+        if(clearSourceButton != null) {
+            clearSourceButton.active = browsingInitialized && canChooseAnySource() && browsingSource.isPresent();
+        }
+        if(clearTargetButton != null) {
+            clearTargetButton.active = browsingInitialized && browsingTarget.isPresent();
+        }
+        if(clearChartFiltersButton != null) {
+            clearChartFiltersButton.active = browsingInitialized && chartFilterActive();
+        }
         if(previousButton != null) previousButton.active = !chartCursorHistory.isEmpty();
         FocusChartPage page = adopted;
         if(nextButton != null) nextButton.active = page != null && page.hasNext();
-        if(sourceButton != null) sourceButton.active = browsingInitialized && canChooseAnySource();
-        if(targetButton != null) targetButton.active = browsingInitialized;
-        if(clearSourceButton != null) clearSourceButton.active = browsingInitialized && canChooseAnySource()
-                && browsingSource.isPresent();
-        if(clearTargetButton != null) clearTargetButton.active = browsingInitialized && browsingTarget.isPresent();
-        if(clearChartFiltersButton != null) {
-            clearChartFiltersButton.active = browsingInitialized
-                    && (browsingDirectSource.isPresent() || browsingDamageType.isPresent());
-        }
+        if(refreshButton != null) refreshButton.active = browsingInitialized;
         if(setFocusButton != null) {
             var scope = ClientStats.summary().scope();
             setFocusButton.active = browsingInitialized
                     && (!scope.source().equals(browsingSource) || !scope.target().equals(browsingTarget)
                     || scope.sourceIsDirectSource() != browsingSourceIsDirectSource);
         }
-        if(exportButton != null) exportButton.active = !ClientExportManager.isBusy();
+        if(actionsButton != null) actionsButton.active = browsingInitialized;
     }
 
-    private Component dimensionLabel() {
-        return switch (dimension) {
+    private boolean chartFilterActive() {
+        return browsingDirectSource.isPresent() || browsingDamageType.isPresent();
+    }
+
+    /** 维度分页签切换。状态迁移与原先的循环切换完全一致：重置实体分组并重新请求首屏。 */
+    private void selectDimension(FocusChartDimension candidate) {
+        if(dimension == candidate || !supportsDimension(candidate)) return;
+        dimension = candidate;
+        entityGrouping = EntityGrouping.TYPE;
+        requestFirstChart();
+    }
+
+    private static Component dimensionLabel(FocusChartDimension candidate) {
+        return switch(candidate) {
             case DAMAGE_TYPE -> DSKeyLang.DimensionTypes.copy();
             case DIRECT_SOURCE -> DSKeyLang.DimensionSources.copy();
-            case RESPONSIBLE_SOURCE -> DSKeyLang.FilterSource.get(DSKeyLang.ViewAll.copy());
+            case RESPONSIBLE_SOURCE -> DSKeyLang.DimensionAllSources.copy();
             case TARGET -> DSKeyLang.DimensionOpponents.copy();
         };
     }
@@ -610,24 +764,29 @@ public class StatsScreen extends Screen {
         requestFirstChart();
     }
 
+    /** 点击图表行时的下钻：能展开的先展开实例，否则把该行设成筛选条件。 */
     private void applyChartFilter(GroupView group) {
         FilterKey key = group.key();
-        if(key instanceof FilterKey.Source sourceKey) {
-            EntitySelector selector = sourceKey.selector();
+        if(key instanceof FilterKey.Source source) {
+            EntitySelector selector = source.selector();
             if(selector instanceof EntitySelector.Type && group.canOpenInstances()) {
                 toggleChartInstances(group);
             } else {
                 setBrowsingSource(selector, group.name());
             }
-        } else if(key instanceof FilterKey.Target targetKey) {
-            EntitySelector selector = targetKey.selector();
+            return;
+        }
+        if(key instanceof FilterKey.Target target) {
+            EntitySelector selector = target.selector();
             if(selector instanceof EntitySelector.Type && group.canOpenInstances()) {
                 toggleChartInstances(group);
             } else {
                 setBrowsingTarget(selector, group.name());
             }
-        } else if(key instanceof FilterKey.Direct directKey) {
-            EntitySelector selector = directKey.selector();
+            return;
+        }
+        if(key instanceof FilterKey.Direct direct) {
+            EntitySelector selector = direct.selector();
             if(selector instanceof EntitySelector.Type type) {
                 if(group.canOpenInstances()) {
                     toggleChartInstances(group);
@@ -637,8 +796,10 @@ public class StatsScreen extends Screen {
             } else if(selector instanceof EntitySelector.Instance instance) {
                 setBrowsingDirectSource(instance, group.name());
             }
-        } else if(key instanceof FilterKey.Type typeKey) {
-            DamageTypeSelector selector = typeKey.selector();
+            return;
+        }
+        if(key instanceof FilterKey.Type type) {
+            DamageTypeSelector selector = type.selector();
             if(selector instanceof DamageTypeSelector.Category category) {
                 drillDamageTypeCategory(category, group.name());
             } else if(selector instanceof DamageTypeSelector.Exact exact) {
@@ -773,38 +934,17 @@ public class StatsScreen extends Screen {
                 && summary.scope().sourceIsDirectSource() == browsingSourceIsDirectSource;
     }
 
-    private void renderChartFilters(GuiGraphics graphics, int y) {
-        MutableComponent line = Component.empty();
-        if(browsingDirectSource.isPresent()) line.append(DSKeyLang.FilterDirect.get(browsingDirectSourceName));
-        if(browsingDamageType.isPresent()) {
-            if(!line.getString().isEmpty()) line.append(Component.literal("  "));
-            line.append(DSKeyLang.FilterType.get(browsingDamageTypeName));
+    private static boolean isPlayerSelector(EntitySelector selector) {
+        if(selector instanceof EntitySelector.Instance instance) {
+            return PLAYER_TYPE.equals(instance.ref().typeId());
         }
-        if(line.getString().isEmpty()) return;
-        int left = ScreenLayout.left(width, SIDE);
-        graphics.drawString(font, truncate(line, Math.max(1, ScreenLayout.width(width, SIDE))), left, y, MUTED);
-    }
-
-    private int chartFilterHeight() {
-        return browsingDirectSource.isPresent() || browsingDamageType.isPresent()
-                ? LINE_HEIGHT + 4 : 0;
-    }
-
-    private void cycleDimension() {
-        FocusChartDimension[] values = FocusChartDimension.values();
-        for (int offset = 1; offset <= values.length; offset++) {
-            FocusChartDimension candidate = values[(dimension.ordinal() + offset) % values.length];
-            if(supportsDimension(candidate)) {
-                dimension = candidate;
-                entityGrouping = EntityGrouping.TYPE;
-                return;
-            }
-        }
+        if(selector instanceof EntitySelector.Type type) return PLAYER_TYPE.equals(type.typeId());
+        return false;
     }
 
     private void normalizeDimension() {
         if(supportsDimension(dimension)) return;
-        for (FocusChartDimension candidate : FocusChartDimension.values()) {
+        for(FocusChartDimension candidate : DIMENSIONS) {
             if(supportsDimension(candidate)) {
                 dimension = candidate;
                 return;
@@ -813,7 +953,7 @@ public class StatsScreen extends Screen {
     }
 
     private boolean supportsDimension(FocusChartDimension candidate) {
-        return switch (candidate) {
+        return switch(candidate) {
             case DAMAGE_TYPE, DIRECT_SOURCE -> true;
             case RESPONSIBLE_SOURCE -> browsingSource.isEmpty() && browsingTarget.isPresent();
             case TARGET -> browsingSource.isPresent() && browsingTarget.isEmpty();
@@ -832,21 +972,9 @@ public class StatsScreen extends Screen {
                 && page.parentKey().equals(parentKey);
     }
 
-    private int contentHeight(@Nullable FocusChartPage page) {
-        return chartBlockHeight(page) + CONTENT_GAP;
-    }
-
-    private int chartBlockHeight(@Nullable FocusChartPage page) {
-        int rows = 1;
-        if(validChartPage(page)) {
-            rows = Math.max(1, chartRows(page).size());
-        }
-        return chartFilterHeight() + 16 + rows * ROW_HEIGHT + 4;
-    }
-
     private List<ChartRow> chartRows(FocusChartPage page) {
         List<ChartRow> rows = new ArrayList<>();
-        for (GroupView group : page.rows()) {
+        for(GroupView group : page.rows()) {
             rows.add(new ChartRow(group, 0, null, RowMarker.NONE, true));
             if(!expandedChartParents.contains(group.key())) continue;
             FocusChartInstancesPage instances = ClientStats.chartInstancesPage(group.key());
@@ -867,11 +995,6 @@ public class StatsScreen extends Screen {
         return rows;
     }
 
-    private static Component chartValue(GroupView group) {
-        return DSKeyLang.DetailLine.getNumber1f(Component.empty(), group.damage(),
-                group.share() * 100, group.hitCount());
-    }
-
     private static boolean expandable(GroupView group) {
         if(!group.canOpenInstances()) return false;
         FilterKey key = group.key();
@@ -881,89 +1004,117 @@ public class StatsScreen extends Screen {
         return false;
     }
 
-    private boolean insideContent(double mouseX, double mouseY, PageLayout layout) {
-        return mouseX >= ScreenLayout.left(width, SIDE) - 2 && mouseX <= ScreenLayout.right(width, SIDE) + 2
-                && mouseY >= contentTop(layout) && mouseY < contentBottom(layout);
-    }
-
-    private int contentTop(PageLayout layout) {
-        return layout.headerHeight() + 6;
-    }
-
-    private int contentBottom(PageLayout layout) {
-        return layout.footerTop() - 6;
-    }
-
-    private PageLayout layout() {
-        FooterLayout footer = footerLayout();
-        int footerTop = footer.top();
-        int maximumHeader = Math.max(0, footerTop - MIN_CONTENT_HEIGHT - 6);
-        int titleHeight = Math.min(14, maximumHeader);
-        int rowGap = 3;
-        int availableRows = Math.max(3, maximumHeader - titleHeight - rowGap * 2 - 4);
-        int rowHeight = Mth.clamp(availableRows / 3, 1, 20);
-        int top = titleHeight;
-        List<ScreenLayout.Bounds> topRow = ScreenLayout.singleRow(width, SIDE, top, rowHeight, 4,
-                140, 140, 92, 92);
-        int middleTop = top + rowHeight + rowGap;
-        List<ScreenLayout.Bounds> middleRow = ScreenLayout.singleRow(width, SIDE, middleTop, rowHeight, 4,
-                100, 100, 120, 72, 120);
-        int toolbarTop = middleTop + rowHeight + rowGap;
-        List<ScreenLayout.Bounds> toolbar = ScreenLayout.singleRow(width, SIDE, toolbarTop, rowHeight, 4,
-                92, 68, 84, 58, 68, 68);
-        int headerHeight = Math.min(maximumHeader, toolbarTop + rowHeight + 4);
-        return new PageLayout(headerHeight, footerTop, topRow, middleRow, toolbar, footer);
-    }
-
-    private FooterLayout footerLayout() {
-        int[] widths = canResetAll() ? new int[]{86, 86, 84} : new int[]{86, 84};
-        ScreenLayout.Flow flow = ScreenLayout.bottomFlow(width, height, SIDE, 20, 4, 4, widths);
-        List<ScreenLayout.Bounds> bounds = flow.bounds();
-        int footerTop = flow.top();
-        if(canResetAll()) return new FooterLayout(footerTop, bounds.get(0), bounds.get(1), bounds.get(2));
-        return new FooterLayout(footerTop, bounds.get(0), null, bounds.get(bounds.size() - 1));
-    }
-
-    private void appendButtonTooltip(Button button, int mouseX, int mouseY) {
-        if(!isHovered(mouseX, mouseY, button.getX(), button.getY(), button.getX() + button.getWidth(),
-                button.getY() + button.getHeight())) return;
-        if(font.width(button.getMessage()) > Math.max(1, button.getWidth() - 8)) headerTooltip = List.of(button.getMessage());
-    }
-
-    private static boolean isHovered(double mouseX, double mouseY, int left, int top, int right, int bottom) {
-        return mouseX >= left && mouseX < right && mouseY >= top && mouseY < bottom;
-    }
-
-    private Component truncate(Component text, int maxWidth) {
-        if(maxWidth <= 0) return Component.empty();
-        if(font.width(text) <= maxWidth) return text;
-        String suffix = "...";
-        int prefixWidth = Math.max(1, maxWidth - font.width(suffix));
-        return Component.literal(font.plainSubstrByWidth(text.getString(), prefixWidth) + suffix);
-    }
-
     private static List<Component> chartTooltip(GroupView group) {
         float reduced = Math.max(0, group.originalDamage() - group.damage());
         float rate = group.originalDamage() <= 0 ? 0 : reduced / group.originalDamage() * 100;
-        return List.of(
-                group.name(),
-                DSKeyLang.TotalDamage.getNumber1f(group.damage()),
-                DSKeyLang.OriginalDamage.getNumber1f(group.originalDamage()),
-                DSKeyLang.ReductionRate.getNumber1f(reduced, rate),
-                DSKeyLang.HitCount.get(group.hitCount()),
-                DSKeyLang.DetailLine.getNumber1f(Component.empty(), group.damage(), group.share() * 100,
-                        group.hitCount()));
+        List<Component> lines = new ArrayList<>(7);
+        lines.add(group.name());
+        lines.add(DSKeyLang.TotalDamage.getNumber1f(group.damage()));
+        lines.add(DSKeyLang.OriginalDamage.getNumber1f(group.originalDamage()));
+        lines.add(DSKeyLang.ReductionRate.getNumber1f(reduced, rate));
+        lines.add(DSKeyLang.HitCount.get(group.hitCount()));
+        lines.add(DSKeyLang.DetailLine.getNumber1f(Component.empty(), group.damage(), group.share() * 100,
+                group.hitCount()));
+        // 右键入口没有任何视觉提示，只能在悬停说明里点一句，否则没人会发现
+        if(hasEntityActions(group)) lines.add(DSKeyLang.ScreenRightClickHint.copy());
+        return lines;
     }
 
-    private record FooterLayout(int top, @Nullable ScreenLayout.Bounds reset, @Nullable ScreenLayout.Bounds resetAll,
-                                ScreenLayout.Bounds done) {}
+    // ------------------------------------------------------------------ 布局
+
+    private static final int ROW_SOURCE = 0;
+    private static final int ROW_TARGET = 1;
+    private static final int ROW_CHART_FILTER = 2;
+    private static final int ROW_FOCUS = 3;
+    private static final int ROW_GROUPING = 4;
+    private static final int ROW_SCOPE = 5;
+    private static final int ROW_ACTIONS = 6;
+    private static final int ROW_COUNT = 7;
+    /** 窄屏自动换行时每一块的期望宽度，顺序与上面的行号一致。 */
+    private static final int[] COMPACT_WIDTHS = {136, 136, 118, 118, 96, 96, 96};
+
+    /**
+     * 页面分栏。宽屏走「侧栏 + 图表卡片」，窄屏退化成控件在上、卡片在下——
+     * 侧栏在窄窗口里会被压成一条缝，换行铺开比硬撑可读得多。
+     */
+    private PageLayout layout() {
+        UiLayout.Rect page = new UiLayout.Rect(PAGE_PADDING, topBar().bottom() + 6,
+                Math.max(0, width - PAGE_PADDING * 2),
+                Math.max(0, height - topBar().bottom() - 12));
+        boolean sidebarMode = width >= SIDEBAR_MIN_SCREEN_WIDTH && page.height() >= SIDEBAR_MIN_BODY_HEIGHT;
+
+        List<UiLayout.Rect> rows = new ArrayList<>(ROW_COUNT);
+        List<UiLayout.Rect> sectionLabels = new ArrayList<>(2);
+        UiLayout.Rect sidebarArea;
+        UiLayout.Rect card;
+        int contentHeight = 0;
+        if(sidebarMode) {
+            sidebarArea = page.takeLeft(SIDEBAR_WIDTH);
+            card = page.dropLeft(SIDEBAR_WIDTH, 8);
+            int y = sidebarArea.y();
+            sectionLabels.add(new UiLayout.Rect(sidebarArea.x(), y, sidebarArea.width(), SIDEBAR_SECTION_HEIGHT));
+            y += SIDEBAR_SECTION_HEIGHT + SIDEBAR_ROW_GAP;
+            for(int index = 0; index < 4; index++) {
+                rows.add(new UiLayout.Rect(sidebarArea.x(), y, sidebarArea.width(), SIDEBAR_ROW_HEIGHT));
+                y += SIDEBAR_ROW_HEIGHT + SIDEBAR_ROW_GAP;
+            }
+            y += 5;
+            sectionLabels.add(new UiLayout.Rect(sidebarArea.x(), y, sidebarArea.width(), SIDEBAR_SECTION_HEIGHT));
+            y += SIDEBAR_SECTION_HEIGHT + SIDEBAR_ROW_GAP;
+            rows.add(new UiLayout.Rect(sidebarArea.x(), y, sidebarArea.width(), SIDEBAR_ROW_HEIGHT));
+            y += SIDEBAR_ROW_HEIGHT + SIDEBAR_ROW_GAP;
+            rows.add(new UiLayout.Rect(sidebarArea.x(), y, sidebarArea.width(), SIDEBAR_ROW_HEIGHT));
+            y += SIDEBAR_ROW_HEIGHT + SIDEBAR_ROW_GAP + 5;
+            rows.add(new UiLayout.Rect(sidebarArea.x(), y, sidebarArea.width(), SIDEBAR_ROW_HEIGHT + 2));
+            y += SIDEBAR_ROW_HEIGHT + 2;
+            contentHeight = y - sidebarArea.y();
+        } else {
+            List<UiLayout.Rect> wrapped = UiLayout.wrap(page, 3, SIDEBAR_ROW_HEIGHT, COMPACT_WIDTHS);
+            rows.addAll(wrapped);
+            sidebarArea = new UiLayout.Rect(page.x(), page.y(), 0, 0);
+            card = page.dropTop(wrapped.get(wrapped.size() - 1).bottom() - page.y() + 7, 0);
+            sectionLabels.add(new UiLayout.Rect(0, 0, 0, 0));
+            sectionLabels.add(new UiLayout.Rect(0, 0, 0, 0));
+        }
+
+        UiLayout.Rect cardHeader = card.takeTop(CARD_HEADER_HEIGHT);
+        List<UiLayout.Rect> pager = UiLayout.row(cardHeader.takeRight(68).inset(3, 3), 2, 20, 20, 20);
+        UiLayout.Rect tabs = cardHeader.dropRight(70, 2).inset(4, 3);
+        UiLayout.Rect chipRow = new UiLayout.Rect(card.x() + 8, cardHeader.bottom() + 3,
+                Math.max(0, card.width() - 16), CHIP_ROW_HEIGHT);
+        int chipsOffset = chartFilterActive() ? CHIP_ROW_HEIGHT + 3 : 0;
+        int viewportTop = cardHeader.bottom() + 4 + chipsOffset;
+        UiLayout.Rect viewport = new UiLayout.Rect(card.x() + 8, viewportTop,
+                Math.max(0, card.width() - 16), Math.max(0, card.bottom() - 4 - viewportTop));
+        UiLayout.Rect scrollTrack = new UiLayout.Rect(card.right() - 6, viewport.y(), 3, viewport.height());
+
+        int statusWidth = Math.max(font.width(DSKeyLang.ScreenCurrentFocus.copy()),
+                font.width(DSKeyLang.ScreenBrowsing.copy())) + 20;
+        UiLayout.Rect close = new UiLayout.Rect(topBar().right() - PAGE_PADDING - 18, topBar().y() + 4,
+                18, Math.max(1, topBar().height() - 8));
+        UiLayout.Rect status = new UiLayout.Rect(Math.max(PAGE_PADDING, close.x() - 6 - statusWidth),
+                topBar().y() + 4, statusWidth, Math.max(1, topBar().height() - 8));
+
+        return new PageLayout(sidebarMode, sidebarArea, card, cardHeader, tabs, pager, chipRow, viewport,
+                scrollTrack, rows, sectionLabels, contentHeight, status, close);
+    }
+
+    private record PageLayout(boolean sidebarMode, UiLayout.Rect sidebarArea, UiLayout.Rect card,
+                              UiLayout.Rect cardHeader, UiLayout.Rect tabs, List<UiLayout.Rect> pager,
+                              UiLayout.Rect chipRow, UiLayout.Rect chartViewport, UiLayout.Rect chartScrollTrack,
+                              List<UiLayout.Rect> rows, List<UiLayout.Rect> sectionLabels,
+                              int sidebarContentHeight, UiLayout.Rect statusPill, UiLayout.Rect closeButton) {
+        private UiLayout.Rect row(int index) {
+            return rows.get(index);
+        }
+
+        private UiLayout.Rect sidebarScrollTrack() {
+            return new UiLayout.Rect(sidebarArea.right() - 3, sidebarArea.y(), 3, sidebarArea.height());
+        }
+    }
 
     private enum RowMarker { NONE, LOADING, EMPTY, NEXT }
 
     private record ChartRow(@Nullable GroupView group, int indent, @Nullable FilterKey parentKey,
                             RowMarker marker, boolean allowed) {}
-
-    private record PageLayout(int headerHeight, int footerTop,
-                              List<ScreenLayout.Bounds> topRow, List<ScreenLayout.Bounds> middleRow,
-                              List<ScreenLayout.Bounds> toolbar, FooterLayout footer) {}
 }
