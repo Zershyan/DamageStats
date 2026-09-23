@@ -194,7 +194,25 @@ public final class UiDraw {
      */
     public static void arc(GuiGraphics graphics, float centerX, float centerY, float radius,
                            float thickness, float startAngle, float sweep, int color) {
-        if(radius <= 0F || thickness <= 0F || Math.abs(sweep) < 0.0001F || isInvisible(color)) return;
+        if(!arcBand(graphics, centerX, centerY, radius, thickness, startAngle, sweep, color)) return;
+        // 两端补圆头，短弧段看起来才不是被切断的
+        float inner = Math.max(0F, radius - thickness);
+        float capRadius = thickness / 2F;
+        float mid = inner + capRadius + (radius - inner) / 2F;
+        disc(graphics, centerX + mid * (float) Math.cos(startAngle),
+                centerY + mid * (float) Math.sin(startAngle), capRadius, color, true);
+        float endAngle = startAngle + sweep;
+        disc(graphics, centerX + mid * (float) Math.cos(endAngle),
+                centerY + mid * (float) Math.sin(endAngle), capRadius, color, true);
+    }
+
+    /**
+     * 只画环带本体，补不补圆头由调用方决定。图标里某一端要接箭头时用这个——
+     * 圆头和箭头的底边叠在一起会鼓出一块，看着就像画歪了。
+     */
+    private static boolean arcBand(GuiGraphics graphics, float centerX, float centerY, float radius,
+                                   float thickness, float startAngle, float sweep, int color) {
+        if(radius <= 0F || thickness <= 0F || Math.abs(sweep) < 0.0001F || isInvisible(color)) return false;
         VertexConsumer consumer = consumer(graphics);
         Matrix4f pose = graphics.pose().last().pose();
         float inner = Math.max(0F, radius - thickness);
@@ -220,15 +238,56 @@ public final class UiDraw {
                     centerX + outer * cos1, centerY + outer * sin1, withAlpha(color, 0F),
                     centerX + outer * cos0, centerY + outer * sin0, withAlpha(color, 0F));
         }
-        // 两端补圆头，短弧段看起来才不是被切断的
-        float capRadius = thickness / 2F;
-        disc(graphics, centerX + (inner + capRadius + (radius - inner) / 2F) * (float) Math.cos(startAngle),
-                centerY + (inner + capRadius + (radius - inner) / 2F) * (float) Math.sin(startAngle),
-                capRadius, color, true);
-        float endAngle = startAngle + sweep;
-        disc(graphics, centerX + (inner + capRadius + (radius - inner) / 2F) * (float) Math.cos(endAngle),
-                centerY + (inner + capRadius + (radius - inner) / 2F) * (float) Math.sin(endAngle),
-                capRadius, color, true);
+        return true;
+    }
+
+    /**
+     * 椭圆弧，{@link #arc} 的压扁版本。数据库那类需要椭圆端面的图标用。
+     * thickness 传 radiusX 就得到实心椭圆。
+     */
+    public static void ellipseArc(GuiGraphics graphics, float centerX, float centerY, float radiusX,
+                                  float radiusY, float thickness, float startAngle, float sweep,
+                                  int color) {
+        if(radiusX <= 0F || radiusY <= 0F || thickness <= 0F || Math.abs(sweep) < 0.0001F
+                || isInvisible(color)) return;
+        VertexConsumer consumer = consumer(graphics);
+        Matrix4f pose = graphics.pose().last().pose();
+        float innerX = Math.max(0F, radiusX - thickness);
+        float innerY = Math.max(0F, radiusY - thickness);
+        int segments = Math.max(MIN_ARC_SEGMENTS,
+                segmentsFor(Math.max(radiusX, radiusY) * Math.abs(sweep) / (float) Math.PI));
+        float step = sweep / segments;
+        for(int index = 0; index < segments; index++) {
+            float a0 = startAngle + step * index;
+            float a1 = a0 + step;
+            float cos0 = (float) Math.cos(a0);
+            float sin0 = (float) Math.sin(a0);
+            float cos1 = (float) Math.cos(a1);
+            float sin1 = (float) Math.sin(a1);
+            emitQuad(consumer, pose,
+                    centerX + innerX * cos0, centerY + innerY * sin0, color,
+                    centerX + innerX * cos1, centerY + innerY * sin1, color,
+                    centerX + radiusX * cos1, centerY + radiusY * sin1, color,
+                    centerX + radiusX * cos0, centerY + radiusY * sin0, color);
+            float outerX = radiusX + FEATHER;
+            float outerY = radiusY + FEATHER;
+            emitQuad(consumer, pose,
+                    centerX + radiusX * cos0, centerY + radiusY * sin0, color,
+                    centerX + radiusX * cos1, centerY + radiusY * sin1, color,
+                    centerX + outerX * cos1, centerY + outerY * sin1, withAlpha(color, 0F),
+                    centerX + outerX * cos0, centerY + outerY * sin0, withAlpha(color, 0F));
+        }
+        // 整圈没有端点，补圆头反而会在接缝处多出两个疙瘩
+        if(Math.abs(sweep) < TAU - 0.001F) {
+            float capRadius = thickness / 2F;
+            float midX = (innerX + radiusX) / 2F;
+            float midY = (innerY + radiusY) / 2F;
+            disc(graphics, centerX + midX * (float) Math.cos(startAngle),
+                    centerY + midY * (float) Math.sin(startAngle), capRadius, color, true);
+            float endAngle = startAngle + sweep;
+            disc(graphics, centerX + midX * (float) Math.cos(endAngle),
+                    centerY + midY * (float) Math.sin(endAngle), capRadius, color, true);
+        }
     }
 
     /** 任意三角形，顶点按屏幕坐标给出；三条边都带羽化。 */
@@ -371,16 +430,30 @@ public final class UiDraw {
         circle(graphics, centerX + spacing, centerY, dotRadius, color);
     }
 
-    /** 环形箭头，用于刷新。缺口留在右上，缺口里补一个箭头尖。size 是外接方形边长。 */
+    /**
+     * 环形箭头，用于刷新。缺口留在右上，箭头压在弧的终点（12 点）上、指向顺时针方向。
+     * 弧的终点不补圆头——圆头和箭头的底边叠在一起会鼓出一块。size 是外接方形边长。
+     */
     public static void refresh(GuiGraphics graphics, float centerX, float centerY, float size,
                                float thickness, int color) {
-        float radius = Math.max(1F, size / 2F);
-        ringShape(graphics, centerX, centerY, radius, thickness, color);
-        // 用背景色感的缺口不好做，改成在右上角叠一个箭头三角，视觉上等效于刷新图标
-        float angle = (float) (-Math.PI * 0.25D);
-        float tipX = centerX + radius * (float) Math.cos(angle);
-        float tipY = centerY + radius * (float) Math.sin(angle);
-        caret(graphics, tipX, tipY - thickness, thickness * 2.6F, -1, color);
+        float half = size / 2F;
+        float arrowHalf = thickness * 0.85F;
+        float arrowLength = thickness * 1.5F;
+        // 箭头底边比弧还宽，半径要相应内收，整个图标才不会超出 size 给的外接方框
+        float radius = Math.max(1F, half - arrowHalf - thickness * 0.15F);
+        // 屏幕坐标 y 向下，角度增大即顺时针：从 -10°（右侧偏上）转到 270°（正上方）
+        float start = (float) Math.toRadians(-10D);
+        float end = (float) Math.toRadians(-90D);
+        float sweep = TAU + (end - start);
+        if(!arcBand(graphics, centerX, centerY, radius, thickness, start, sweep, color)) return;
+        float inner = Math.max(0F, radius - thickness);
+        float mid = inner + thickness / 2F + (radius - inner) / 2F;
+        disc(graphics, centerX + mid * (float) Math.cos(start), centerY + mid * (float) Math.sin(start),
+                thickness / 2F, color, true);
+        // 12 点处的箭头：底边垂直、尖端朝右，坐标直接写出来，不绕三角函数
+        float baseY = centerY - radius;
+        triangle(graphics, centerX + arrowLength, baseY,
+                centerX, baseY - arrowHalf, centerX, baseY + arrowHalf, color);
     }
 
     /** 向下的箭头落入托盘的导出图标。 */
@@ -454,39 +527,35 @@ public final class UiDraw {
         caret(graphics, centerX, centerY + half * 0.82F, half * 0.5F, 1, color);
     }
 
-    /** 垃圾桶，用于清空类操作。 */
+    /** 垃圾桶，用于清空类操作。提手和盖子之间留出一条缝，小尺寸下才不会糊成一整块。 */
     public static void trash(GuiGraphics graphics, float centerX, float centerY, float size,
                              float thickness, int color) {
         float half = size / 2F;
-        line(graphics, centerX - half, centerY - half * 0.55F, centerX + half, centerY - half * 0.55F,
-                thickness, color);
-        line(graphics, centerX - half * 0.35F, centerY - half * 0.55F, centerX - half * 0.35F,
-                centerY - half * 0.85F, thickness, color);
-        line(graphics, centerX + half * 0.35F, centerY - half * 0.55F, centerX + half * 0.35F,
-                centerY - half * 0.85F, thickness, color);
-        line(graphics, centerX - half * 0.35F, centerY - half * 0.85F, centerX + half * 0.35F,
-                centerY - half * 0.85F, thickness, color);
-        line(graphics, centerX - half * 0.7F, centerY - half * 0.55F, centerX - half * 0.45F, centerY + half * 0.85F,
-                thickness, color);
-        line(graphics, centerX + half * 0.7F, centerY - half * 0.55F, centerX + half * 0.45F, centerY + half * 0.85F,
-                thickness, color);
-        line(graphics, centerX - half * 0.45F, centerY + half * 0.85F, centerX + half * 0.45F,
-                centerY + half * 0.85F, thickness, color);
+        line(graphics, centerX - half * 0.22F, centerY - half * 0.88F, centerX + half * 0.22F,
+                centerY - half * 0.88F, thickness * 0.85F, color);
+        line(graphics, centerX - half * 0.88F, centerY - half * 0.5F, centerX + half * 0.88F,
+                centerY - half * 0.5F, thickness, color);
+        line(graphics, centerX - half * 0.68F, centerY - half * 0.5F, centerX - half * 0.52F,
+                centerY + half * 0.82F, thickness, color);
+        line(graphics, centerX + half * 0.68F, centerY - half * 0.5F, centerX + half * 0.52F,
+                centerY + half * 0.82F, thickness, color);
+        line(graphics, centerX - half * 0.52F, centerY + half * 0.82F, centerX + half * 0.52F,
+                centerY + half * 0.82F, thickness, color);
     }
 
-    /** 数据库/存储图标。 */
+    /** 数据库/存储图标：实心椭圆顶面 + 两条侧壁 + 底面的下半椭圆。 */
     public static void database(GuiGraphics graphics, float centerX, float centerY, float size,
                                 float thickness, int color) {
         float half = size / 2F;
-        float ellipse = half * 0.42F;
-        ringShape(graphics, centerX, centerY - half * 0.62F, half * 0.62F, thickness, color);
-        line(graphics, centerX - half * 0.62F, centerY - half * 0.62F, centerX - half * 0.62F,
-                centerY + half * 0.62F, thickness, color);
-        line(graphics, centerX + half * 0.62F, centerY - half * 0.62F, centerX + half * 0.62F,
-                centerY + half * 0.62F, thickness, color);
-        sector(graphics, centerX, centerY + half * 0.62F, half * 0.62F, 0F, (float) Math.PI, color);
-        line(graphics, centerX - half * 0.62F, centerY + ellipse * 0.1F, centerX + half * 0.62F,
-                centerY + ellipse * 0.1F, thickness, color);
+        float radiusX = half * 0.7F;
+        float radiusY = half * 0.36F;
+        float topY = centerY - half * 0.6F;
+        float bottomY = centerY + half * 0.6F;
+        // 顶面直接填实：小尺寸下椭圆环的孔只剩一两个像素，糊成一团不如填实清楚
+        ellipseArc(graphics, centerX, topY, radiusX, radiusY, radiusX, 0F, TAU, color);
+        line(graphics, centerX - radiusX, topY, centerX - radiusX, bottomY, thickness, color);
+        line(graphics, centerX + radiusX, topY, centerX + radiusX, bottomY, thickness, color);
+        ellipseArc(graphics, centerX, bottomY, radiusX, radiusY, thickness, 0F, (float) Math.PI, color);
     }
 
     // ---------------------------------------------------------------- 内部实现
