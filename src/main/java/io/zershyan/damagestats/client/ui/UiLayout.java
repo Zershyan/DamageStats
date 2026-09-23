@@ -94,74 +94,74 @@ public final class UiLayout {
     }
 
     /**
-     * 横向切分。weights 为每列宽度：{@link #FILL} 表示「吃掉固定列之外的剩余空间」，
-     * 出现 FILL 时其余数值按像素宽处理；一个 FILL 都没有时，数值按权重比例分配。
-     * 最后一列总是拿走剩下的像素，避免累计取整后留缝。
+     * 横向切分。widths 是每列的**像素宽度**：{@link #FILL} 表示「吃掉固定列之外的剩余空间」，
+     * 其余按给定宽度从左侧依次摆放；合计放不下时整体按比例压缩。
+     * <p>
+     * 合计小于区域宽度时**右边留白**，不会为了填满而把列拉宽——否则传 72px 的按钮会被撑成整行，
+     * 和相邻控件叠在一起。
      */
-    public static List<Rect> row(Rect area, int gap, int... weights) {
-        List<Rect> result = new ArrayList<>(weights.length);
-        if(weights.length == 0) return result;
-        int totalGap = gap * (weights.length - 1);
-        int available = Math.max(weights.length, area.width() - totalGap);
-        int fillCount = 0;
-        int fixedTotal = 0;
-        int weightTotal = 0;
-        for(int weight : weights) {
-            if(weight == FILL) {
-                fillCount++;
-            } else {
-                fixedTotal += Math.max(1, weight);
-                weightTotal += Math.max(1, weight);
-            }
-        }
-        // FILL 列平分「可用宽度 - 固定列」；没有 FILL 时退回按权重比例分配
-        int fillWidth = fillCount == 0 ? 0
-                : Math.max(1, Math.max(fillCount, available - fixedTotal) / fillCount);
-        int used = 0;
-        for(int index = 0; index < weights.length; index++) {
-            int width;
-            if(index == weights.length - 1) {
-                width = Math.max(1, available - used);
-            } else if(weights[index] == FILL) {
-                width = fillWidth;
-            } else if(fillCount > 0) {
-                width = Math.max(1, weights[index]);
-            } else {
-                width = Math.max(1, Math.round((float) Math.max(1, weights[index]) * available / weightTotal));
-            }
-            width = Math.min(width, Math.max(1, available - used - (weights.length - index - 1)));
-            result.add(new Rect(area.x() + used + gap * index, area.y(), width, area.height()));
-            used += width;
-        }
-        return result;
+    public static List<Rect> row(Rect area, int gap, int... widths) {
+        return pack(area, gap, false, widths);
     }
 
-    /** 等分的横向切分。 */
+    /** 等分的横向切分：每列吃掉等份的剩余空间，合计正好铺满区域。 */
     public static List<Rect> row(Rect area, int gap, int count) {
         if(count <= 0) return List.of();
-        int[] weights = new int[count];
-        for(int index = 0; index < count; index++) weights[index] = 1;
-        return row(area, gap, weights);
+        int[] widths = new int[count];
+        for(int index = 0; index < count; index++) widths[index] = FILL;
+        return row(area, gap, widths);
     }
 
     /** 横向排列固定宽度的若干控件并整体右对齐，宽度不足时按比例压缩。 */
     public static List<Rect> rowRight(Rect area, int gap, int... widths) {
-        int totalGap = gap * Math.max(0, widths.length - 1);
-        int available = Math.max(widths.length, area.width() - totalGap);
+        return pack(area, gap, true, widths);
+    }
+
+    /**
+     * 两套切分的共同实现。列宽一律按像素解析，FILL 列均分固定列之外的剩余（取整余数补给最后一个
+     * FILL 列，保证合计刚好铺满），rightAligned 决定整块靠哪一侧摆。
+     */
+    private static List<Rect> pack(Rect area, int gap, boolean rightAligned, int... widths) {
         List<Rect> result = new ArrayList<>(widths.length);
-        int totalWidth = 0;
-        for(int width : widths) totalWidth += Math.max(1, width);
+        if(widths.length == 0) return result;
+        int totalGap = gap * (widths.length - 1);
+        int available = Math.max(widths.length, area.width() - totalGap);
+        int fillCount = 0;
+        int total = 0;
+        int[] resolved = new int[widths.length];
+        for(int index = 0; index < widths.length; index++) {
+            if(widths[index] == FILL) {
+                fillCount++;
+            } else {
+                resolved[index] = Math.max(1, widths[index]);
+                total += resolved[index];
+            }
+        }
+        if(fillCount > 0) {
+            int budget = Math.max(fillCount, available - total);
+            int each = budget / fillCount;
+            int extra = budget - each * fillCount;
+            for(int index = widths.length - 1; index >= 0; index--) {
+                if(widths[index] != FILL) continue;
+                resolved[index] = each + extra;
+                extra = 0;
+            }
+            total += budget;
+        }
+        if(total > available) {
+            // 逐列取整会把误差累积到最后一列，所以先算前面几列，最后一列直接拿走剩下的像素
+            int used = 0;
+            for(int index = 0; index < widths.length - 1; index++) {
+                resolved[index] = Math.max(1, resolved[index] * available / total);
+                used += resolved[index];
+            }
+            resolved[widths.length - 1] = Math.max(1, available - used);
+        }
+        int originX = area.x() + (rightAligned ? Math.max(0, available - total) : 0);
         int used = 0;
         for(int index = 0; index < widths.length; index++) {
-            int width;
-            if(index == widths.length - 1) {
-                width = Math.max(1, available - used);
-            } else {
-                width = Math.max(1, Math.round((float) Math.max(1, widths[index]) * available / totalWidth));
-                width = Math.min(width, Math.max(1, available - used - (widths.length - index - 1)));
-            }
-            result.add(new Rect(area.right() - available + used + gap * index, area.y(), width, area.height()));
-            used += width;
+            result.add(new Rect(originX + used + gap * index, area.y(), resolved[index], area.height()));
+            used += resolved[index];
         }
         return result;
     }

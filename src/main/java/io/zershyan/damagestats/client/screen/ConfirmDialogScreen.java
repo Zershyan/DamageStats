@@ -44,8 +44,8 @@ abstract class ConfirmDialogScreen extends UiScreen {
         if(minecraft == null) return;
         panel = layout();
         UiLayout.Rect buttons = panel.dropBottom(12, 12).takeBottom(BUTTON_HEIGHT);
-        // 取消放在左侧、确认放右侧，危险操作不放在顺手位上
-        List<UiLayout.Rect> row = UiLayout.row(buttons, 6, 1, 1);
+        // 取消放在左侧、确认放右侧，危险操作不放在顺手位上。两个 FILL 各吃一半，合计铺满
+        List<UiLayout.Rect> row = UiLayout.row(buttons, 6, UiLayout.FILL, UiLayout.FILL);
         addRenderableWidget(UiButton.builder(CommonComponents.GUI_CANCEL, button ->
                         minecraft.setScreen(returnScreen))
                 .bounds(row.get(0)).variant(UiButton.Variant.GHOST).build());
