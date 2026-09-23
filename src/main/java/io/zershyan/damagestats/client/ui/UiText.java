@@ -1,5 +1,6 @@
 package io.zershyan.damagestats.client.ui;
 
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
@@ -8,18 +9,21 @@ import net.minecraft.util.FormattedCharSequence;
 import java.util.List;
 
 /**
- * 文字排版。MC 只有一套 9px 位图字体，既没有字号也没有字重——网页那套排版层次在这里拿不到，
- * 只能用「伪粗体 + 颜色深浅」两把武器，所以粗细的用法必须克制：只给标题、分组名和主数值加粗。
+ * 文字排版。MC 只有一套 9px 位图字体，既没有字号也没有真正的重字重，只能靠「加粗 + 颜色深浅」
+ * 拉开层次，所以加粗要克制：只给标题、分组名和主数值用。
+ * <p>
+ * 加粗一律交给原版的 {@link ChatFormatting#BOLD}。原版绘制粗体时会把每个字形多画一遍，**同时按同样的
+ * 偏移把字距也撑开**，所以相邻字不会互相压住；早先那种「整串文字再画一遍、偏移 1px」的写法字距没跟着动，
+ * 每个字的副本正好落进下一个字的格子里，CJK 连成一片，看起来就是一层脏重影。
  */
 public final class UiText {
-    /** 伪粗体的水平偏移量。 */
-    private static final int BOLD_OFFSET = 1;
+    /** 加粗过的组件。原版渲染器据此撑开字距，宽度也要用它来量。 */
+    private static Component bolded(Component text) {
+        return text.copy().withStyle(ChatFormatting.BOLD);
+    }
 
-    /** 伪粗体：同一串文字向右多画一遍，字形被撑宽 1px，观感接近 semibold。 */
     public static void bold(GuiGraphics graphics, Component text, int x, int y, int color) {
-        Font font = UiTheme.font();
-        graphics.drawString(font, text, x, y, color, false);
-        graphics.drawString(font, text, x + BOLD_OFFSET, y, color, false);
+        graphics.drawString(UiTheme.font(), bolded(text), x, y, color, false);
     }
 
     public static void plain(GuiGraphics graphics, Component text, int x, int y, int color) {
@@ -54,8 +58,9 @@ public final class UiText {
         return UiTheme.font().width(text);
     }
 
+    /** 加粗后的实际宽度。原版会给每个字多留 1px 字距，不能拿普通宽度去估。 */
     public static int boldWidth(Component text) {
-        return UiTheme.font().width(text) + BOLD_OFFSET;
+        return UiTheme.font().width(bolded(text));
     }
 
     /** 按宽度截断，超出部分用省略号收尾。 */
@@ -67,9 +72,17 @@ public final class UiText {
                 Math.max(1, maxWidth - font.width("…"))) + "…");
     }
 
-    /** 加粗文本要预留右边多出来的 1px，否则最后一笔会被裁掉。 */
+    /** 加粗文本的截断：加粗会加宽每个字，必须用加粗后的宽度去量，否则末尾会被挤出边界。 */
     public static Component truncateBold(Component text, int maxWidth) {
-        return truncate(text, maxWidth - BOLD_OFFSET);
+        Font font = UiTheme.font();
+        if(maxWidth <= 0) return Component.empty();
+        if(font.width(bolded(text)) <= maxWidth) return text;
+        String plain = text.getString();
+        int keep = plain.length();
+        while(keep > 0 && font.width(bolded(Component.literal(plain.substring(0, keep) + "…"))) > maxWidth) {
+            keep--;
+        }
+        return Component.literal(plain.substring(0, keep) + "…");
     }
 
     /** 按宽度折行，用于弹窗说明这类需要成段的文本。 */
