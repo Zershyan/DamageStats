@@ -5,6 +5,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.Mth;
 import org.jetbrains.annotations.Nullable;
 
 /** 现代风格按钮：圆角、渐变底、悬停过渡动画，可带前后置图标。 */
@@ -159,37 +160,35 @@ public class UiButton extends AbstractWidget {
         }
 
         int offsetY = pressed && interactive ? 1 : 0;
-        int iconSize = Math.clamp(height - 8, 6, 12);
+        int iconSize = Mth.clamp(height - 8, 6, 12);
         float iconThickness = Math.max(1F, iconSize / 7F);
-        int padding = pill ? Math.clamp(height / 2, 2, 8) : 6;
+        int padding = pill ? Mth.clamp(height / 2, 2, 8) : 6;
         boolean hasLabel = !getMessage().getString().isEmpty();
         int iconSpace = 0;
         if(icon != null) iconSpace += iconSize + (hasLabel ? 3 : 0);
         if(trailingIcon != null) iconSpace += iconSize + (hasLabel ? 3 : 0);
 
-        int textWidth = font.width(getMessage());
-        int contentWidth = textWidth + iconSpace;
+        // 先把标签截到真正放得下的宽度，再拿截断后的宽度整体居中。
+        // 否则窄按钮（只有图标的 ✕ / ⟳）会因为宽度算大而整体偏右，尾部图标还会被挤出按钮。
+        int labelBudget = Math.max(1, width - padding * 2 - iconSpace);
+        Component label = hasLabel ? fit(font, getMessage(), labelBudget) : Component.empty();
+        int labelWidth = hasLabel ? font.width(label) : 0;
+        int contentWidth = labelWidth + iconSpace;
         int contentLeft = align == Align.LEFT ? getX() + padding
-                : getX() + Math.max(padding, (width - contentWidth) / 2);
+                : getX() + Math.max(0, (width - contentWidth) / 2);
+        int contentY = getY() + height / 2 + offsetY;
 
         if(icon != null) {
-            icon.draw(graphics, contentLeft + iconSize / 2F, getY() + height / 2F + offsetY,
-                    iconSize, iconThickness, text);
+            icon.draw(graphics, contentLeft + iconSize / 2F, contentY, iconSize, iconThickness, text);
             contentLeft += iconSize + (hasLabel ? 3 : 0);
         }
         if(hasLabel) {
-            int available = Math.max(1, width - padding * 2 - iconSpace);
-            Component label = fit(font, getMessage(), available);
             int labelY = getY() + (height - font.lineHeight) / 2 + 1 + offsetY;
-            if(align == Align.LEFT) {
-                graphics.drawString(font, label, contentLeft, labelY, text, false);
-            } else {
-                graphics.drawString(font, label, getX() + (width - font.width(label)) / 2, labelY, text, false);
-                contentLeft = getX() + (width + font.width(label)) / 2;
-            }
+            graphics.drawString(font, label, contentLeft, labelY, text, false);
+            contentLeft += labelWidth;
         }
         if(trailingIcon != null) {
-            trailingIcon.draw(graphics, contentLeft + 3 + iconSize / 2F, getY() + height / 2F + offsetY,
+            trailingIcon.draw(graphics, contentLeft + (hasLabel ? 3 : 0) + iconSize / 2F, contentY,
                     iconSize, iconThickness, text);
         }
         graphics.flush();
@@ -252,8 +251,11 @@ public class UiButton extends AbstractWidget {
     /** 文字被截断时返回完整文本，供界面挂悬停提示。 */
     public @Nullable Component truncatedLabel() {
         Font font = UiTheme.font();
-        int iconSpace = icon == null ? 0 : Math.clamp(height - 8, 6, 12) + 3;
-        int available = Math.max(1, width - 14 - iconSpace);
+        int iconSize = Mth.clamp(height - 8, 6, 12);
+        int trailingSpace = trailingIcon == null ? 0 : iconSize + 3;
+        int iconSpace = (icon == null ? 0 : iconSize + 3) + trailingSpace;
+        int padding = pill ? Mth.clamp(height / 2, 2, 8) : 6;
+        int available = Math.max(1, width - padding * 2 - iconSpace);
         return font.width(getMessage()) > available ? getMessage() : null;
     }
 

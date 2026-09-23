@@ -140,8 +140,7 @@ public class UiPopupMenu {
                     ? Component.literal(font.plainSubstrByWidth(item.label().getString(),
                     Math.max(1, available - 4)) + "…")
                     : item.label();
-            graphics.drawString(font, label, contentLeft, row.centerY() + slide - font.lineHeight / 2 + 1,
-                    color, false);
+            UiText.plain(graphics, label, contentLeft, row.centerY() + slide - font.lineHeight / 2 + 1, color);
         }
         if(items.size() > rows) {
             // 行数超出时右侧给一条细滚动指示，不做成可拖拽的滚动条，避免与主界面的滚动抢事件

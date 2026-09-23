@@ -10,7 +10,8 @@ import net.minecraft.util.Mth;
  * 滚动条只在内容真的溢出时出现，并跟随当前偏移；停止滚动后会淡出，不长期占位置。
  */
 public final class UiScroll {
-    private static final float FOLLOW_SECONDS = 0.11F;
+    /** 指数逼近的时间常数：越小越快。约 0.2 秒到位。 */
+    private static final float FOLLOW_SECONDS = 0.07F;
     private static final float INDICATOR_HOLD_SECONDS = 0.7F;
     private static final float INDICATOR_FADE_SECONDS = 0.35F;
 
@@ -73,7 +74,10 @@ public final class UiScroll {
     public void tick() {
         float delta = UiTheme.delta();
         float previous = position;
-        position = UiTheme.approach(position, target, FOLLOW_SECONDS, delta);
+        // 指数逼近。这里不能用 UiTheme.approach——它的步长是 delta/speed 个**像素**，
+        // 换算下来每秒只滚 1/speed 像素，滚一格要几十秒。
+        float factor = 1F - (float) Math.exp(-delta / FOLLOW_SECONDS);
+        position += (target - position) * factor;
         if(Math.abs(position - target) < 0.25F) position = target;
         boolean moving = Math.abs(position - previous) > 0.01F;
         idleSeconds = moving ? 0F : idleSeconds + delta;

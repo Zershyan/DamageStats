@@ -13,23 +13,35 @@ public class UiTextField extends EditBox {
     private static final int PADDING_X = 6;
     private static final int TEXT_HEIGHT = 8;
 
-    private final UiLayout.Rect visual;
+    private final int outerHeight;
     private float focusAmount;
 
     public UiTextField(Font font, UiLayout.Rect bounds, Component hint) {
         super(font, bounds.x() + PADDING_X, bounds.y() + (bounds.height() - TEXT_HEIGHT) / 2,
                 Math.max(1, bounds.width() - PADDING_X * 2), TEXT_HEIGHT, hint);
-        this.visual = bounds;
+        this.outerHeight = bounds.height();
         setBordered(false);
+        // 1.21.1 的 EditBox 有阴影开关；1.20.1 没有，那边只能整个重写绘制
+        setTextShadow(false);
         setHint(hint);
         setTextColor(UiTheme.TEXT);
         setTextColorUneditable(UiTheme.TEXT_MUTED);
+    }
+
+    /**
+     * 外框按控件当前位置反推，而不是记构造时那份坐标——
+     * 控件被 setY 搬过之后，记下来的那份会让框和文字错位，看着像「点不到」。
+     */
+    private UiLayout.Rect visual() {
+        int insetY = (outerHeight - TEXT_HEIGHT) / 2;
+        return new UiLayout.Rect(getX() - PADDING_X, getY() - insetY, getWidth() + PADDING_X * 2, outerHeight);
     }
 
     @Override
     public void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         focusAmount = UiTheme.approach(focusAmount, isFocused() ? 1F : 0F, UiTheme.ANIM_FAST, UiTheme.delta());
         float focus = UiTheme.easeOut(focusAmount);
+        UiLayout.Rect visual = visual();
         float radius = UiTheme.RADIUS_MD;
         int top = UiTheme.mix(UiTheme.BACKDROP, UiTheme.SURFACE, 0.35F);
         int bottom = UiTheme.BACKDROP;
@@ -51,11 +63,11 @@ public class UiTextField extends EditBox {
 
     @Override
     public boolean isMouseOver(double mouseX, double mouseY) {
-        return visual.contains(mouseX, mouseY);
+        return visual().contains(mouseX, mouseY);
     }
 
     @Override
     public boolean clicked(double mouseX, double mouseY) {
-        return this.active && this.visible && visual.contains(mouseX, mouseY);
+        return this.active && this.visible && visual().contains(mouseX, mouseY);
     }
 }

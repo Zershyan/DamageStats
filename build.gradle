@@ -68,6 +68,13 @@ neoForge {
             programArguments.addAll("--username", "player2")
         }
 
+        clientMoYu {
+            client()
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            gameDirectory = project.file('./run/client2')
+            programArguments.addAll("--username", "MoYu", "--width", "320", "--height", "180")
+        }
+        
         server {
             server()
             programArgument '--nogui'

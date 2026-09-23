@@ -34,6 +34,13 @@ public final class UiText {
         plain(graphics, text, centerX - UiTheme.font().width(text) / 2, y, color);
     }
 
+    /** 折行后的文本是 FormattedCharSequence，用带 dropShadow 参数的重载同样能去掉阴影。 */
+    public static void centered(GuiGraphics graphics, FormattedCharSequence text, int centerX, int y,
+                                int color) {
+        Font font = UiTheme.font();
+        graphics.drawString(font, text, centerX - font.width(text) / 2, y, color, false);
+    }
+
     /** 右对齐到 rightX（不含加粗多出来的那 1px）。 */
     public static void boldRight(GuiGraphics graphics, Component text, int rightX, int y, int color) {
         bold(graphics, text, rightX - boldWidth(text), y, color);

@@ -79,7 +79,8 @@ abstract class ConfirmDialogScreen extends UiScreen {
                 textTop, UiTheme.TEXT_STRONG);
         int lineTop = textTop + font.lineHeight + 5;
         for(int index = 0; index < descriptionLines.size(); index++) {
-            graphics.drawCenteredString(font, descriptionLines.get(index), centerX,
+            // 同上：drawCenteredString 自带阴影，这里换成 UiText
+            UiText.centered(graphics, descriptionLines.get(index), centerX,
                     lineTop + index * LINE_HEIGHT, UiTheme.TEXT_SECONDARY);
         }
         graphics.flush();

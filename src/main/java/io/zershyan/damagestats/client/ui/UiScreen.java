@@ -88,6 +88,18 @@ public abstract class UiScreen extends Screen {
         this.widgetClip = clip;
     }
 
+    /**
+     * 必须和 renderables 一起清空。{@code rebuildWidgets()} 只清 renderables，
+     * 留在 clippedWidgets 里的旧控件会变成「照样画得出来、却不在 children 里所以点不到」的幽灵，
+     * 在窗口缩放或界面被复用重开时表现为文字重影、按钮点不动。
+     */
+    @Override
+    protected void clearWidgets() {
+        super.clearWidgets();
+        clippedWidgets.clear();
+        widgetClip = null;
+    }
+
     @Override
     public void added() {
         super.added();

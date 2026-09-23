@@ -83,7 +83,7 @@ public final class StatsOverlay implements LayeredDraw.Layer {
         graphics.fill(0, 0, logicalWidth, logicalHeight, background());
         int textY = PADDING;
         for (Line line : lines) {
-            graphics.drawString(font, line.text(), PADDING, textY, line.color());
+            graphics.drawString(font, line.text(), PADDING, textY, line.color(), false);
             textY += LINE_HEIGHT;
         }
         graphics.pose().popPose();

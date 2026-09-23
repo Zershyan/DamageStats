@@ -85,9 +85,10 @@ abstract class ActionListScreen extends UiScreen {
         int centerX = panel.centerX();
         int y = panel.y() + PADDING;
         for(FormattedCharSequence line : titleLines) {
-            graphics.drawCenteredString(font, line, centerX, y, UiTheme.TEXT_STRONG);
+            // 用 UiText 画：原版的 drawCenteredString 重载写死了 dropShadow=true，没有开关
+            UiText.centered(graphics, line, centerX, y, UiTheme.TEXT_STRONG);
             // 再叠一遍做出加粗，标题和下面的按钮文案就拉开了层级
-            graphics.drawCenteredString(font, line, centerX + 1, y, UiTheme.TEXT_STRONG);
+            UiText.centered(graphics, line, centerX + 1, y, UiTheme.TEXT_STRONG);
             y += LINE_HEIGHT;
         }
         // 标题下的强调短线，让面板顶部不至于是一整块空白

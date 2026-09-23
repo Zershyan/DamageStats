@@ -94,8 +94,8 @@ public class UiSlider extends AbstractSliderButton {
                 ? Component.literal(font.plainSubstrByWidth(label.getString(), Math.max(1, available - 4)) + "…")
                 : label;
         int labelColor = interactive ? UiTheme.TEXT : UiTheme.TEXT_DISABLED;
-        graphics.drawString(font, display, getX() + (width - font.width(display)) / 2,
-                getY() + (height - font.lineHeight) / 2 + 1, labelColor, false);
+        UiText.centered(graphics, display, getX() + width / 2,
+                getY() + (height - font.lineHeight) / 2 + 1, labelColor);
         graphics.flush();
     }
 

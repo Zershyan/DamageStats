@@ -320,10 +320,18 @@ public class StatsScreen extends UiScreen {
         sidebarScroll.measure(layout.sidebarContentHeight(), layout.sidebarArea().height());
         sidebarScroll.tick();
         int delta = sidebarScroll.offset() - sidebarAppliedOffset;
-        if(delta == 0) return;
-        sidebarAppliedOffset = sidebarScroll.offset();
+        if(delta != 0) {
+            sidebarAppliedOffset = sidebarScroll.offset();
+            for(AbstractWidget widget : sidebarWidgets) {
+                widget.setY(widget.getY() - delta);
+            }
+        }
+        // 滚出侧栏的控件只是被裁剪区遮住，本身仍然 visible、仍然会吃掉鼠标事件，
+        // 必须按侧栏范围把完全滚出去的那些剔除，否则会挡住底下的东西。
+        UiLayout.Rect area = layout.sidebarArea();
         for(AbstractWidget widget : sidebarWidgets) {
-            widget.setY(widget.getY() - delta);
+            widget.visible = widget.getY() + widget.getHeight() > area.y()
+                    && widget.getY() < area.bottom();
         }
     }
 

@@ -371,8 +371,9 @@ public final class UiDraw {
     }
 
     /** 环形箭头，用于刷新。缺口留在右上，缺口里补一个箭头尖。 */
-    public static void refresh(GuiGraphics graphics, float centerX, float centerY, float radius,
+    public static void refresh(GuiGraphics graphics, float centerX, float centerY, float size,
                                float thickness, int color) {
+        float radius = Math.max(1F, size / 2F);
         ringShape(graphics, centerX, centerY, radius, thickness, color);
         // 用背景色感的缺口不好做，改成在右上角叠一个箭头三角，视觉上等效于刷新图标
         float angle = (float) (-Math.PI * 0.25D);
@@ -423,16 +424,18 @@ public final class UiDraw {
     }
 
     /** 时钟，用于历史战斗。 */
-    public static void clock(GuiGraphics graphics, float centerX, float centerY, float radius,
+    public static void clock(GuiGraphics graphics, float centerX, float centerY, float size,
                              float thickness, int color) {
+        float radius = Math.max(1F, size / 2F);
         ringShape(graphics, centerX, centerY, radius, thickness, color);
         line(graphics, centerX, centerY, centerX, centerY - radius * 0.55F, thickness, color);
         line(graphics, centerX, centerY, centerX + radius * 0.45F, centerY, thickness, color);
     }
 
-    /** 目标靶心，用于焦点。 */
-    public static void target(GuiGraphics graphics, float centerX, float centerY, float radius,
+    /** 目标靶心，用于焦点。size 是外接方形边长，和 {@link UiIcon} 的约定一致。 */
+    public static void target(GuiGraphics graphics, float centerX, float centerY, float size,
                               float thickness, int color) {
+        float radius = Math.max(1F, size / 2F);
         ringShape(graphics, centerX, centerY, radius, thickness, color);
         circle(graphics, centerX, centerY, Math.max(1F, radius * 0.28F), color);
     }
@@ -443,10 +446,11 @@ public final class UiDraw {
         float half = size / 2F;
         line(graphics, centerX - half, centerY, centerX + half, centerY, thickness, color);
         line(graphics, centerX, centerY - half, centerX, centerY + half, thickness, color);
-        caret(graphics, centerX - half, centerY, half * 0.8F, -2, color);
-        caret(graphics, centerX + half, centerY, half * 0.8F, 2, color);
-        caret(graphics, centerX, centerY - half, half * 0.8F, -1, color);
-        caret(graphics, centerX, centerY + half, half * 0.8F, 1, color);
+        // 尖角整体内收，别顶出 size 给的外接方框
+        caret(graphics, centerX - half * 0.82F, centerY, half * 0.5F, -2, color);
+        caret(graphics, centerX + half * 0.82F, centerY, half * 0.5F, 2, color);
+        caret(graphics, centerX, centerY - half * 0.82F, half * 0.5F, -1, color);
+        caret(graphics, centerX, centerY + half * 0.82F, half * 0.5F, 1, color);
     }
 
     /** 垃圾桶，用于清空类操作。 */
