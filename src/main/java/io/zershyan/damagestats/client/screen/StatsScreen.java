@@ -352,8 +352,7 @@ public class StatsScreen extends UiScreen {
         if(card.isEmpty()) return;
         renderCard(graphics, card, false);
         UiLayout.Rect header = layout.cardHeader();
-        UiDraw.rectGradient(graphics, header.x() + 1, header.bottom() - 1, header.width() - 2, 1F,
-                UiTheme.alpha(UiTheme.BORDER, 0.9F), UiTheme.alpha(UiTheme.BORDER, 0.25F));
+        UiDraw.rect(graphics, header.x() + 1, header.bottom() - 1, header.width() - 2, 1F, UiTheme.BORDER);
         graphics.flush();
 
         UiLayout.Rect viewport = layout.chartViewport();
@@ -392,10 +391,10 @@ public class StatsScreen extends UiScreen {
         for(Component chip : chips) {
             int width = Math.min(font.width(chip) + 16, Math.max(1, row.right() - x));
             if(width < 18) break;
-            UiDraw.roundedRect(graphics, x, row.y(), width, row.height(), row.height() / 2F, UiTheme.ACCENT_FAINT);
+            UiDraw.roundedRect(graphics, x, row.y(), width, row.height(), UiTheme.RADIUS_MD, UiTheme.ACCENT_FAINT);
             UiDraw.roundedBorder(graphics, x + 0.5F, row.y() + 0.5F, width - 1F, row.height() - 1F,
-                    row.height() / 2F, 1F, UiTheme.alpha(UiTheme.ACCENT, 0.4F));
-            UiDraw.circle(graphics, x + 7F, row.centerY(), 2F, UiTheme.ACCENT_BRIGHT);
+                    UiTheme.RADIUS_MD, 1F, UiTheme.ACCENT);
+            UiDraw.dot(graphics, x + 7F, row.centerY(), 4F, UiTheme.ACCENT_BRIGHT);
             UiText.plain(graphics, truncate(chip, Math.max(1, width - 16)), x + 12,
                     row.centerY() - UiText.lineHeight() / 2 + 1, UiTheme.ACCENT_BRIGHT);
             x += width + 4;
@@ -430,6 +429,8 @@ public class StatsScreen extends UiScreen {
             if(hovered) {
                 UiDraw.roundedRect(graphics, viewport.x(), y, viewport.width(), ROW_HEIGHT - 1F,
                         UiTheme.RADIUS_SM, UiTheme.ROW_HOVER);
+                // 行悬停底先提交，行内文字才会画在它之上
+                graphics.flush();
             }
             GroupView group = row.group();
             if(group == null) {

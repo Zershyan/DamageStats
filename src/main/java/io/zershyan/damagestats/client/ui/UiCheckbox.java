@@ -46,29 +46,17 @@ public class UiCheckbox extends AbstractWidget {
 
         int boxSize = Math.min(BOX_SIZE, Math.max(6, height - 2));
         float boxY = getY() + (height - boxSize) / 2F;
-        int boxTop = UiTheme.mix(UiTheme.SURFACE, UiTheme.SURFACE_HOVER, hover * 0.7F);
-        int boxBottom = UiTheme.mix(UiTheme.BACKDROP, UiTheme.SURFACE, hover * 0.7F);
-        int fillTop = UiTheme.mix(boxTop, UiTheme.ACCENT_BRIGHT, mark);
-        int fillBottom = UiTheme.mix(boxBottom, UiTheme.ACCENT, mark);
+        // 线性方块：未选中是抬高的实色面（悬停提亮），选中是强调色实心，没有渐变
+        int fill = mark > 0.5F ? UiTheme.ACCENT
+                : hover > 0.5F ? UiTheme.SURFACE_HOVER : UiTheme.SURFACE_RAISED;
+        int border = mark > 0.5F ? UiTheme.ACCENT : UiTheme.BORDER_STRONG;
         UiDraw.roundedRect(graphics, getX(), boxY, boxSize, boxSize, UiTheme.RADIUS_SM,
-                active ? fillTop : UiTheme.alpha(fillTop, 0.5F), active ? fillBottom : UiTheme.alpha(fillBottom, 0.5F));
+                active ? fill : UiTheme.BACKDROP);
         UiDraw.roundedBorder(graphics, getX() + 0.5F, boxY + 0.5F, boxSize - 1F, boxSize - 1F,
-                Math.max(1F, UiTheme.RADIUS_SM - 0.5F), 1F,
-                UiTheme.mix(UiTheme.BORDER_STRONG, UiTheme.ACCENT_BRIGHT, mark));
+                Math.max(1F, UiTheme.RADIUS_SM - 0.5F), 1F, border);
 
-        if(mark > 0.02F) {
-            int markColor = UiTheme.alpha(UiTheme.ON_ACCENT, active ? mark : mark * 0.5F);
-            float left = getX() + boxSize * 0.26F;
-            float middleX = getX() + boxSize * 0.44F;
-            float right = getX() + boxSize * 0.76F;
-            float middleY = boxY + boxSize * 0.66F;
-            float topY = boxY + boxSize * 0.34F;
-            // 对勾随进度从短变长，得到「画上去」的手感
-            UiDraw.line(graphics, left, middleY, middleX, topY + (middleY - topY) * (1F - mark) * 2F,
-                    1.6F, markColor);
-            UiDraw.line(graphics, middleX, topY + (middleY - topY) * (1F - mark) * 2F, right,
-                    middleY - (middleY - topY) * mark, 1.6F, markColor);
-        }
+        UiDraw.check(graphics, getX() + boxSize / 2F, boxY + boxSize / 2F, boxSize, mark,
+                active ? UiTheme.ON_ACCENT : UiTheme.TEXT_DISABLED);
 
         Component label = getMessage();
         if(!label.getString().isEmpty()) {
@@ -80,8 +68,6 @@ public class UiCheckbox extends AbstractWidget {
             int color = active ? UiTheme.mix(UiTheme.TEXT_SECONDARY, UiTheme.TEXT_STRONG, hover)
                     : UiTheme.TEXT_DISABLED;
             graphics.drawString(font, display, labelLeft, getY() + (height - font.lineHeight) / 2 + 1, color, false);
-            UiDraw.roundedBorder(graphics, getX() + 0.5F, getY() + 0.5F, width - 1F, height - 1F,
-                    UiTheme.RADIUS_SM, 1F, UiTheme.alpha(UiTheme.ACCENT, 0.22F * hover));
         }
         graphics.flush();
     }

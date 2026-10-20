@@ -25,7 +25,6 @@ public abstract class UiScreen extends Screen {
     private static final float ENTRANCE_RISE = 7F;
 
     private static final float SPINNER_RADIUS = 7F;
-    private static final float SPINNER_THICKNESS = 2F;
     private static final long SPINNER_PERIOD_MILLIS = 1200L;
 
     private long openedMillis;
@@ -119,17 +118,11 @@ public abstract class UiScreen extends Screen {
     protected void renderOverlay(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
     }
 
-    /**
-     * 背景两层：压一层暗色把游戏画面盖住，再铺玻璃底色。
-     * <p>
-     * 注意：1.20.1 没有 {@code GameRenderer.processBlurEffect} 那套背景模糊后处理（那是 1.20.2 才有的），
-     * 所以这里透出来的是**清晰**的世界。为此 {@link UiTheme} 上的玻璃层 alpha 被调得接近不透明，
-     * 层次感改由卡片阴影、内高光和顶部光照渐变承担——观感是「深色现代面板」，但不是磨砂玻璃。
-     */
     @Override
     public void renderBackground(@NotNull GuiGraphics graphics) {
+        // 压暗游戏画面，再铺一层实色页面底色，没有渐变
         UiDraw.rect(graphics, 0, 0, width, height, UiTheme.SCRIM);
-        UiDraw.rectGradient(graphics, 0, 0, width, height, UiTheme.BACKDROP_TOP, UiTheme.BACKDROP);
+        UiDraw.rect(graphics, 0, 0, width, height, UiTheme.BACKDROP);
         graphics.flush();
     }
 
@@ -147,17 +140,14 @@ public abstract class UiScreen extends Screen {
                                 int rightInset) {
         UiLayout.Rect bar = topBar();
         if(bar.isEmpty()) return;
-        UiDraw.rectGradient(graphics, bar.x(), bar.y(), bar.width(), bar.height(),
-                UiTheme.alpha(UiTheme.CHROME, 0.96F), UiTheme.alpha(UiTheme.CHROME, 0.72F));
-        // 一条 1px 的强调色渐变细线，是整屏唯一的「品牌色」露出
-        UiDraw.rectGradient(graphics, bar.x(), bar.bottom() - 1, bar.width(), 1F,
-                UiTheme.alpha(UiTheme.ACCENT, 0.05F), UiTheme.alpha(UiTheme.ACCENT, 0.45F));
+        UiDraw.rect(graphics, bar.x(), bar.y(), bar.width(), bar.height(), UiTheme.CHROME);
+        // 顶栏底边一条实色线，把页头与内容区分开，品牌色只留给标题前的圆点
+        UiDraw.rect(graphics, bar.x(), bar.bottom() - 1, bar.width(), 1F, UiTheme.BORDER);
         int left = PAGE_PADDING;
         int available = Math.max(1, bar.width() - PAGE_PADDING * 2 - (statusBounds == null ? 0
                 : statusBounds.width() + 8) - Math.max(0, rightInset));
         int titleY = bar.y() + (bar.height() - UiText.lineHeight()) / 2 + 1;
-        UiDraw.circle(graphics, left + 3F, bar.centerY(), 3.5F, UiTheme.ACCENT);
-        UiDraw.circle(graphics, left + 3.5F, bar.centerY(), 1.6F, UiTheme.alpha(UiTheme.ON_ACCENT, 0.9F));
+        UiDraw.dot(graphics, left + 3F, bar.centerY(), 6F, UiTheme.ACCENT);
         UiText.bold(graphics, UiText.truncateBold(heading, Math.max(1, available - 10)), left + 11, titleY,
                 UiTheme.TEXT_STRONG);
         if(status != null && statusBounds != null) {
@@ -166,17 +156,17 @@ public abstract class UiScreen extends Screen {
         graphics.flush();
     }
 
-    /** 页头右侧的状态胶囊，「当前焦点 / 正在浏览」用它区分。 */
+    /** 页头右侧的状态标签，「当前焦点 / 正在浏览」用它区分。实色底、1px 实色描边，圆角与卡片一致。 */
     protected void renderStatusPill(GuiGraphics graphics, UiLayout.Rect bounds, Component status,
                                     boolean highlighted) {
         if(bounds.isEmpty()) return;
-        int text = highlighted ? UiTheme.ACCENT_BRIGHT : UiTheme.mix(UiTheme.TEXT, UiTheme.WARNING, 0.7F);
-        int background = highlighted ? UiTheme.ACCENT_FAINT : UiTheme.alpha(UiTheme.WARNING, 0.13F);
+        int text = highlighted ? UiTheme.ACCENT : UiTheme.WARNING;
+        int background = highlighted ? UiTheme.ACCENT_FAINT : UiTheme.SURFACE_RAISED;
         UiDraw.roundedRect(graphics, bounds.x(), bounds.y(), bounds.width(), bounds.height(),
-                bounds.height() / 2F, background);
+                UiTheme.RADIUS_MD, background);
         UiDraw.roundedBorder(graphics, bounds.x() + 0.5F, bounds.y() + 0.5F, bounds.width() - 1F,
-                bounds.height() - 1F, bounds.height() / 2F, 1F, UiTheme.alpha(text, 0.4F));
-        UiDraw.circle(graphics, bounds.x() + 7F, bounds.centerY(), 2.5F, text);
+                bounds.height() - 1F, UiTheme.RADIUS_MD, 1F, text);
+        UiDraw.dot(graphics, bounds.x() + 7F, bounds.centerY(), 4F, text);
         Component display = UiText.truncate(status, Math.max(1, bounds.width() - 16));
         UiText.plain(graphics, display, bounds.x() + 12,
                 bounds.centerY() - UiText.lineHeight() / 2 + 1, text);
@@ -188,32 +178,23 @@ public abstract class UiScreen extends Screen {
         int barHeight = Mth.clamp(BOTTOM_BAR_HEIGHT, 0, Math.max(0, height));
         UiLayout.Rect bar = new UiLayout.Rect(0, height - barHeight, width, barHeight);
         if(bar.isEmpty()) return;
-        UiDraw.rectGradient(graphics, bar.x(), bar.y(), bar.width(), bar.height(),
-                UiTheme.alpha(UiTheme.CHROME, 0.55F), UiTheme.alpha(UiTheme.CHROME, 0.98F));
-        UiDraw.rectGradient(graphics, bar.x(), bar.y(), bar.width(), 1F,
-                UiTheme.alpha(UiTheme.BORDER, 0.9F), UiTheme.alpha(UiTheme.BORDER, 0.1F));
+        UiDraw.rect(graphics, bar.x(), bar.y(), bar.width(), bar.height(), UiTheme.CHROME);
+        UiDraw.rect(graphics, bar.x(), bar.y(), bar.width(), 1F, UiTheme.BORDER);
         graphics.flush();
     }
 
-    /** 一张玻璃卡片：柔和投影 + 半透明面 + 内高光 + 顶部光照渐变。 */
+    /** 线性卡片：实色面加 1px 线性描边，圆角 6px，没有阴影、内高光与渐变。raised 为 true 时面抬高一档。 */
     protected static void renderCard(GuiGraphics graphics, UiLayout.Rect card, boolean raised) {
         if(card.isEmpty()) return;
-        float radius = UiTheme.RADIUS_LG;
-        UiDraw.shadow(graphics, card.x(), card.y(), card.width(), card.height(), radius, 8F, 3F,
-                UiTheme.SHADOW);
-        int top = raised ? UiTheme.SURFACE_RAISED : UiTheme.SURFACE;
-        int bottom = UiTheme.mix(top, UiTheme.BACKDROP, 0.35F);
-        UiDraw.roundedRect(graphics, card.x(), card.y(), card.width(), card.height(), radius, top, bottom);
-        UiDraw.sheen(graphics, card.x(), card.y(), card.width(), card.height(), radius, 0.045F);
+        float radius = UiTheme.RADIUS_MD;
+        UiDraw.roundedRect(graphics, card.x(), card.y(), card.width(), card.height(), radius,
+                raised ? UiTheme.SURFACE_RAISED : UiTheme.SURFACE);
         UiDraw.roundedBorder(graphics, card.x() + 0.5F, card.y() + 0.5F, card.width() - 1F, card.height() - 1F,
-                Math.max(1F, radius - 0.5F), 1F, UiTheme.alpha(UiTheme.BORDER, 0.95F));
-        // 顶部 1px 内高光，模拟玻璃边缘被光打亮
-        UiDraw.roundedRect(graphics, card.x() + 1F, card.y() + 1F, card.width() - 2F, 1F,
-                Math.max(1F, radius - 1F), UiTheme.HIGHLIGHT);
+                Math.max(1F, radius - 0.5F), 1F, UiTheme.BORDER_STRONG);
         graphics.flush();
     }
 
-    /** 侧栏/分组的小标题：加粗短标签 + 右侧一条渐隐的细分隔线。 */
+    /** 侧栏/分组的小标题：加粗短标签 + 右侧一条实色细分隔线。 */
     protected void renderSectionLabel(GuiGraphics graphics, UiLayout.Rect area, Component label) {
         if(area.isEmpty()) return;
         Component display = UiText.truncateBold(label, Math.max(1, area.width() - 6));
@@ -222,9 +203,7 @@ public abstract class UiScreen extends Screen {
         UiText.bold(graphics, display, area.x(), y, UiTheme.TEXT_MUTED);
         int lineLeft = area.x() + textWidth + 5;
         if(lineLeft < area.right() - 2) {
-            UiDraw.rectGradient(graphics, lineLeft, area.centerY() - 0.5F,
-                    area.right() - lineLeft, 1F,
-                    UiTheme.alpha(UiTheme.BORDER, 0.8F), UiTheme.alpha(UiTheme.BORDER, 0F));
+            UiDraw.rect(graphics, lineLeft, area.centerY() - 0.5F, area.right() - lineLeft, 1F, UiTheme.BORDER);
         }
         graphics.flush();
     }
@@ -232,11 +211,7 @@ public abstract class UiScreen extends Screen {
     /** 旋转的加载指示器。静态的「正在加载」是纯 MC 味道，转起来才有网页的呼吸感。 */
     protected void renderSpinner(GuiGraphics graphics, float centerX, float centerY) {
         float phase = (Util.getMillis() % SPINNER_PERIOD_MILLIS) / (float) SPINNER_PERIOD_MILLIS;
-        float angle = phase * (float) (Math.PI * 2D);
-        UiDraw.ringShape(graphics, centerX, centerY, SPINNER_RADIUS, SPINNER_THICKNESS,
-                UiTheme.alpha(UiTheme.ACCENT, 0.16F));
-        UiDraw.arc(graphics, centerX, centerY, SPINNER_RADIUS, SPINNER_THICKNESS, angle,
-                (float) (Math.PI * 0.55D), UiTheme.ACCENT_BRIGHT);
+        UiDraw.spinner(graphics, centerX, centerY, phase, UiTheme.BORDER, UiTheme.ACCENT_BRIGHT);
         graphics.flush();
     }
 
@@ -259,8 +234,6 @@ public abstract class UiScreen extends Screen {
         int blockHeight = (int) iconSize + 9 + UiText.lineHeight()
                 + (subtitle == null ? 0 : 3 + UiText.lineHeight());
         float top = area.centerY() - blockHeight / 2F;
-        UiDraw.circle(graphics, area.centerX(), top + iconSize / 2F, iconSize * 0.72F,
-                UiTheme.alpha(UiTheme.TEXT_MUTED, 0.10F));
         icon.draw(graphics, area.centerX(), top + iconSize / 2F, iconSize * 0.6F, 1.4F, UiTheme.TEXT_MUTED);
         int textY = (int) (top + iconSize) + 9;
         UiText.boldCentered(graphics, UiText.truncateBold(title, Math.max(1, area.width() - 16)),

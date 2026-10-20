@@ -186,9 +186,8 @@ public class OverlayPositionScreen extends UiScreen {
     protected void renderContent(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         renderTopBar(graphics, title, null, null, false, 34);
         renderCard(graphics, panel, false);
-        UiDraw.rectGradient(graphics, fieldViewport.x(), fieldViewport.y() - DIVIDER_OFFSET,
-                fieldViewport.width(), 1F, UiTheme.alpha(UiTheme.BORDER, 0.9F),
-                UiTheme.alpha(UiTheme.BORDER, 0.2F));
+        UiDraw.rect(graphics, fieldViewport.x(), fieldViewport.y() - DIVIDER_OFFSET,
+                fieldViewport.width(), 1F, UiTheme.BORDER);
         renderSectionLabel(graphics, new UiLayout.Rect(fieldViewport.x(), fieldViewport.y() - LABEL_OFFSET,
                 fieldViewport.width(), SECTION_LABEL_HEIGHT), DSKeyLang.ScreenOverlayFields.copy());
         if(targetButton != null) {
@@ -208,8 +207,6 @@ public class OverlayPositionScreen extends UiScreen {
         int previewWidth = StatsOverlay.width();
         int previewHeight = StatsOverlay.height();
         graphics.flush();
-        UiDraw.shadow(graphics, previewX, previewY, previewWidth, previewHeight, UiTheme.RADIUS_MD, 7F, 2F,
-                UiTheme.SHADOW);
         StatsOverlay.renderBox(graphics, font, StatsOverlay.previewSummary(), previewX, previewY);
         graphics.flush();
         UiDraw.roundedBorder(graphics, previewX - 0.5F, previewY - 0.5F, previewWidth + 1F, previewHeight + 1F,

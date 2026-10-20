@@ -1,6 +1,7 @@
 package io.zershyan.damagestats.client.overlay;
 
 import io.zershyan.damagestats.client.ClientStats;
+import io.zershyan.damagestats.client.ui.UiDraw;
 import io.zershyan.damagestats.config.DSClientConfig;
 import io.zershyan.damagestats.config.OverlayMetricScope;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
@@ -80,7 +81,7 @@ public final class StatsOverlay implements IGuiOverlay {
         graphics.pose().translate(x, y, 0);
         float scale = scale();
         graphics.pose().scale(scale, scale, 1);
-        graphics.fill(0, 0, logicalWidth, logicalHeight, background());
+        UiDraw.rect(graphics, 0F, 0F, logicalWidth, logicalHeight, background());
         int textY = PADDING;
         for (Line line : lines) {
             graphics.drawString(font, line.text(), PADDING, textY, line.color(), false);

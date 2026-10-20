@@ -92,9 +92,8 @@ abstract class ActionListScreen extends UiScreen {
             UiText.centered(graphics, line, centerX + 1, y, UiTheme.TEXT_STRONG);
             y += LINE_HEIGHT;
         }
-        // 标题下的强调短线，让面板顶部不至于是一整块空白
-        UiDraw.rectGradient(graphics, centerX - 12F, y + 4F, 24F, 1F,
-                UiTheme.alpha(UiTheme.ACCENT, 0F), UiTheme.alpha(UiTheme.ACCENT, 0.8F));
+        // 标题下的强调短线，让面板顶部不至于是一整块空白；线性风格下用实色
+        UiDraw.rect(graphics, centerX - 12F, y + 4F, 24F, 1F, UiTheme.ACCENT);
         graphics.flush();
         for(int index = 0; index < actionButtons.size() && index < actions.size(); index++) {
             actionButtons.get(index).active = actions.get(index).enabled().getAsBoolean();

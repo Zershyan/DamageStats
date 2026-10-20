@@ -8,16 +8,12 @@ import net.minecraft.util.Mth;
 /** 全局设计令牌：颜色、圆角、间距、动效时长。所有界面只从这里取值，保证观感统一。 */
 public final class UiTheme {
     /**
-     * 玻璃层。alpha 是这套观感的核心：面板越透，后面被虚化的世界越明显。
-     * 想把玻璃调浓/调淡，只改下面这几个 alpha 就够了，其余颜色都从它们派生。
-     */
-    /**
-     * 1.20.1 没有背景模糊后处理，面板后面透出来的是清晰的世界方块，半透明只会显脏。
-     * 所以这一支把 alpha 调到接近不透明，玻璃感改由阴影、内高光和顶部光照渐变来做。
+     * 线性风格：每一层都是实色，层级靠明度拉开，边界靠 1px 线性描边给出，不做阴影、内高光与渐变。
+     * 1.20.1 没有背景模糊后处理，半透明的面会把后面的世界方块透上来，所以面都用实色。
+     * 只有遮罩 SCRIM 与弹出层的底色保留 alpha，它们的作用是压暗或盖住底下的内容。
      */
     public static final int SCRIM = 0xC8000000;
     public static final int BACKDROP = 0xF00C1016;
-    public static final int BACKDROP_TOP = 0xF2111823;
     public static final int SURFACE = 0xF2151B23;
     public static final int SURFACE_RAISED = 0xF51B232C;
     public static final int SURFACE_HOVER = 0xFA222B36;
@@ -28,8 +24,6 @@ public final class UiTheme {
     // 描边与内高光
     public static final int BORDER = 0xFF232C36;
     public static final int BORDER_STRONG = 0xFF323E4B;
-    public static final int HIGHLIGHT = 0x12FFFFFF;
-    public static final int SHADOW = 0x8C000000;
 
     // 文字
     public static final int TEXT = 0xFFE6EDF3;
@@ -41,6 +35,8 @@ public final class UiTheme {
     // 强调色
     public static final int ACCENT = 0xFF3FC7E0;
     public static final int ACCENT_BRIGHT = 0xFF74E2F5;
+    /** 图标专用的柔青：比 ACCENT_BRIGHT 柔和，在静止与悬停底色上对比度均高于 7:1。 */
+    public static final int ICON_ACCENT = 0xFF7CC4D6;
     public static final int ACCENT_SOFT = 0x333FC7E0;
     public static final int ACCENT_FAINT = 0x1A3FC7E0;
     public static final int ON_ACCENT = 0xFF06141A;
@@ -64,7 +60,6 @@ public final class UiTheme {
     // 圆角
     public static final int RADIUS_SM = 4;
     public static final int RADIUS_MD = 6;
-    public static final int RADIUS_LG = 9;
 
     // 动效（秒）
     public static final float ANIM_FAST = 0.10F;
