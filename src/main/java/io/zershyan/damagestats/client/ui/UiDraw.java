@@ -100,13 +100,15 @@ public final class UiDraw {
      */
     private static void nineSlice(GuiGraphics graphics, UiAtlas.Region region, int radius,
                                   float x, float y, float width, float height, int top, int bottom) {
+        // 切点在纹理像素上：圆角的一个设计像素是 TEXTURE_SCALE 个纹理像素，中心行列占一个设计像素
+        int scale = UiGlyph.TEXTURE_SCALE;
         int size = region.width();
         float right = x + width;
         float bottomEdge = y + height;
         float[] xs = {x, x + radius, right - radius, right};
         float[] ys = {y, y + radius, bottomEdge - radius, bottomEdge};
-        int[] us = {region.x(), region.x() + radius, region.x() + radius + 1, region.x() + size};
-        int[] vs = {region.y(), region.y() + radius, region.y() + radius + 1, region.y() + size};
+        int[] us = {region.x(), region.x() + radius * scale, region.x() + (radius + 1) * scale, region.x() + size};
+        int[] vs = {region.y(), region.y() + radius * scale, region.y() + (radius + 1) * scale, region.y() + size};
         VertexConsumer consumer = batch(graphics, region.sheet());
         Matrix4f pose = graphics.pose().last().pose();
         for(int row = 0; row < 3; row++) {
