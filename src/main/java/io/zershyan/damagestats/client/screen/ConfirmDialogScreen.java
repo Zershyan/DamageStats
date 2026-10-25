@@ -66,13 +66,9 @@ abstract class ConfirmDialogScreen extends UiScreen {
         int centerX = panel.centerX();
         int iconY = panel.y() + 16;
         int accent = UiTheme.DANGER;
-        UiDraw.circle(graphics, centerX, iconY + ICON_BLOCK / 2F, ICON_BLOCK / 2F,
-                UiTheme.alpha(accent, 0.16F));
-        UiDraw.roundedBorder(graphics, centerX - ICON_BLOCK / 2F, iconY, ICON_BLOCK, ICON_BLOCK,
-                ICON_BLOCK / 2F, 1F, UiTheme.alpha(accent, 0.5F));
-        // 惊叹号：一竖加一点，比单纯的色块更直接地传达「不可逆」
-        UiDraw.line(graphics, centerX, iconY + 6F, centerX, iconY + 14F, 2F, accent);
-        UiDraw.circle(graphics, centerX, iconY + 18F, 1.2F, accent);
+        // 圆盘、圆环与感叹号：感叹号比单纯的色块更直接地传达「不可逆」
+        UiDraw.alert(graphics, centerX, iconY + ICON_BLOCK / 2F, UiTheme.alpha(accent, 0.16F),
+                UiTheme.alpha(accent, 0.5F), accent);
 
         int textTop = iconY + ICON_BLOCK + 10;
         UiText.boldCentered(graphics, UiText.truncateBold(title, Math.max(1, panel.width() - 24)), centerX,

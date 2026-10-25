@@ -43,16 +43,11 @@ public class UiTextField extends EditBox {
         float focus = UiTheme.easeOut(focusAmount);
         UiLayout.Rect visual = visual();
         float radius = UiTheme.RADIUS_MD;
-        int top = UiTheme.mix(UiTheme.BACKDROP, UiTheme.SURFACE, 0.35F);
-        int bottom = UiTheme.BACKDROP;
-        UiDraw.roundedRect(graphics, visual.x(), visual.y(), visual.width(), visual.height(), radius, top, bottom);
+        // 线性搜索框：实色底面，焦点时描边从 BORDER 过渡到 ACCENT，不加外光圈
+        UiDraw.roundedRect(graphics, visual.x(), visual.y(), visual.width(), visual.height(), radius, UiTheme.SURFACE);
         UiDraw.roundedBorder(graphics, visual.x() + 0.5F, visual.y() + 0.5F, visual.width() - 1F,
                 visual.height() - 1F, Math.max(1F, radius - 0.5F), 1F,
                 UiTheme.mix(UiTheme.BORDER, UiTheme.ACCENT, focus));
-        if(focus > 0.02F) {
-            UiDraw.roundedBorder(graphics, visual.x() - 0.5F, visual.y() - 0.5F, visual.width() + 1F,
-                    visual.height() + 1F, radius + 0.5F, 1F, UiTheme.alpha(UiTheme.ACCENT, 0.28F * focus));
-        }
         if(getValue().isEmpty() && !isFocused()) {
             UiDraw.funnel(graphics, visual.x() + PADDING_X + 3.5F, visual.centerY(), 8F, 1F,
                     UiTheme.TEXT_DISABLED);

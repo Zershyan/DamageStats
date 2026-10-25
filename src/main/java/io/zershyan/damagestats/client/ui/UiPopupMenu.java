@@ -106,9 +106,9 @@ public class UiPopupMenu {
         int slide = Math.round((1F - progress) * 4F);
         float cardHeight = Math.max(1F, bounds.height() * progress);
         UiDraw.roundedRect(graphics, bounds.x(), bounds.y() + slide, bounds.width(),
-                cardHeight, UiTheme.RADIUS_LG, UiTheme.alpha(UiTheme.SURFACE_RAISED, progress));
+                cardHeight, UiTheme.RADIUS_MD, UiTheme.alpha(UiTheme.SURFACE_RAISED, progress));
         UiDraw.roundedBorder(graphics, bounds.x() + 0.5F, bounds.y() + slide + 0.5F, bounds.width() - 1F,
-                cardHeight - 1F, UiTheme.RADIUS_LG, 1F, UiTheme.alpha(UiTheme.BORDER_STRONG, progress));
+                cardHeight - 1F, UiTheme.RADIUS_MD, 1F, UiTheme.alpha(UiTheme.BORDER_STRONG, progress));
         graphics.flush();
         if(progress < 0.6F) {
             graphics.pose().popPose();
@@ -125,6 +125,8 @@ public class UiPopupMenu {
                 int fill = item.danger() ? UiTheme.DANGER_SOFT : UiTheme.SURFACE_HOVER;
                 UiDraw.roundedRect(graphics, row.x(), row.y() + slide, row.width(), row.height(),
                         UiTheme.RADIUS_SM, fill);
+                // 悬停底先提交，文字才会画在它之上；无图标的行中间没有其他 flush
+                graphics.flush();
             }
             int color = !item.enabled() ? UiTheme.TEXT_DISABLED
                     : item.danger() ? (hovered ? UiTheme.DANGER_BRIGHT : UiTheme.DANGER)

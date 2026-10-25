@@ -53,7 +53,7 @@ public class UiSegmented extends AbstractWidget {
         if(options.isEmpty()) return;
         Font font = UiTheme.font();
         float delta = UiTheme.delta();
-        float radius = pill ? height / 2F : UiTheme.RADIUS_MD;
+        float radius = UiTheme.RADIUS_MD;
         hoveredIndex = isHovered ? indexAt(mouseX) : -1;
         hoverAmount = UiTheme.approach(hoverAmount, isHovered ? 1F : 0F, UiTheme.ANIM_FAST, delta);
 
@@ -68,25 +68,22 @@ public class UiSegmented extends AbstractWidget {
         float segmentWidth = width / (float) options.size();
         float thumbX = getX() + segmentWidth * thumbPosition;
         if(pill) {
-            // 胶囊分段：凹槽底板 + 会滑动的高亮块，适合「本场/累计」这类二元开关
+            // 胶囊分段：实色凹槽，滑块是实色小圆角块，靠描边与明度分层，没有渐变与半透明
             UiDraw.roundedRect(graphics, getX(), getY(), width, height, radius,
-                    UiTheme.alpha(UiTheme.BACKDROP, interactive ? 0.85F : 0.5F));
+                    interactive ? UiTheme.SURFACE : UiTheme.BACKDROP);
             UiDraw.roundedBorder(graphics, getX() + 0.5F, getY() + 0.5F, width - 1F, height - 1F,
-                    Math.max(1F, radius - 0.5F), 1F, UiTheme.alpha(UiTheme.BORDER, 0.8F));
-            int thumbTop = UiTheme.mix(UiTheme.SURFACE_RAISED, UiTheme.SURFACE_HOVER, hoverAmount * 0.4F);
-            int thumbBottom = UiTheme.mix(UiTheme.SURFACE, UiTheme.SURFACE_RAISED, hoverAmount * 0.4F);
+                    Math.max(1F, radius - 0.5F), 1F, UiTheme.BORDER);
             UiDraw.roundedRect(graphics, thumbX + 1F, getY() + 1F, segmentWidth - 2F, height - 2F,
-                    Math.max(1F, radius - 1F), thumbTop, thumbBottom);
+                    Math.max(1F, radius - 1F),
+                    UiTheme.mix(UiTheme.SURFACE_RAISED, UiTheme.SURFACE_HOVER, hoverAmount));
             UiDraw.roundedBorder(graphics, thumbX + 1F, getY() + 1F, segmentWidth - 2F, height - 2F,
-                    Math.max(1F, radius - 1F), 1F, UiTheme.alpha(UiTheme.ACCENT, 0.45F));
+                    Math.max(1F, radius - 1F), 1F, UiTheme.ACCENT);
         } else {
-            // 标签页：只留一条底线，选中项底下跟一根会滑动的指示条——网页 tab 的标准语汇
-            UiDraw.rectGradient(graphics, getX(), getY() + height - 1F, width, 1F,
-                    UiTheme.alpha(UiTheme.BORDER, 0.85F), UiTheme.alpha(UiTheme.BORDER, 0.5F));
+            // 标签页：实色底线，选中项底下跟一根会滑动的实色指示条——网页 tab 的标准语汇
+            UiDraw.rect(graphics, getX(), getY() + height - 1F, width, 1F, UiTheme.BORDER);
             float indicatorWidth = Math.max(8F, segmentWidth * 0.42F);
             UiDraw.roundedRect(graphics, thumbX + (segmentWidth - indicatorWidth) / 2F, getY() + height - 2.5F,
-                    indicatorWidth, 2.5F, 1.25F,
-                    interactive ? UiTheme.ACCENT_BRIGHT : UiTheme.alpha(UiTheme.ACCENT, 0.4F));
+                    indicatorWidth, 2.5F, 1.25F, interactive ? UiTheme.ACCENT : UiTheme.ACCENT_SOFT);
         }
 
         for(int index = 0; index < options.size(); index++) {

@@ -60,7 +60,6 @@ public class UiSlider extends AbstractSliderButton {
         float delta = UiTheme.delta();
         boolean emphasized = isHovered || pressed;
         hoverAmount = UiTheme.approach(hoverAmount, emphasized ? 1F : 0F, UiTheme.ANIM_FAST, delta);
-        float highlight = UiTheme.easeOut(hoverAmount);
         boolean interactive = this.active;
 
         float trackWidth = Math.max(1F, width - THUMB_RADIUS * 2F);
@@ -70,22 +69,20 @@ public class UiSlider extends AbstractSliderButton {
         float thumbX = trackX + filled;
         float thumbY = getY() + height / 2F;
 
+        // 线性滑轨：实色底轨加 1px 描边，已填充段用实色强调色，未激活时换成暗青，没有渐变与光晕
         UiDraw.roundedRect(graphics, trackX, trackY, trackWidth, TRACK_HEIGHT, TRACK_HEIGHT / 2F,
-                UiTheme.alpha(UiTheme.BACKDROP, interactive ? 0.9F : 0.5F));
+                interactive ? UiTheme.SURFACE_RAISED : UiTheme.BACKDROP);
         UiDraw.roundedBorder(graphics, trackX - 0.5F, trackY - 0.5F, trackWidth + 1F, TRACK_HEIGHT + 1F,
-                TRACK_HEIGHT / 2F, 1F, UiTheme.alpha(UiTheme.BORDER, 0.9F));
+                TRACK_HEIGHT / 2F, 1F, UiTheme.BORDER);
         if(filled > 0.5F) {
             UiDraw.roundedRect(graphics, trackX, trackY, filled, TRACK_HEIGHT, TRACK_HEIGHT / 2F,
-                    interactive ? UiTheme.ACCENT_BRIGHT : UiTheme.alpha(UiTheme.ACCENT, 0.5F),
-                    interactive ? UiTheme.ACCENT : UiTheme.alpha(UiTheme.ACCENT, 0.5F));
+                    interactive ? UiTheme.ACCENT : UiTheme.ACCENT_SOFT);
         }
-        if(highlight > 0.02F) {
-            UiDraw.circle(graphics, thumbX, thumbY, THUMB_RADIUS + 2.2F, UiTheme.alpha(UiTheme.ACCENT, 0.22F * highlight));
-        }
-        UiDraw.circle(graphics, thumbX, thumbY, THUMB_RADIUS,
-                interactive ? UiTheme.mix(UiTheme.TEXT, 0xFFFFFFFF, highlight) : UiTheme.alpha(UiTheme.TEXT_MUTED, 0.6F));
-        UiDraw.circle(graphics, thumbX, thumbY, THUMB_RADIUS - 2.4F,
-                interactive ? UiTheme.ACCENT : UiTheme.alpha(UiTheme.BACKDROP, 0.8F));
+        // 滑块：实心圆，悬停或按下时换成更亮的白；中心一个强调色点。不画外圈光晕
+        int knob = !interactive ? UiTheme.TEXT_MUTED : emphasized ? UiTheme.TEXT_STRONG : UiTheme.TEXT;
+        UiDraw.dot(graphics, thumbX, thumbY, THUMB_RADIUS * 2F, knob);
+        UiDraw.dot(graphics, thumbX, thumbY, (THUMB_RADIUS - 2.5F) * 2F,
+                interactive ? UiTheme.ACCENT : UiTheme.BACKDROP);
 
         Font font = UiTheme.font();
         Component label = getMessage();

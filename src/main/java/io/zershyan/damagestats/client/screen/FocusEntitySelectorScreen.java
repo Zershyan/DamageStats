@@ -304,6 +304,8 @@ public class FocusEntitySelectorScreen extends UiScreen {
                 // 高亮必须落在裁剪区内，否则左右各被切掉一点，圆角只剩半边
                 UiDraw.roundedRect(graphics, listViewport.x(), y, listViewport.width(),
                         ROW_HEIGHT - 1F, UiTheme.RADIUS_SM, UiTheme.ROW_HOVER);
+                // 悬停底先提交，文字才会画在它之上；提交仍在裁剪区内，不改变裁剪边界
+                graphics.flush();
             }
             int textLeft = listViewport.x() + 4;
             int textWidth = Math.max(1, actions.textRight() - textLeft - 4);

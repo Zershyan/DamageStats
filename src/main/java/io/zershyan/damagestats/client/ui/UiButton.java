@@ -40,7 +40,6 @@ public class UiButton extends AbstractWidget {
     private final @Nullable UiIcon icon;
     private final @Nullable UiIcon trailingIcon;
     private final OnPress onPress;
-    private final boolean pill;
 
     private float hoverAmount;
     private boolean pressed;
@@ -53,7 +52,6 @@ public class UiButton extends AbstractWidget {
         this.icon = builder.icon;
         this.trailingIcon = builder.trailingIcon;
         this.onPress = builder.onPress;
-        this.pill = builder.pill;
     }
 
     public static Builder builder(Component message, OnPress onPress) {
@@ -69,7 +67,6 @@ public class UiButton extends AbstractWidget {
         private Align align = Align.CENTER;
         private @Nullable UiIcon icon;
         private @Nullable UiIcon trailingIcon;
-        private boolean pill;
 
         private Builder(@Nullable Component message, OnPress onPress) {
             this.message = message;
@@ -101,11 +98,6 @@ public class UiButton extends AbstractWidget {
             return this;
         }
 
-        public Builder pill() {
-            this.pill = true;
-            return this;
-        }
-
         public UiButton build() {
             return new UiButton(this);
         }
@@ -117,52 +109,38 @@ public class UiButton extends AbstractWidget {
         boolean interactive = this.active;
         float target = interactive && this.isHovered ? 1F : 0F;
         hoverAmount = UiTheme.approach(hoverAmount, target, UiTheme.ANIM_FAST, UiTheme.delta());
-        float hover = UiTheme.easeOut(hoverAmount);
+        float hover = hoverAmount > 0.5F ? 1F : 0F;
         float press = pressed && interactive ? 1F : 0F;
-        float radius = pill ? Math.min(width, height) / 2F : UiTheme.RADIUS_MD;
+        float radius = UiTheme.RADIUS_SM;
 
-        int top = backgroundTop(hover, press);
-        int bottom = backgroundBottom(hover, press);
+        int fill = backgroundTop(hover, press);
         int border = borderColor(hover);
         int text = textColor(hover);
+        int iconColor = UiButtonColors.icon(palette(), variant.ordinal());
         if(!interactive) {
-            top = UiTheme.alpha(top, 0.5F);
-            bottom = UiTheme.alpha(bottom, 0.5F);
-            border = UiTheme.alpha(border, 0.5F);
+            fill = fill == 0 ? 0 : UiTheme.alpha(fill, 0.5F);
+            border = border == 0 ? 0 : UiTheme.alpha(border, 0.5F);
             text = UiTheme.TEXT_DISABLED;
+            iconColor = UiTheme.TEXT_DISABLED;
         }
 
-        if((top >>> 24) != 0 || (bottom >>> 24) != 0) {
-            UiDraw.roundedRect(graphics, getX(), getY(), width, height, radius, top, bottom);
+        // 面：实色圆角矩形，没有渐变与高光
+        if((fill >>> 24) != 0) {
+            UiDraw.roundedRect(graphics, getX(), getY(), width, height, radius, fill);
         }
+        // 描边：1px 实色线，静止与悬停用不同颜色
         if((border >>> 24) != 0) {
             UiDraw.roundedBorder(graphics, getX(), getY(), width, height, radius, 1F, border);
-        } else if(variant == Variant.SECONDARY && interactive) {
-            // 灰面按钮默认没有描边，只靠一层内高光分出边界，比描边更贴近网页卡片的观感
-            UiDraw.roundedBorder(graphics, getX() + 0.5F, getY() + 0.5F, width - 1F, height - 1F,
-                    Math.max(1F, radius - 0.5F), 1F, UiTheme.alpha(UiTheme.HIGHLIGHT, 0.6F));
         }
-        if(variant == Variant.PRIMARY && (top >>> 24) != 0) {
-            // 强调色按钮顶部压一道高光，做出玻璃被照亮的效果
-            UiDraw.roundedRect(graphics, getX() + 1F, getY() + 1F, width - 2F, height / 2F,
-                    Math.max(1F, radius - 1F), UiTheme.alpha(0xFFFFFFFF, 0.16F + hover * 0.1F));
-        }
-        if(hover > 0.01F && interactive && variant != Variant.PRIMARY) {
-            // 悬停时内侧一圈强调色微光，比整块背景变亮更克制
-            UiDraw.roundedBorder(graphics, getX() + 0.5F, getY() + 0.5F, width - 1F, height - 1F,
-                    Math.max(1F, radius - 0.5F), 1F, UiTheme.alpha(UiTheme.ACCENT, 0.28F * hover));
-        }
-
+        // 键盘焦点环：网页靠它告诉用户 Tab 到了哪里，MC 的控件默认没有这个反馈，必须保留
         if(isFocused() && interactive) {
-            // 键盘焦点环：网页里靠它告诉用户 Tab 到了哪里，MC 的控件默认完全没有这个反馈
-            UiDraw.roundedBorder(graphics, getX() - 1.5F, getY() - 1.5F, width + 3F, height + 3F,
-                    radius + 1.5F, 1F, UiTheme.alpha(UiTheme.ACCENT, 0.75F));
+            UiDraw.roundedBorder(graphics, getX() - 2F, getY() - 2F, width + 4F, height + 4F,
+                    radius + 2F, 1F, UiButtonColors.solid(UiTheme.ACCENT));
         }
 
         int offsetY = pressed && interactive ? 1 : 0;
-        int iconSize = Mth.clamp(height - 8, 6, 12);
-        float iconThickness = Math.max(1F, iconSize / 7F);
-        int padding = pill ? Mth.clamp(height / 2, 2, 8) : 6;
+        int iconSize = iconSize(height);
+        int padding = 6;
         boolean hasLabel = !getMessage().getString().isEmpty();
         int iconSpace = 0;
         if(icon != null) iconSpace += iconSize + (hasLabel ? 3 : 0);
@@ -179,7 +157,7 @@ public class UiButton extends AbstractWidget {
         int contentY = getY() + height / 2 + offsetY;
 
         if(icon != null) {
-            icon.draw(graphics, contentLeft + iconSize / 2F, contentY, iconSize, iconThickness, text);
+            icon.draw(graphics, contentLeft + iconSize / 2F, contentY, iconSize, 1F, iconColor);
             contentLeft += iconSize + (hasLabel ? 3 : 0);
         }
         if(hasLabel) {
@@ -189,53 +167,39 @@ public class UiButton extends AbstractWidget {
         }
         if(trailingIcon != null) {
             trailingIcon.draw(graphics, contentLeft + (hasLabel ? 3 : 0) + iconSize / 2F, contentY,
-                    iconSize, iconThickness, text);
+                    iconSize, 1F, iconColor);
         }
         graphics.flush();
     }
 
+    /** 图标边长随按钮高度增长，16px 高的侧栏行得到 12px 图标。 */
+    private static int iconSize(int height) {
+        return Mth.clamp(height - 4, 8, 14);
+    }
+
+    /** 从 UiTheme 取出按钮需要的基础色。颜色规则本身在 UiButtonColors，这里只负责把令牌交过去。 */
+    private static UiButtonColors.Palette palette() {
+        return new UiButtonColors.Palette(
+                UiTheme.ACCENT, UiTheme.ACCENT_BRIGHT, UiTheme.ON_ACCENT, UiTheme.ICON_ACCENT,
+                UiTheme.SURFACE, UiTheme.SURFACE_RAISED, UiTheme.SURFACE_HOVER, UiTheme.BACKDROP,
+                UiTheme.DANGER, UiTheme.DANGER_BRIGHT, UiTheme.DANGER_SOFT,
+                UiTheme.BORDER_STRONG, UiTheme.TEXT_STRONG, UiTheme.TEXT_SECONDARY, UiTheme.TEXT_MUTED,
+                UiTheme.TEXT_DISABLED);
+    }
+
+    /** 底色：规则在 UiButtonColors.fill。 */
     private int backgroundTop(float hover, float press) {
-        return switch(variant) {
-            case PRIMARY -> UiTheme.lighten(UiTheme.ACCENT_BRIGHT, 0.06F * hover - 0.12F * press);
-            case SECONDARY -> UiTheme.mix(UiTheme.SURFACE_RAISED, UiTheme.SURFACE_HOVER, Math.max(hover, press));
-            case GHOST -> UiTheme.alpha(UiTheme.SURFACE_HOVER, Math.max(hover * 0.85F, press * 0.75F));
-            case DANGER -> UiTheme.mix(UiTheme.DANGER_SOFT, UiTheme.DANGER, 0.22F * hover);
-            case OUTLINE -> UiTheme.alpha(UiTheme.SURFACE_HOVER, Math.max(hover * 0.6F, press * 0.5F));
-            case CHIP -> UiTheme.mix(UiTheme.ACCENT_FAINT, UiTheme.ACCENT_SOFT, Math.max(hover, 0.7F));
-        };
+        return UiButtonColors.fill(palette(), variant.ordinal(), hover > 0F, press > 0F);
     }
 
-    private int backgroundBottom(float hover, float press) {
-        return switch(variant) {
-            case PRIMARY -> UiTheme.lighten(UiTheme.ACCENT, 0.06F * hover - 0.12F * press);
-            case SECONDARY -> UiTheme.mix(UiTheme.SURFACE, UiTheme.SURFACE_HOVER, Math.max(hover, press) * 0.85F);
-            case GHOST -> UiTheme.alpha(UiTheme.SURFACE_HOVER, Math.max(hover * 0.7F, press * 0.6F));
-            case DANGER -> UiTheme.mix(UiTheme.DANGER_SOFT, UiTheme.DANGER, 0.12F * hover);
-            case OUTLINE -> UiTheme.alpha(UiTheme.SURFACE_HOVER, Math.max(hover * 0.5F, press * 0.4F));
-            case CHIP -> UiTheme.mix(UiTheme.ACCENT_FAINT, UiTheme.ACCENT_SOFT, Math.max(hover * 0.85F, 0.6F));
-        };
-    }
-
+    /** 描边：规则在 UiButtonColors.border。 */
     private int borderColor(float hover) {
-        return switch(variant) {
-            case PRIMARY -> UiTheme.alpha(0x00000000, 0F);
-            case SECONDARY -> UiTheme.mix(UiTheme.BORDER, UiTheme.ACCENT, 0.45F * hover);
-            case GHOST -> UiTheme.alpha(UiTheme.ACCENT, 0.35F * hover);
-            case DANGER -> UiTheme.mix(UiTheme.alpha(UiTheme.DANGER, 0.55F), UiTheme.DANGER_BRIGHT, hover);
-            case OUTLINE -> UiTheme.mix(UiTheme.BORDER_STRONG, UiTheme.ACCENT, hover);
-            case CHIP -> UiTheme.mix(UiTheme.alpha(UiTheme.ACCENT, 0.35F), UiTheme.ACCENT, hover);
-        };
+        return UiButtonColors.border(palette(), variant.ordinal(), hover > 0F);
     }
 
+    /** 文字：规则在 UiButtonColors.text。 */
     private int textColor(float hover) {
-        return switch(variant) {
-            case PRIMARY -> UiTheme.ON_ACCENT;
-            case SECONDARY -> UiTheme.mix(UiTheme.TEXT_SECONDARY, UiTheme.TEXT_STRONG, hover);
-            case GHOST -> UiTheme.mix(UiTheme.TEXT_MUTED, UiTheme.TEXT, hover);
-            case DANGER -> UiTheme.mix(UiTheme.DANGER, UiTheme.DANGER_BRIGHT, hover);
-            case OUTLINE -> UiTheme.mix(UiTheme.TEXT_SECONDARY, UiTheme.ACCENT_BRIGHT, hover);
-            case CHIP -> UiTheme.ACCENT_BRIGHT;
-        };
+        return UiButtonColors.text(palette(), variant.ordinal(), hover > 0F);
     }
 
     /** 宽度不足时截断文字，避免文字画出按钮边界。 */
@@ -251,10 +215,10 @@ public class UiButton extends AbstractWidget {
     /** 文字被截断时返回完整文本，供界面挂悬停提示。 */
     public @Nullable Component truncatedLabel() {
         Font font = UiTheme.font();
-        int iconSize = Mth.clamp(height - 8, 6, 12);
+        int iconSize = iconSize(height);
         int trailingSpace = trailingIcon == null ? 0 : iconSize + 3;
         int iconSpace = (icon == null ? 0 : iconSize + 3) + trailingSpace;
-        int padding = pill ? Mth.clamp(height / 2, 2, 8) : 6;
+        int padding = 6;
         int available = Math.max(1, width - padding * 2 - iconSpace);
         return font.width(getMessage()) > available ? getMessage() : null;
     }
