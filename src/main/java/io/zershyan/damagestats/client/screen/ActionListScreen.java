@@ -57,7 +57,8 @@ abstract class ActionListScreen extends UiScreen {
         if(minecraft == null) return;
         actions = buildActions();
         actionButtons.clear();
-        titleLines = wrapLines(title, Math.max(1, Math.clamp(width - 16, 1, PANEL_MAX_WIDTH) - PADDING * 2));
+        // 折行与量宽都按加粗后的文本算，原版粗体会撑开字距
+        titleLines = wrapLines(UiText.bolded(title), Math.max(1, Math.clamp(width - 16, 1, PANEL_MAX_WIDTH) - PADDING * 2));
         panel = layout();
         int y = panel.y() + PADDING + titleLines.size() * LINE_HEIGHT + 10;
         for(Action action : actions) {
@@ -85,10 +86,7 @@ abstract class ActionListScreen extends UiScreen {
         int centerX = panel.centerX();
         int y = panel.y() + PADDING;
         for(FormattedCharSequence line : titleLines) {
-            // 用 UiText 画：原版的 drawCenteredString 重载写死了 dropShadow=true，没有开关
             UiText.centered(graphics, line, centerX, y, UiTheme.TEXT_STRONG);
-            // 再叠一遍做出加粗，标题和下面的按钮文案就拉开了层级
-            UiText.centered(graphics, line, centerX + 1, y, UiTheme.TEXT_STRONG);
             y += LINE_HEIGHT;
         }
         // 标题下的强调短线，让面板顶部不至于是一整块空白；线性风格下用实色

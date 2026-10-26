@@ -18,7 +18,7 @@ import java.util.List;
  */
 public final class UiText {
     /** 加粗过的组件。原版渲染器据此撑开字距，宽度也要用它来量。 */
-    private static Component bolded(Component text) {
+    public static Component bolded(Component text) {
         return text.copy().withStyle(ChatFormatting.BOLD);
     }
 
