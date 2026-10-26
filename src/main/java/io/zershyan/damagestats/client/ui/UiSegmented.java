@@ -13,13 +13,16 @@ import java.util.List;
 import java.util.function.IntConsumer;
 
 /** 分段控件：把互斥的几个选项平铺成一行，选中的那一段有一块滑动的高亮底板。 */
-public class UiSegmented extends AbstractWidget {
+public class UiSegmented extends AbstractWidget implements UiTruncatable {
     /** 一个分段。enabled 为 false 时该段不可点，用于当前数据不支持的模式。 */
     public record Option(Component label, @Nullable UiIcon icon, boolean enabled) {
         public Option(Component label) {
             this(label, null, true);
         }
     }
+
+    /** 标签左右合计留白 */
+    private static final int LABEL_PADDING = 8;
 
     private final List<Option> options;
     private final IntConsumer onSelect;
@@ -101,12 +104,12 @@ public class UiSegmented extends AbstractWidget {
             } else {
                 color = UiTheme.TEXT_MUTED;
             }
-            float iconSize = Mth.clamp(height - 8, 6, 12);
-            int iconSpace = option.icon() == null ? 0 : (int) iconSize + 3;
+            float iconSize = iconSize(height);
+            int iconSpace = iconSpace(option, height);
             // 选中项在标签页样式里再加粗，选中状态就不只靠颜色区分
-            Component label = index == selected && !pill
-                    ? UiText.truncateBold(option.label(), Math.max(1, segment.width() - 8 - iconSpace))
-                    : UiText.truncate(option.label(), Math.max(1, segment.width() - 8 - iconSpace));
+            Component label = isBold(index)
+                    ? UiText.truncateBold(option.label(), labelSpace(index))
+                    : UiText.truncate(option.label(), labelSpace(index));
             int contentWidth = font.width(label) + iconSpace;
             int left = segment.centerX() - contentWidth / 2;
             if(option.icon() != null) {
@@ -115,7 +118,7 @@ public class UiSegmented extends AbstractWidget {
                 left += iconSpace;
             }
             int labelY = segment.centerY() - font.lineHeight / 2 + 1;
-            if(index == selected && !pill) {
+            if(isBold(index)) {
                 UiText.bold(graphics, label, left, labelY, color);
             } else {
                 UiText.plain(graphics, label, left, labelY, color);
@@ -135,6 +138,42 @@ public class UiSegmented extends AbstractWidget {
             onSelect.accept(index);
         }
         return true;
+    }
+
+    /** 每段都放得下最宽标签时的总宽度。标签页样式的选中项会加粗，按加粗宽度算。 */
+    public static int fitWidth(List<Option> options, int height, boolean pill) {
+        int widest = 0;
+        for(Option option : options) {
+            int labelWidth = pill ? UiText.width(option.label()) : UiText.boldWidth(option.label());
+            widest = Math.max(widest, labelWidth + iconSpace(option, height));
+        }
+        return options.size() * (widest + LABEL_PADDING);
+    }
+
+    /** 悬停取指针下的段，键盘聚焦取选中段；该段文字被截断时交出完整标签。 */
+    @Override
+    public @Nullable Component focusedFullText() {
+        int index = isHovered ? hoveredIndex : UiTruncatable.keyboardFocused(this) ? selected : -1;
+        if(index < 0 || index >= options.size()) return null;
+        Component label = options.get(index).label();
+        int labelWidth = isBold(index) ? UiText.boldWidth(label) : UiText.width(label);
+        return labelWidth > labelSpace(index) ? label : null;
+    }
+
+    private boolean isBold(int index) {
+        return index == selected && !pill;
+    }
+
+    private int labelSpace(int index) {
+        return Math.max(1, segmentRect(index).width() - LABEL_PADDING - iconSpace(options.get(index), height));
+    }
+
+    private static int iconSpace(Option option, int height) {
+        return option.icon() == null ? 0 : (int) iconSize(height) + 3;
+    }
+
+    private static float iconSize(int height) {
+        return Mth.clamp(height - 8, 6, 12);
     }
 
     private UiLayout.Rect segmentRect(int index) {

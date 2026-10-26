@@ -36,7 +36,8 @@ public class OverlayPositionScreen extends UiScreen {
     private static final int PANEL_MIN_SCREEN_WIDTH = 300;
     private static final int SLIDER_HEIGHT = 20;
     private static final int FIELD_ROW_HEIGHT = 20;
-    private static final int SCOPE_WIDTH = 46;
+    /** 范围切换按标签定宽的上限，超出就截断并靠提示浮层显示全文 */
+    private static final int SCOPE_MAX_WIDTH = 64;
     private static final int PANEL_PADDING = 10;
     private static final int SLIDER_GAP = 5;
     private static final int ROW_GAP = 7;
@@ -139,20 +140,23 @@ public class OverlayPositionScreen extends UiScreen {
 
     /** 字段行全部创建在「未滚动」的位置，每帧由 {@link #syncFieldScroll} 按平滑偏移搬移。 */
     private void addFields() {
+        List<UiSegmented.Option> scopeOptions = List.of(
+                new UiSegmented.Option(DSKeyLang.OverlayScopeSession.copy()),
+                new UiSegmented.Option(DSKeyLang.OverlayScopeLifetime.copy()));
+        // 整列共用一个宽度，保证上下对齐
+        int scopeWidth = Math.min(SCOPE_MAX_WIDTH, UiSegmented.fitWidth(scopeOptions, FIELD_ROW_HEIGHT - 2, true));
         for(int index = 0; index < FIELDS.size(); index++) {
             OverlayField field = FIELDS.get(index);
             UiLayout.Rect row = fieldRow(index);
             var scope = field.scope();
             List<UiLayout.Rect> split = scope == null ? List.of(row)
-                    : UiLayout.row(row, 4, UiLayout.FILL, Math.min(SCOPE_WIDTH, Math.max(1, row.width() - 40)));
+                    : UiLayout.row(row, 4, UiLayout.FILL, Math.min(scopeWidth, Math.max(1, row.width() - 40)));
             UiCheckbox checkbox = new UiCheckbox(split.get(0),
                     Component.translatable(field.label().getKey()), field.visible().get(),
                     value -> field.visible().set(value));
             fieldWidgets.add(addClippedWidget(checkbox));
             if(scope == null) continue;
-            UiSegmented scopeBox = new UiSegmented(split.get(1), List.of(
-                    new UiSegmented.Option(DSKeyLang.OverlayScopeSession.copy()),
-                    new UiSegmented.Option(DSKeyLang.OverlayScopeLifetime.copy())),
+            UiSegmented scopeBox = new UiSegmented(split.get(1), scopeOptions,
                     scope.get() == OverlayMetricScope.SESSION ? 0 : 1, true,
                     selection -> {
                         OverlayMetricScope next = selection == 0
@@ -216,6 +220,22 @@ public class OverlayPositionScreen extends UiScreen {
                 UiTheme.alpha(UiTheme.BACKDROP, 0.75F));
         UiDraw.move(graphics, previewX + 9F, previewY + 9F, 7F, 1F, PREVIEW_BORDER);
         graphics.flush();
+    }
+
+    @Override
+    protected void renderOverlay(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        boolean mouseInFields = fieldViewport.contains(mouseX, mouseY);
+        for(AbstractWidget widget : fieldWidgets) {
+            if(!widget.visible || !(widget instanceof UiTruncatable truncatable)) continue;
+            if(widget.isHovered() && !mouseInFields) continue;
+            Component fullText = truncatable.focusedFullText();
+            if(fullText == null) continue;
+            // 键盘聚焦没有指针位置，把提示锚在控件下方
+            boolean hovered = widget.isHovered();
+            graphics.renderComponentTooltip(font, List.of(fullText),
+                    hovered ? mouseX : widget.getX(), hovered ? mouseY : widget.getY() + widget.getHeight());
+            return;
+        }
     }
 
     @Override

@@ -6,11 +6,12 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.network.chat.Component;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.function.Consumer;
 
 /** 勾选框：整行可点，选中时方块填充强调色并淡入一个对勾。 */
-public class UiCheckbox extends AbstractWidget {
+public class UiCheckbox extends AbstractWidget implements UiTruncatable {
     private static final int BOX_SIZE = 11;
     private static final int LABEL_GAP = 6;
 
@@ -44,7 +45,7 @@ public class UiCheckbox extends AbstractWidget {
         float hover = UiTheme.easeOut(hoverAmount);
         float mark = UiTheme.easeOut(checkAmount);
 
-        int boxSize = Math.min(BOX_SIZE, Math.max(6, height - 2));
+        int boxSize = boxSize();
         float boxY = getY() + (height - boxSize) / 2F;
         // 线性方块：未选中是抬高的实色面（悬停提亮），选中是强调色实心，没有渐变
         int fill = mark > 0.5F ? UiTheme.ACCENT
@@ -60,8 +61,8 @@ public class UiCheckbox extends AbstractWidget {
 
         Component label = getMessage();
         if(!label.getString().isEmpty()) {
-            int labelLeft = (int) (getX() + boxSize + LABEL_GAP);
-            int available = Math.max(1, getX() + getWidth() - labelLeft);
+            int labelLeft = getX() + boxSize + LABEL_GAP;
+            int available = labelSpace();
             Component display = font.width(label) > available
                     ? Component.literal(font.plainSubstrByWidth(label.getString(), Math.max(1, available - 4)) + "…")
                     : label;
@@ -72,6 +73,19 @@ public class UiCheckbox extends AbstractWidget {
         graphics.flush();
     }
 
+    @Override
+    public @Nullable Component focusedFullText() {
+        if(!isHovered && !UiTruncatable.keyboardFocused(this)) return null;
+        return UiText.width(getMessage()) > labelSpace() ? getMessage() : null;
+    }
+
+    private int boxSize() {
+        return Math.min(BOX_SIZE, Math.max(6, height - 2));
+    }
+
+    private int labelSpace() {
+        return Math.max(1, width - boxSize() - LABEL_GAP);
+    }
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if(!active || !visible || button != 0 || !isMouseOver(mouseX, mouseY)) return false;
