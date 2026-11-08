@@ -74,6 +74,16 @@ public final class DSClientConfig {
     public static final ModConfigSpec.EnumValue<OverlayMetricScope> OverlayTopDirectSourceScope = scope(DSConfigLang.OverlayTopDirectSourceScope);
     public static final ModConfigSpec.BooleanValue OverlayShowSessionStatus = bool(DSConfigLang.OverlayShowSessionStatus, false);
 
+    public static final ModConfigSpec.BooleanValue OverlayHideWhenIdle = BUILDER
+            .comment("没有进行中的战斗会话时隐藏浮层")
+            .translation(DSConfigLang.OverlayHideWhenIdle.getKey())
+            .define(DSConfigLang.OverlayHideWhenIdle.name(), false);
+
+    public static final ModConfigSpec.IntValue ClientRefreshTicks = BUILDER
+            .comment("两次服务端数据之间由客户端自行重算 DPS 与战斗时间的间隔（tick）；有新数据时重新计时")
+            .translation(DSConfigLang.ClientRefreshTicks.getKey())
+            .defineInRange(DSConfigLang.ClientRefreshTicks.name(), 10, 1, 200);
+
     public static final ModConfigSpec SPEC = BUILDER.build();
 
     private static ModConfigSpec.BooleanValue bool(DSConfigLang.ConfigEntry entry, boolean defaultValue) {

@@ -105,6 +105,10 @@ public class DSConfigLang extends DSLang {
             "Top Direct Source Scope", "最高贡献直接来源范围");
     public static final ConfigEntry OverlayShowSessionStatus = entry("overlayShowSessionStatus",
             "Show Combat Session State", "显示战斗会话状态");
+    public static final ConfigEntry OverlayHideWhenIdle = entry("overlayHideWhenIdle",
+            "Hide Overlay Out of Combat", "非战斗状态隐藏浮层");
+    public static final ConfigEntry ClientRefreshTicks = entry("clientRefreshTicks",
+            "Client Refresh Interval (Ticks)", "客户端数据刷新间隔（tick）");
 
     private static ConfigEntry entry(String name, String enUs, String zhCn) {
         ConfigEntry configEntry = new ConfigEntry(name, new Lang(enUs, zhCn));

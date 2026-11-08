@@ -37,6 +37,13 @@ public final class StatsOverlay implements LayeredDraw.Layer {
 
     private record Line(Component text, int color) {}
 
+    private static boolean dragging;
+
+    /** 位置编辑页拖拽浮层时，界面打开也要画真实浮层，方便对照其他模组的浮层。 */
+    public static void setDragging(boolean value) {
+        dragging = value;
+    }
+
     public static int width() {
         Minecraft minecraft = Minecraft.getInstance();
         return Math.min(scaled(measureWidth(minecraft.font, previewSummary())), minecraft.getWindow().getGuiScaledWidth());
@@ -49,11 +56,12 @@ public final class StatsOverlay implements LayeredDraw.Layer {
 
     @Override
     public void render(@NotNull GuiGraphics graphics, @NotNull DeltaTracker deltaTracker) {
-        if(!DSClientConfig.OverlayVisible.get()) return;
+        if(!DSClientConfig.OverlayVisible.get() && !dragging) return;
         Minecraft minecraft = Minecraft.getInstance();
         if(minecraft.options.hideGui) return;
-        if(minecraft.screen != null && !(minecraft.screen instanceof ChatScreen)) return;
+        if(minecraft.screen != null && !dragging && !(minecraft.screen instanceof ChatScreen)) return;
         FocusSummary summary = ClientStats.summary();
+        if(!dragging && DSClientConfig.OverlayHideWhenIdle.get() && !summary.active()) return;
         if(summary.lifetime().metrics().hitCount() == 0) return;
         renderBox(graphics, minecraft.font, summary,
                 originX(graphics.guiWidth()), originY(graphics.guiHeight()));

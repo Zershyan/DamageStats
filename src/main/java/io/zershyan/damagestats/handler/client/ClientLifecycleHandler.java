@@ -22,5 +22,6 @@ public final class ClientLifecycleHandler {
     @SubscribeEvent
     public static void onClientTick(ClientTickEvent.Post event) {
         ClientFocusPreferences.applyIfReady();
+        ClientStats.tickClient();
     }
 }

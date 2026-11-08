@@ -1,5 +1,7 @@
 package io.zershyan.damagestats.client;
 
+import io.zershyan.damagestats.config.DSClientConfig;
+import io.zershyan.damagestats.config.DSConfig;
 import io.zershyan.damagestats.stats.filter.FilterKey;
 import io.zershyan.damagestats.stats.focus.FocusChangeResult;
 import io.zershyan.damagestats.stats.view.*;
@@ -15,7 +17,12 @@ import java.util.Map;
  * Overlay 与页头读取焦点摘要；图表、实例候选与历史页只在用户操作时按需请求。
  */
 public final class ClientStats {
+    /** 服务端发来的原始摘要；{@link #view} 才是界面读到的，可能已按本地时间外推 */
     private static FocusSummary summary = FocusSummary.empty();
+    private static FocusSummary view = FocusSummary.empty();
+    /** 距上次收到数据的 tick 数，以及还有多少 tick 触发一次客户端重算 */
+    private static int ticksSinceData;
+    private static int refreshCountdown;
     private static FocusChangeResult lastFocusResult = FocusChangeResult.ACCEPTED;
     private static @Nullable EntityChoicePage entityChoices;
     private static @Nullable FocusChartPage chartPage;
@@ -32,6 +39,7 @@ public final class ClientStats {
         resetIfWorldChanged(delta.summary().worldId());
         if(delta.summary().revision() <= summary.revision()) return;
         summary = delta.applyTo(summary);
+        onDataChanged();
     }
 
     public static void acceptFocusState(FocusChangeResult result, FocusSummary incoming, int requestId) {
@@ -42,13 +50,40 @@ public final class ClientStats {
             clearChartInstances();
         }
         summary = incoming;
+        onDataChanged();
         focusStateReceived = true;
         lastFocusResult = result;
         ClientFocusPreferences.acceptFocusState(result, incoming, requestId);
     }
 
     public static FocusSummary summary() {
-        return summary;
+        return view;
+    }
+
+    /** 每 tick 递减重算计时：数据停止更新满一个间隔，就按本地时间外推一次并重新计时。 */
+    public static void tickClient() {
+        if(ticksSinceData < Integer.MAX_VALUE) ticksSinceData++;
+        if(refreshCountdown > 0) refreshCountdown--;
+        if(refreshCountdown > 0) return;
+        view = extrapolate(summary, ticksSinceData);
+        refreshCountdown = DSClientConfig.ClientRefreshTicks.get();
+    }
+    /** 任何来源的数据更新都把重算计时拉满，并立即用最新数据渲染。 */
+    private static void onDataChanged() {
+        view = summary;
+        ticksSinceData = 0;
+        refreshCountdown = DSClientConfig.ClientRefreshTicks.get();
+    }
+
+    /** 只有进行中的会话会随本地时间增长，已结束的会话时长是定值。 */
+    private static FocusSummary extrapolate(FocusSummary base, long extraTicks) {
+        if(!base.active() || extraTicks <= 0) return base;
+        FocusMetricsView session = base.session();
+        int window = DSConfig.DpsWindowTicks.get();
+        return new FocusSummary(base.revision(), base.scope(),
+                new FocusMetricsView(session.metrics().extrapolate(extraTicks, window),
+                        session.topDamageType(), session.topDirectSource()),
+                base.lifetime(), true, base.worldId());
     }
 
     public static FocusChangeResult lastFocusResult() {
@@ -146,6 +181,9 @@ public final class ClientStats {
 
     public static void invalidateSnapshot() {
         summary = FocusSummary.empty();
+        view = FocusSummary.empty();
+        ticksSinceData = 0;
+        refreshCountdown = 0;
         focusStateReceived = false;
         entityChoices = null;
         chartPage = null;
@@ -165,6 +203,9 @@ public final class ClientStats {
         ClientExportManager.clear();
         ClientStorageOverview.clear();
         summary = FocusSummary.empty();
+        view = FocusSummary.empty();
+        ticksSinceData = 0;
+        refreshCountdown = 0;
         focusStateReceived = false;
         lastFocusResult = FocusChangeResult.ACCEPTED;
         entityChoices = null;
@@ -177,6 +218,9 @@ public final class ClientStats {
     private static void resetIfWorldChanged(String worldId) {
         if(worldId.isEmpty() || summary.worldId().isEmpty() || worldId.equals(summary.worldId())) return;
         summary = FocusSummary.empty();
+        view = FocusSummary.empty();
+        ticksSinceData = 0;
+        refreshCountdown = 0;
         focusStateReceived = false;
         entityChoices = null;
         chartPage = null;
