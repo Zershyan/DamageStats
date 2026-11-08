@@ -5,6 +5,7 @@ import io.zershyan.damagestats.client.ClientStats;
 import io.zershyan.damagestats.client.overlay.StatsOverlay;
 import io.zershyan.damagestats.client.ui.*;
 import io.zershyan.damagestats.config.DSClientConfig;
+import io.zershyan.damagestats.config.DSConfig;
 import io.zershyan.damagestats.config.OverlayMetricScope;
 import io.zershyan.damagestats.datagen.init.DSConfigLang;
 import io.zershyan.damagestats.datagen.init.DSKeyLang;
@@ -89,6 +90,13 @@ public class OverlayPositionScreen extends UiScreen {
     private double ratioX;
     private double ratioY;
     private boolean dragging;
+    /** 实时 DPS 窗口的取值范围，与配置项一致；拖动时按 10 tick 对齐 */
+    private static final int MIN_DPS_WINDOW = 20;
+    private static final int MAX_DPS_WINDOW = 1200;
+    /** 拖拽浮层时整屏淡出的时长，淡入淡出都用它 */
+    private static final float FADE_SECONDS = 0.5F;
+    /** 拖拽浮层时整屏淡出的系数，1 为完全不透明 */
+    private float fade = 1F;
     private int grabOffsetX;
     private int grabOffsetY;
     private final UiScroll fieldScroll = new UiScroll();
@@ -121,8 +129,10 @@ public class OverlayPositionScreen extends UiScreen {
                 OverlayPositionScreen::scaleMessage, DSClientConfig.OverlayScale::set));
         addRenderableWidget(new UiSlider(panelRow(1), DSClientConfig.OverlayBackgroundOpacity.get(), 0.0D, 1.0D,
                 OverlayPositionScreen::opacityMessage, DSClientConfig.OverlayBackgroundOpacity::set));
+        addRenderableWidget(new UiSlider(panelRow(2), DSConfig.DpsWindowTicks.get(), MIN_DPS_WINDOW, MAX_DPS_WINDOW,
+                OverlayPositionScreen::dpsWindowMessage, OverlayPositionScreen::setDpsWindow));
 
-        List<UiLayout.Rect> targetRow = UiLayout.row(panelRow(2), 4, UiLayout.FILL, 62);
+        List<UiLayout.Rect> targetRow = UiLayout.row(panelRow(3), 4, UiLayout.FILL, 62);
         targetButton = addRenderableWidget(UiButton.builder(Component.empty(), button -> openTargetSelector())
                 .bounds(targetRow.get(0)).variant(UiButton.Variant.SECONDARY)
                 .align(UiButton.Align.LEFT).icon(UiDraw::target).build());
@@ -168,6 +178,19 @@ public class OverlayPositionScreen extends UiScreen {
         }
     }
 
+    /**
+     * 定位浮层时要能看见真实 HUD 和其他模组的浮层，所以不铺页面底色，只压一层很淡的暗色。
+     * 本模组自己的浮层在打开界面时由 HUD 侧跳过，这里显示的是预览。
+     */
+    @Override
+    public void renderBackground(@NotNull GuiGraphics graphics) {
+        fade = UiTheme.approach(fade, dragging ? 0F : 1F, FADE_SECONDS, UiTheme.delta());
+        UiTheme.setScreenAlpha(UiTheme.easeOut(fade));
+        if(fade <= 0.02F) return;
+        UiDraw.rect(graphics, 0, 0, width, height, 0x40000000);
+        graphics.flush();
+    }
+
     /** 平滑滚动字段列表：先搬位置，再按可视范围把行外的控件藏掉。 */
     private void syncFieldScroll() {
         fieldScroll.measure(FIELDS.size() * FIELD_ROW_HEIGHT, fieldViewport.height());
@@ -188,6 +211,7 @@ public class OverlayPositionScreen extends UiScreen {
 
     @Override
     protected void renderContent(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        if(fade <= 0.02F) return;
         renderTopBar(graphics, title, null, null, false, 34);
         renderCard(graphics, panel, false);
         UiDraw.rect(graphics, fieldViewport.x(), fieldViewport.y() - DIVIDER_OFFSET,
@@ -252,6 +276,7 @@ public class OverlayPositionScreen extends UiScreen {
         // 拖拽优先于控件：预览和面板重叠时，点击落在预览上就是拖它
         if(button == 0 && isInsidePreview(mouseX, mouseY)) {
             dragging = true;
+            StatsOverlay.setDragging(true);
             grabOffsetX = (int) (mouseX - originX());
             grabOffsetY = (int) (mouseY - originY());
             return true;
@@ -264,23 +289,30 @@ public class OverlayPositionScreen extends UiScreen {
         if(!dragging) return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
         ratioX = clampRatio((mouseX - grabOffsetX) / width, StatsOverlay.width(), width);
         ratioY = clampRatio((mouseY - grabOffsetY) / height, StatsOverlay.height(), height);
+        // 拖拽期间真实浮层顶替预览，位置要跟着走
+        DSClientConfig.OverlayX.set(ratioX);
+        DSClientConfig.OverlayY.set(ratioY);
         return true;
     }
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
         dragging = false;
+        StatsOverlay.setDragging(false);
         return super.mouseReleased(mouseX, mouseY, button);
     }
 
     @Override
     public void onClose() {
+        StatsOverlay.setDragging(false);
+        UiTheme.setScreenAlpha(1F);
         DSClientConfig.OverlayX.set(clampRatio(ratioX, StatsOverlay.width(), width));
         DSClientConfig.OverlayY.set(clampRatio(ratioY, StatsOverlay.height(), height));
         DSClientConfig.OverlayX.save();
         DSClientConfig.OverlayY.save();
         DSClientConfig.OverlayScale.save();
         DSClientConfig.OverlayBackgroundOpacity.save();
+        DSConfig.DpsWindowTicks.save();
         FIELDS.forEach(field -> {
             field.visible().save();
             var scope = field.scope();
@@ -333,6 +365,18 @@ public class OverlayPositionScreen extends UiScreen {
                 + Math.round(scale * 100) + "%"));
     }
 
+    private static Component dpsWindowMessage(double value) {
+        return DSKeyLang.EditPositionDpsWindow.copy().append(Component.literal(": " + snapDpsWindow(value) + " tick"));
+    }
+
+    private static void setDpsWindow(double value) {
+        DSConfig.DpsWindowTicks.set(snapDpsWindow(value));
+    }
+
+    private static int snapDpsWindow(double value) {
+        return (int) Mth.clamp(Math.round(value / 10F) * 10F, MIN_DPS_WINDOW, MAX_DPS_WINDOW);
+    }
+
     private static Component opacityMessage(double opacity) {
         return DSKeyLang.EditPositionOpacity.copy().append(Component.literal(": "
                 + Math.round(opacity * 100) + "%"));
@@ -354,7 +398,7 @@ public class OverlayPositionScreen extends UiScreen {
         if(width < PANEL_MIN_SCREEN_WIDTH) panelWidth = page.width();
         panel = new UiLayout.Rect(page.right() - panelWidth, page.y(), panelWidth, page.height());
 
-        int fieldsTop = panel.y() + PANEL_PADDING + SLIDER_HEIGHT + SLIDER_GAP + SLIDER_HEIGHT
+        int fieldsTop = panel.y() + PANEL_PADDING + (SLIDER_HEIGHT + SLIDER_GAP) * 2 + SLIDER_HEIGHT
                 + ROW_GAP + SLIDER_HEIGHT + SECTION_GAP + SECTION_LABEL_HEIGHT + 3;
         fieldViewport = new UiLayout.Rect(panel.x() + PANEL_PADDING, fieldsTop,
                 Math.max(0, panel.width() - PANEL_PADDING * 2), Math.max(0, panel.bottom() - 12 - fieldsTop));
@@ -368,13 +412,14 @@ public class OverlayPositionScreen extends UiScreen {
                 Math.max(1, topBar().height() - 8));
     }
 
-    /** 面板内第 index 行的位置：0 缩放、1 透明度、2 目标。三段高度一致，间隔由常量统一决定。 */
+    /** 面板内第 index 行的位置：0 缩放、1 透明度、2 DPS 窗口、3 目标。各段高度一致，间隔由常量统一决定。 */
     private UiLayout.Rect panelRow(int index) {
         int top = panel.y() + PANEL_PADDING;
         int y = switch(index) {
             case 0 -> top;
             case 1 -> top + SLIDER_HEIGHT + SLIDER_GAP;
-            default -> top + SLIDER_HEIGHT * 2 + SLIDER_GAP + ROW_GAP;
+            case 2 -> top + (SLIDER_HEIGHT + SLIDER_GAP) * 2;
+            default -> top + (SLIDER_HEIGHT + SLIDER_GAP) * 2 + SLIDER_HEIGHT + ROW_GAP;
         };
         return new UiLayout.Rect(panel.x() + PANEL_PADDING, y,
                 Math.max(0, panel.width() - PANEL_PADDING * 2), SLIDER_HEIGHT);

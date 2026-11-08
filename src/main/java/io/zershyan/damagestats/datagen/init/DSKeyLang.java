@@ -209,6 +209,8 @@ public class DSKeyLang extends DSLang {
             "Scale", "缩放");
     public static final MutableComponent EditPositionOpacity = entry(ScreenPrefix + "edit_position.opacity",
             "Background Opacity", "背景透明度");
+    public static final MutableComponent EditPositionDpsWindow = entry(ScreenPrefix + "edit_position.dps_window",
+            "Live DPS Window", "实时 DPS 窗口");
     public static final MutableComponent EditPositionTarget = entry(ScreenPrefix + "edit_position.target",
             "Target", "目标");
     public static final MutableComponent EditPositionDamage = entry(ScreenPrefix + "edit_position.damage",
