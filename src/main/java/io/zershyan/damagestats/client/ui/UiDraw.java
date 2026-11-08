@@ -56,7 +56,8 @@ public final class UiDraw {
     public static void rectGradient(GuiGraphics graphics, float x, float y, float width, float height,
                                     int top, int bottom) {
         if(width <= 0F || height <= 0F || isInvisible(top) && isInvisible(bottom)) return;
-        stretch(graphics, UiAtlas.region(UiAtlas.SOLID), x, y, width, height, top, bottom);
+        stretch(graphics, UiAtlas.region(UiAtlas.SOLID), x, y, width, height,
+                UiTheme.fade(top), UiTheme.fade(bottom));
     }
 
     // ---------------------------------------------------------------- 圆角框
@@ -70,6 +71,8 @@ public final class UiDraw {
     public static void roundedRect(GuiGraphics graphics, float x, float y, float width, float height,
                                    float radius, int top, int bottom) {
         if(width <= 0F || height <= 0F || isInvisible(top) && isInvisible(bottom)) return;
+        top = UiTheme.fade(top);
+        bottom = UiTheme.fade(bottom);
         int baked = UiAtlas.bakedRadius(Math.min(radius, Math.min(width, height) / 2F));
         if(baked == 0) {
             rectGradient(graphics, x, y, width, height, top, bottom);
@@ -82,6 +85,7 @@ public final class UiDraw {
     public static void roundedBorder(GuiGraphics graphics, float x, float y, float width, float height,
                                      float radius, float thickness, int color) {
         if(width <= 0F || height <= 0F || thickness <= 0F || isInvisible(color)) return;
+        color = UiTheme.fade(color);
         int baked = UiAtlas.bakedRadius(Math.min(radius, Math.min(width, height) / 2F));
         if(baked == 0) {
             rectGradient(graphics, x, y, width, 1F, color, color);
@@ -92,6 +96,7 @@ public final class UiDraw {
         }
         nineSlice(graphics, UiAtlas.region("ring_" + baked), baked, x, y, width, height, color, color);
     }
+
 
     /**
      * 九宫格：四角按原尺寸，四边与中心拉伸。区域是边长 2r+1 的正方形，中心一行一列是纯色，拉伸不改变圆角。
@@ -156,6 +161,7 @@ public final class UiDraw {
     private static void drawIcon(GuiGraphics graphics, String name, float centerX, float centerY, float size,
                                  int color) {
         UiAtlas.Region region = UiAtlas.region(name);
+        color = UiTheme.fade(color);
         int px = Math.round(size);
         int x = Math.round(centerX - px / 2F);
         int y = Math.round(centerY - px / 2F);
@@ -168,6 +174,7 @@ public final class UiDraw {
     private static void drawRotated(GuiGraphics graphics, String name, float centerX, float centerY, float size,
                                     float rotation, int color) {
         UiAtlas.Region region = UiAtlas.region(name);
+        color = UiTheme.fade(color);
         begin(graphics, color);
         PoseStack pose = graphics.pose();
         pose.pushPose();

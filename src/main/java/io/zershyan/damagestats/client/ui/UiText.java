@@ -23,11 +23,11 @@ public final class UiText {
     }
 
     public static void bold(GuiGraphics graphics, Component text, int x, int y, int color) {
-        graphics.drawString(UiTheme.font(), bolded(text), x, y, color, false);
+        graphics.drawString(UiTheme.font(), bolded(text), x, y, UiTheme.fade(color), false);
     }
 
     public static void plain(GuiGraphics graphics, Component text, int x, int y, int color) {
-        graphics.drawString(UiTheme.font(), text, x, y, color, false);
+        graphics.drawString(UiTheme.font(), text, x, y, UiTheme.fade(color), false);
     }
 
     public static void boldCentered(GuiGraphics graphics, Component text, int centerX, int y, int color) {
@@ -42,7 +42,7 @@ public final class UiText {
     public static void centered(GuiGraphics graphics, FormattedCharSequence text, int centerX, int y,
                                 int color) {
         Font font = UiTheme.font();
-        graphics.drawString(font, text, centerX - font.width(text) / 2, y, color, false);
+        graphics.drawString(font, text, centerX - font.width(text) / 2, y, UiTheme.fade(color), false);
     }
 
     /** 右对齐到 rightX（不含加粗多出来的那 1px）。 */

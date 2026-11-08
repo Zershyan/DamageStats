@@ -111,6 +111,18 @@ public final class UiTheme {
         return (a << 24) | (color & 0x00FFFFFF);
     }
 
+    private static float screenAlpha = 1F;
+
+    /** 整屏淡出系数，1 为正常。位置编辑页拖拽浮层时调低它，结束时必须复位。 */
+    public static void setScreenAlpha(float alpha) {
+        screenAlpha = Math.clamp(alpha, 0F, 1F);
+    }
+
+    /** 按整屏淡出系数衰减颜色；正常状态下原样返回。 */
+    public static int fade(int color) {
+        return screenAlpha >= 1F ? color : alpha(color, screenAlpha);
+    }
+
     /** 在给定色上叠加一层同色高光，用于悬停态提亮。 */
     public static int lighten(int color, float amount) {
         return mix(color, 0xFFFFFFFF, amount);
