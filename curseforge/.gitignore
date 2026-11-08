@@ -1,0 +1,4 @@
+# 版本标签缓存与上传过程中的临时文件
+game-versions.json
+upload-attempt-*.json
+upload-response-*.txt

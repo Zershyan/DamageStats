@@ -1,0 +1,40 @@
+{
+  "files": [
+    {
+      "minecraft": "1.20.1",
+      "artifact": "build/libs/damagestats-1.3.0-1.20.1.jar",
+      "sha256": "e92ef994f9eddc280c1c795f92cdf96cc32d99f20f05ce0b02e0b0268a841a4a",
+      "metadata": {
+        "changelog": "1.3.0 — UI rebuilt on a texture atlas, plus overlay quality-of-life.\n\n- Rounded frames, dividers and icons are baked into an atlas and stretched at runtime; the UI no longer generates geometry every frame.\n- Fixed inverted mouse-wheel scrolling on the statistics, history and overlay-position screens.\n- New option: hide the overlay out of combat (overlayHideWhenIdle, off by default).\n- The client now extrapolates DPS and combat time between server updates (clientRefreshTicks, default 10 ticks).\n- Dragging the overlay in the position screen fades the whole screen out over 0.5 s so other HUD overlays stay visible, then fades back in.\n- New Live DPS window slider on the overlay position screen (20-1200 ticks, default 60).\n- Live DPS now divides by the time since the first hit inside the window instead of the full window.\n- Version numbering follows the new scheme: 1.3.0, with the build number kept in metadata only.\n\n---\n1.3.0 —— 界面改为图集贴图渲染，并带来一批浮层改进。\n\n- 圆角框、分隔线与图标烘焙进图集，运行时拉伸显示，界面不再每帧生成几何。\n- 修复统计页、历史页与浮层位置页的滚轮方向反向问题。\n- 新增「非战斗状态隐藏浮层」开关（overlayHideWhenIdle，默认关闭）。\n- 客户端在两次服务端数据之间自行外推 DPS 与战斗时间（clientRefreshTicks，默认 10 tick）。\n- 在位置页拖动浮层时整屏淡出 0.5 秒，方便对照其他模组的浮层，松手淡入。\n- 位置页新增实时 DPS 窗口滑条（20-1200 tick，默认 60）。\n- 实时 DPS 的分母改为「窗口内第一次命中到现在」，战斗刚开始时不再虚低。\n- 版本号改用新规则：1.3.0，构建编号只保留在包内元数据。",
+        "changelogType": "markdown",
+        "displayName": "damagestats-1.3.0-1.20.1",
+        "releaseType": "release",
+        "gameVersions": [
+          "1.20.1",
+          "Forge",
+          "Java 17",
+          "Client",
+          "Server"
+        ]
+      }
+    },
+    {
+      "minecraft": "1.21.1",
+      "artifact": "build/libs/damagestats-1.3.0-1.21.1.jar",
+      "sha256": "b7cac0bb52926baa4daddcbf02ac9e771c068039714f4e5f949ced87a19c6a47",
+      "metadata": {
+        "changelog": "1.3.0 — UI rebuilt on a texture atlas, plus overlay quality-of-life.\n\n- Rounded frames, dividers and icons are baked into an atlas and stretched at runtime; the UI no longer generates geometry every frame.\n- Fixed inverted mouse-wheel scrolling on the statistics, history and overlay-position screens.\n- New option: hide the overlay out of combat (overlayHideWhenIdle, off by default).\n- The client now extrapolates DPS and combat time between server updates (clientRefreshTicks, default 10 ticks).\n- Dragging the overlay in the position screen fades the whole screen out over 0.5 s so other HUD overlays stay visible, then fades back in.\n- New Live DPS window slider on the overlay position screen (20-1200 ticks, default 60).\n- Live DPS now divides by the time since the first hit inside the window instead of the full window.\n- Version numbering follows the new scheme: 1.3.0, with the build number kept in metadata only.\n\n---\n1.3.0 —— 界面改为图集贴图渲染，并带来一批浮层改进。\n\n- 圆角框、分隔线与图标烘焙进图集，运行时拉伸显示，界面不再每帧生成几何。\n- 修复统计页、历史页与浮层位置页的滚轮方向反向问题。\n- 新增「非战斗状态隐藏浮层」开关（overlayHideWhenIdle，默认关闭）。\n- 客户端在两次服务端数据之间自行外推 DPS 与战斗时间（clientRefreshTicks，默认 10 tick）。\n- 在位置页拖动浮层时整屏淡出 0.5 秒，方便对照其他模组的浮层，松手淡入。\n- 位置页新增实时 DPS 窗口滑条（20-1200 tick，默认 60）。\n- 实时 DPS 的分母改为「窗口内第一次命中到现在」，战斗刚开始时不再虚低。\n- 版本号改用新规则：1.3.0，构建编号只保留在包内元数据。",
+        "changelogType": "markdown",
+        "displayName": "damagestats-1.3.0-1.21.1",
+        "releaseType": "release",
+        "gameVersions": [
+          "1.21.1",
+          "NeoForge",
+          "Java 21",
+          "Client",
+          "Server"
+        ]
+      }
+    }
+  ]
+}
