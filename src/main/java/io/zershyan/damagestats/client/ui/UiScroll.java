@@ -55,11 +55,11 @@ public final class UiScroll {
     }
 
     /**
-     * @param wheelSteps 滚轮格数，正数向下
+     * @param wheelDelta MC 的滚轮值：正数向上滚，内容随之下移
      * @param step       一格滚多少像素
      */
-    public void scrollBy(double wheelSteps, int step) {
-        scrollTo(target + (int) Math.round(wheelSteps * step));
+    public void scrollBy(double wheelDelta, int step) {
+        scrollTo(target - (int) Math.round(wheelDelta * step));
     }
 
     /** 把第 index 项滚进可视区，用于键盘翻页一类需要保证某项可见的场合。 */
