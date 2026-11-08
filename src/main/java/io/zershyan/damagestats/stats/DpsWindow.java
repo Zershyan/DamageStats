@@ -19,7 +19,8 @@ public class DpsWindow {
 
     public float dps(long currentGameTime, int windowTicks) {
         prune(currentGameTime - windowTicks);
-        return sum / (windowTicks / DamageAccumulator.TICKS_PER_SECOND);
+        if(hits.isEmpty()) return 0;
+        return DamageAccumulator.windowDps(sum, hits.peekFirst().gameTime(), currentGameTime, windowTicks);
     }
 
     public void clear() {
