@@ -17,9 +17,14 @@ public class DpsWindow {
         sum += damage;
     }
 
+    /**
+     * 分母取「窗口内第一次命中的时刻到现在」，上限是配置的窗口长度：
+     * 战斗刚开始、窗口还没打满时按实际时长除，不会因为分母里塞满空档而虚低。
+     */
     public float dps(long currentGameTime, int windowTicks) {
         prune(currentGameTime - windowTicks);
-        return sum / (windowTicks / DamageAccumulator.TICKS_PER_SECOND);
+        if(hits.isEmpty()) return 0;
+        return DamageAccumulator.windowDps(sum, hits.peekFirst().gameTime(), currentGameTime, windowTicks);
     }
 
     public void clear() {

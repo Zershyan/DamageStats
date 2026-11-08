@@ -258,7 +258,7 @@ public final class DamageEventJournal {
             int end = upperBound(gameTimes, gameTime);
             if(start >= end) return 0;
             double sum = prefix[end] - prefix[start];
-            return (float) (sum / (windowTicks / DamageAccumulator.TICKS_PER_SECOND));
+            return DamageAccumulator.windowDps(sum, gameTimes[start], gameTime, windowTicks);
         }
 
         private static int lowerBound(long[] values, long target) {
