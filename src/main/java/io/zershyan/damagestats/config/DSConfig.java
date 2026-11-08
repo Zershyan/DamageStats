@@ -23,7 +23,7 @@ public final class DSConfig {
     public static final ForgeConfigSpec.IntValue DpsWindowTicks = BUILDER
             .comment("单位 tick。窗口越短越能反映瞬时爆发，越长越平滑")
             .translation(DSConfigLang.DpsWindowTicks.getKey())
-            .defineInRange(DSConfigLang.DpsWindowTicks.name(), 100, 20, 1200);
+            .defineInRange(DSConfigLang.DpsWindowTicks.name(), 60, 20, 1200);
 
     public static final ForgeConfigSpec.IntValue InstanceDirectoryRetentionHours = BUILDER
             .comment("单位现实小时。到期后仅从实例候选目录移除，不删除完整原始伤害事件")

@@ -24,5 +24,6 @@ public final class ClientLifecycleHandler {
     public static void onClientTick(ClientTickEvent event) {
         if(event.phase != TickEvent.Phase.END) return;
         ClientFocusPreferences.applyIfReady();
+        ClientStats.tickClient();
     }
 }

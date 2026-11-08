@@ -106,6 +106,21 @@ public record MetricsView(
         return durationTicks / DamageAccumulator.TICKS_PER_SECOND;
     }
 
+    /**
+     * 客户端在两次服务端数据之间按本地时间外推。时长加上这段时间，平均 DPS 用同一公式重算；
+     * 实时 DPS 按窗口长度线性衰减——窗口里不再进来新伤害时，它的数值会随时间滑走。
+     */
+    public MetricsView extrapolate(long extraTicks, int windowTicks) {
+        if(extraTicks <= 0 || hitCount == 0) return this;
+        long duration = durationTicks + extraTicks;
+        float seconds = Math.max(1L, duration) / DamageAccumulator.TICKS_PER_SECOND;
+        float decay = Math.max(0F, 1F - extraTicks / (float) Math.max(1, windowTicks));
+        return new MetricsView(totalActual, totalOriginal, totalBlocked, reduction, hitCount, killCount,
+                maxSingle, maxSingleDamageTypeId, maxSingleTypeName, maxSingleDirectSource,
+                maxSingleDirectSourceName, maxSingleTime, minSingle, totalActual / seconds,
+                realtimeDps * decay, duration, maxOriginal, realtimeOriginalDps * decay);
+    }
+
     /** 同一游戏刻内没有正时长时，以一游戏刻为最小分母，理由同 {@link DamageAccumulator#getAverageDps()} */
     public float hitsPerSecond() {
         float seconds = Math.max(1L, durationTicks) / DamageAccumulator.TICKS_PER_SECOND;
