@@ -238,10 +238,10 @@ public class DamageAccumulator {
 
     /**
      * 实时 DPS：分子是窗口内的伤害，分母是窗口内第一次伤害到现在的时长。
-     * 战斗刚开打时按实际时长算，不会因为窗口没打满而虚低；上限仍是窗口本身，空窗口返回 0。
+     * 战斗刚开打时按实际时长算，不会因为窗口没打满而虚低；分母最少一秒，上限是配置窗口，空窗口返回 0。
      */
     public static float windowDps(double damage, long firstHitTime, long currentGameTime, int windowTicks) {
-        long ticks = Math.min(windowTicks, Math.max(1L, currentGameTime - firstHitTime));
+        long ticks = Math.min(windowTicks, Math.max((long) TICKS_PER_SECOND, currentGameTime - firstHitTime));
         return (float) (damage / (ticks / (double) TICKS_PER_SECOND));
     }
 
